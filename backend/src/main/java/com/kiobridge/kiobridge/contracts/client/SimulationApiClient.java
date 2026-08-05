@@ -1,9 +1,9 @@
-package com.kiobridge.kiobridge.modules.executionplan.client;
+package com.kiobridge.kiobridge.contracts.client;
 
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
-import com.kiobridge.kiobridge.modules.executionplan.client.dto.ExecuteResult;
-import com.kiobridge.kiobridge.modules.executionplan.client.dto.SessionCreateResponse;
-import com.kiobridge.kiobridge.modules.executionplan.client.dto.ValidationResult;
+import com.kiobridge.kiobridge.contracts.client.dto.ExecuteResult;
+import com.kiobridge.kiobridge.contracts.client.dto.SessionCreateResponse;
+import com.kiobridge.kiobridge.contracts.client.dto.ValidationResult;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -79,11 +79,4 @@ public class SimulationApiClient {
             .body(ExecuteResult.class);
     }
 
-    /** GET /api/v1/sessions/:sessionId/evidence — 서버가 한 번만 생성한 최종 Evidence. */
-    public com.fasterxml.jackson.databind.JsonNode getEvidence(String sessionId) {
-        return restClient.get()
-            .uri("/api/v1/sessions/{sessionId}/evidence", sessionId)
-            .retrieve()
-            .body(com.fasterxml.jackson.databind.JsonNode.class);
-    }
 }

@@ -1,4 +1,4 @@
-package com.kiobridge.kiobridge.modules.executionplan.client.dto;
+package com.kiobridge.kiobridge.contracts.client.dto;
 
 import java.util.List;
 

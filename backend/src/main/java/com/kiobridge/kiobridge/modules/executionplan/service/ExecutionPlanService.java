@@ -1,10 +1,10 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
-import com.kiobridge.kiobridge.modules.executionplan.client.SimulationApiClient;
-import com.kiobridge.kiobridge.modules.executionplan.client.dto.ExecuteResult;
-import com.kiobridge.kiobridge.modules.executionplan.client.dto.SessionCreateResponse;
-import com.kiobridge.kiobridge.modules.executionplan.client.dto.ValidationResult;
+import com.kiobridge.kiobridge.contracts.client.SimulationApiClient;
+import com.kiobridge.kiobridge.contracts.client.dto.ExecuteResult;
+import com.kiobridge.kiobridge.contracts.client.dto.SessionCreateResponse;
+import com.kiobridge.kiobridge.contracts.client.dto.ValidationResult;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
 import com.kiobridge.kiobridge.contracts.UserDecision;
 import org.springframework.stereotype.Service;

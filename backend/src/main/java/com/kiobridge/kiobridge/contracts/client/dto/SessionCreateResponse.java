@@ -1,4 +1,4 @@
-package com.kiobridge.kiobridge.modules.executionplan.client.dto;
+package com.kiobridge.kiobridge.contracts.client.dto;
 
 /** POST /api/v1/sessions 응답. */
 public record SessionCreateResponse(
