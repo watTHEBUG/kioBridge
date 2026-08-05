@@ -1,7 +1,5 @@
 package com.kiobridge.kiobridge.contracts;
 
-import com.kiobridge.kiobridge.modules.executionplan.domain.ExecutionPlan;
-import com.kiobridge.kiobridge.modules.executionplan.domain.UserDecision;
 
 /**
  * Simulation API(:4000)에 제출하는 최상위 계약(ParticipantSubmission).
