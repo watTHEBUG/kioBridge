@@ -43,6 +43,8 @@ public class ExecutionPlanService {
      * 검증에 실패하면 execute를 호출하지 않고 그 자리에서 실패 결과를 반환한다.
      */
     public ExecuteResult submitAndRun(String environmentId, ParticipantSubmission submission) {
+        assertApprovalInvariant(submission);
+
         SessionCreateResponse session = simulationApiClient.createSession(environmentId);
 
         simulationApiClient.submit(session.sessionId(), submission);
@@ -53,5 +55,22 @@ public class ExecutionPlanService {
         }
 
         return simulationApiClient.execute(session.sessionId());
+    }
+
+    /**
+     * userDecision.approved()==false 인데 executionPlan.actions가 비어있지 않은 제출은
+     * 여기서 즉시 거부한다. 원격 validate가 결국 걸러내긴 하지만, 이건 Kit이 정의한
+     * 안전-critical 불변식이라 submitAndRun 호출자가 buildExecutionPlan()을 거치지 않고
+     * ParticipantSubmission을 직접 조립했을 가능성까지 막기 위해 제출 경계에서도 로컬로 검증한다.
+     */
+    private void assertApprovalInvariant(ParticipantSubmission submission) {
+        UserDecision userDecision = submission.userDecision();
+        ExecutionPlan executionPlan = submission.executionPlan();
+        if (!userDecision.approved() && !executionPlan.actions().isEmpty()) {
+            throw new IllegalArgumentException(
+                "userDecision.approved=false 인데 executionPlan.actions가 비어있지 않습니다. "
+                    + "buildExecutionPlan()을 거치지 않고 조립된 제출로 보입니다."
+            );
+        }
     }
 }
