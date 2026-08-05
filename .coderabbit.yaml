@@ -29,18 +29,21 @@ reviews:
   path_instructions:
     - path: "backend/src/main/java/com/kiobridge/kiobridge/contracts/**"
       instructions: |
-        이 폴더는 팀 전체가 공유하는 계약(Contract) 타입입니다.
+        이 폴더는 팀 전체가 공유하는 계약(Contract) 타입 + 공용 Simulation API 클라이언트(contracts/client)입니다.
         - KioBridge Simulation Kit의 ParticipantSubmission / Evidence 스키마(docs/API_CONTRACT.md)와 필드명·타입이 정확히 일치하는지 확인해줘.
-        - 필드를 삭제하거나 이름을 바꾸는 변경은 다른 모듈(profilecontext, recommendation, executionplan, resultprocessing)에 영향을 주니 breaking change 여부를 명확히 지적해줘.
+        - 필드를 삭제하거나 이름을 바꾸는 변경은 다른 모듈(profilecontext, recommendation, executionplan, stateevidence)에 영향을 주니 breaking change 여부를 명확히 지적해줘.
         - profile / recommendation 필드가 아직 Object 타입 placeholder인 점은 알려진 상태이니 반복 지적하지 않아도 됨.
-
-    - path: "backend/src/main/java/com/kiobridge/kiobridge/modules/executionplan/**"
-      instructions: |
-        이 모듈은 KioBridge Simulation API에 실행계획을 제출하는 안전-critical 코드입니다.
+        - contracts/client/SimulationApiClient는 executionplan(submit/validate/execute)과 stateevidence(상태 폴링/run/evidence/error-injection)가 함께 쓰는 공용 클라이언트입니다. 특정 모듈 전용 메서드가 섞여 들어가지 않는지, connect/read timeout이 유지되는지 확인해줘.
         - Action.target에 좌표, automationId, btn 같은 값이 들어가지 않는지 확인해줘 (의미 기반 kind만 허용: candidate, option, service_type 등).
         - select_payment, confirm_payment 등 결제 관련 action 문자열이 어디에도 하드코딩되지 않았는지 확인해줘.
         - actualDeviceCommandSent, validationMode, executionEnvironment 같은 고정값이 실수로 다른 값으로 바뀌지 않았는지 확인해줘.
-        - UserDecision.approved()가 false일 때 ExecutionPlan.actions가 비어있지 않은 경로가 있는지 반드시 확인해줘.
+
+    - path: "backend/src/main/java/com/kiobridge/kiobridge/modules/executionplan/**"
+      instructions: |
+        이 모듈은 STEP 8~9(승인 결과 반영, ExecutionPlan 조립)와 제출 오케스트레이션을 담당합니다.
+        실제 Simulation API 호출은 contracts/client/SimulationApiClient(공용)를 통해 이뤄집니다.
+        - UserDecision.approved()가 false일 때 ExecutionPlan.actions가 비어있지 않은 경로가 있는지 반드시 확인해줘 (제출 직전 로컬 invariant 검증이 우회되지 않는지 포함).
+        - buildExecutionPlan()이 recommendation 기반으로 Action을 올바른 순서(select_service_type → select_menu → select_option* → confirm_option → open_cart_review → verify_cart)로 조립하는지 확인해줘.
 
     - path: "backend/src/main/java/com/kiobridge/kiobridge/modules/recommendation/**"
       instructions: |
@@ -56,11 +59,14 @@ reviews:
         - intent / facts / preferences / hardConstraints / capabilities 6개 섹션 중 잘못된 섹션에 값이 들어가지 않았는지 확인해줘 (예: 알레르기는 반드시 hardConstraints).
         - 실제 개인정보(주민번호, 전화번호, 카드번호 등)로 보이는 값이 저장되지 않는지 확인해줘.
 
-    - path: "backend/src/main/java/com/kiobridge/kiobridge/modules/resultprocessing/**"
+    - path: "backend/src/main/java/com/kiobridge/kiobridge/modules/stateevidence/**"
       instructions: |
-        Simulation API 실행 결과(run, evidence)를 소비하는 코드입니다.
+        담당4(상태머신·증거/안전가드) 모듈입니다. 세션 상태 폴링(GET /sessions/:id), 실행 이력 조회(GET /sessions/:id/run),
+        Evidence 조회(GET /sessions/:id/evidence), 오류 주입(POST /sessions/:id/error-injection)을 소비·처리합니다.
         - validate/execute 실패 응답을 무시하거나 삼키지 않고 사용자에게 전달하는지 확인해줘.
         - 외부 API(Simulation API)가 응답하지 않을 때 예외로 서비스 전체가 죽지 않는지 확인해줘.
+        - 결제 Action이 계획에 있었다면 실행이 차단돼도(executed=0) planned>0이면 FAIL로 처리하는지 확인해줘 (Evidence의 plannedPaymentActionCount 기준).
+        - 세션 생성/제출/검증/실행(session/submission/validate/execute)은 이 모듈이 아니라 executionplan 담당이니, 여기서 중복 호출하지 않는지 확인해줘.
 
     - path: "frontend/**"
       instructions: |
