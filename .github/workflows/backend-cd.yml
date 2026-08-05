@@ -1,0 +1,78 @@
+name: Backend CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-cd.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy-production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" |
+            tr -d '\r' > ~/.ssh/kiobridge.pem
+          chmod 600 ~/.ssh/kiobridge.pem
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy backend
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            -i ~/.ssh/kiobridge.pem \
+            "$EC2_USER@$EC2_HOST" "
+              set -e
+
+              cd /home/ec2-user/apps/kioBridge
+
+              git fetch origin main
+              git switch main
+              git pull --ff-only origin main
+
+              docker build \
+                -t kiobridge-backend:$GITHUB_SHA \
+                ./backend
+
+              docker rm -f kiobridge-backend || true
+
+              docker run -d \
+                --name kiobridge-backend \
+                --restart unless-stopped \
+                --env-file /home/ec2-user/apps/kiobridge-config/backend.env \
+                -p 127.0.0.1:8080:8080 \
+                kiobridge-backend:$GITHUB_SHA
+
+              for attempt in \$(seq 1 30); do
+                if curl --fail --silent \
+                  http://127.0.0.1:8080/actuator/health
+                then
+                  exit 0
+                fi
+
+                sleep 2
+              done
+
+              docker logs kiobridge-backend --tail 200
+              exit 1
+            "
