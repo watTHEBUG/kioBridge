@@ -35,3 +35,28 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### 환경변수 / 시크릿 (절대 커밋 금지) ###
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Frontend (Node) ###
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/coverage/
+*.log
+npm-debug.log*
+
+### KioBridge Simulation Kit (참고용, 저장소에 포함 금지) ###
+kiobridge-simulation-kit-v5.1.4/
