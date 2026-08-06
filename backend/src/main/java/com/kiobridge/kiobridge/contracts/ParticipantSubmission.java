@@ -9,11 +9,12 @@ package com.kiobridge.kiobridge.contracts;
  * 그 전까지는 Jackson이 그대로 직렬화할 수 있도록 Object로 느슨하게 받는다.
  */
 public record ParticipantSubmission(
+    String inputContractVersion,
     String submissionVersion,
     String teamId,
     String environmentId,
     Object profile,        // TODO: 담당1 Profile 타입으로 교체
-    Object recommendation, // TODO: 담당2 Recommendation 타입으로 교체
+    Recommendation recommendation,
     UserDecision userDecision,
     ExecutionPlan executionPlan
 ) {}
