@@ -68,6 +68,34 @@ export interface KioBridgeApi {
 파일 맨 아래 `export const api: KioBridgeApi = mockApi;` 를 실제 구현으로 갈아끼우면 됩니다.
 주고받는 타입은 전부 `src/domain/types.ts` 에 있습니다.
 
+### 백엔드 `contracts/` 와는 다른 층입니다
+
+이름이 겹치는 타입은 **하나도 없습니다.** 헷갈리기 쉬운 부분이라 적어 둡니다.
+
+- `backend/.../contracts/` = **Simulation Kit 규격.** 주최측이 정한 심사용 계약이고 우리가 못 바꿉니다. (`ExecutionPlan`, `Action`, `Target`, `State`, `UserDecision` …)
+- `frontend/src/domain/types.ts` = **앱과 우리 서버 사이 규격.** 우리가 정합니다. (`PairingResult`, `MappingResponse`, `ApproveInput`, `PlanStatus` …)
+
+개념은 이어지지만 타입이 1:1로 대응되지는 않습니다. 이어지는 지점만 추리면:
+
+| 프론트 | 백엔드 | 메모 |
+| --- | --- | --- |
+| `ApproveInput` (승인 버튼) | `UserDecision` | 승인하면 `UserDecision.approve()`, 아니면 `reject()` |
+| `approve()` 호출 | `buildExecutionPlan(userDecision, …)` | 승인 **뒤에만** 계획을 조립합니다 |
+| `PlanCreated.planId` | `SessionCreateResponse.sessionId` | 세션 ID 를 그대로 `planId` 로 내려주면 맞아떨어집니다 |
+| `PlanStatus.state = "cart_ready"` | `State.CART_REVIEW` 도달 + `verify_cart` 실행 | 우리 쪽 종료 상태는 이것 하나뿐입니다 |
+| `PlanStatus.state = "aborted"` | `ExecuteResult` 실패 / `SafetyCheckResult` | |
+| `PlanStatus.steps[]` | `ExecutedAction` / `ExecutionEvent` | 진행 표시에 쓰입니다 |
+| `MappingResponse.item`·`candidates` | `recommendation` | 백엔드는 아직 `Object` TODO 상태 |
+| `ProfileData` | `profile` | 백엔드는 아직 `Object` TODO 상태 |
+
+**아직 아무도 안 만든 것:** 앱이 실제로 호출할 HTTP 엔드포인트입니다. 백엔드에는 지금
+컨트롤러가 없고, `ExecutionPlanService` 가 Simulation API(:4000)를 부르는 데까지만 돼 있습니다.
+그 사이를 잇는 REST API 를 정하는 게 다음 순서입니다.
+
+**ID 번역은 백엔드가 합니다.** 프론트는 규칙상 사람이 읽는 텍스트("포장", "매운맛")만 다룹니다.
+Kit 의 `Target` 은 `kind`·`groupId`·`id` 를 요구하므로, 텍스트를 ID 로 바꾸는 일은 서버 몫입니다.
+프론트에 상품 ID 를 내려보내 저장하게 하면 P0-1 위반입니다.
+
 ### 데모 시나리오 스위치
 
 백엔드가 붙기 전까지 예외 상황을 시연하려고 `client.ts` 에 `setScenario()` 를 뒀습니다.
