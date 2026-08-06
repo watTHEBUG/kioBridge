@@ -22,7 +22,7 @@ public record ParticipantSubmission(
     String environmentId,
     Object profile,        // TODO: 담당1 Profile 타입으로 교체
     Object sessionContext, // TODO: 담당1 SessionContext 타입으로 교체
-    Object recommendation, // TODO: 담당2 Recommendation 타입으로 교체
+    Recommendation recommendation,
     UserDecision userDecision,
     ExecutionPlan executionPlan
 ) {

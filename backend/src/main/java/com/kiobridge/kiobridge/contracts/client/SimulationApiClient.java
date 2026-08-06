@@ -1,6 +1,8 @@
 package com.kiobridge.kiobridge.contracts.client;
 
+import com.kiobridge.kiobridge.contracts.CompatibilityRuleSet;
 import com.kiobridge.kiobridge.contracts.Evidence;
+import com.kiobridge.kiobridge.contracts.PublicFixture;
 import tools.jackson.databind.JsonNode;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
 import com.kiobridge.kiobridge.contracts.client.dto.*;
@@ -110,6 +112,22 @@ public class SimulationApiClient {
                 )
                 .retrieve()
                 .body(InputContractResponse.class);
+    }
+
+    /** GET /api/v1/environments/:environmentId/fixture */
+    public PublicFixture getFixture(String environmentId) {
+        return restClient.get()
+                .uri("/api/v1/environments/{environmentId}/fixture", environmentId)
+                .retrieve()
+                .body(PublicFixture.class);
+    }
+
+    /** GET /api/v1/environments/:environmentId/compatibility-rules */
+    public CompatibilityRuleSet getCompatibilityRules(String environmentId) {
+        return restClient.get()
+                .uri("/api/v1/environments/{environmentId}/compatibility-rules", environmentId)
+                .retrieve()
+                .body(CompatibilityRuleSet.class);
     }
 
     /** GET /api/v1/vocabularies/:environmentId */
