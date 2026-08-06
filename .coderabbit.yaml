@@ -25,6 +25,11 @@ reviews:
     - "!**/gradlew"
     - "!**/gradlew.bat"
     - "!**/gradle/wrapper/gradle-wrapper.jar"
+    # Figma Make 재출력용으로 남겨 둔 shadcn 원본 48개. 어느 화면도 import 하지 않아
+    # 번들에 들어가지 않는다(grep -rn "components/ui" src --exclude-dir=ui → 0건).
+    # 리뷰가 계속 여기를 지적하는데 고쳐도 사용자에게 도달하는 코드는 안 바뀌므로 제외한다.
+    # 다시 쓰기 시작하면 이 줄부터 지운다.
+    - "!frontend/src/app/components/ui/**"
 
   path_instructions:
     - path: "backend/src/main/java/com/kiobridge/kiobridge/contracts/**"
