@@ -7,6 +7,7 @@ import com.kiobridge.kiobridge.modules.inputnormalization.dto.NormalizationStatu
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.profile.ProfileNormalizationRequest;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.profile.ProfileNormalizationResponse;
 import com.kiobridge.kiobridge.modules.inputnormalization.mapper.ProfileMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -14,13 +15,16 @@ public class ProfileNormalizationService {
 
     private final ProfileMapper profileMapper;
     private final SimulationApiClient simulationApiClient;
+    private final String teamId;
 
     public ProfileNormalizationService(
             ProfileMapper profileMapper,
-            SimulationApiClient simulationApiClient
+            SimulationApiClient simulationApiClient,
+            @Value("${kiobridge.team-id}") String teamId
     ) {
         this.profileMapper = profileMapper;
         this.simulationApiClient = simulationApiClient;
+        this.teamId = teamId;
     }
 
     public ProfileNormalizationResponse normalize(
@@ -28,7 +32,7 @@ public class ProfileNormalizationService {
     ) {
         CanonicalProfile profile =
                 profileMapper.toCanonicalProfile(
-                        request.teamId(),
+                        teamId,
                         request.profileInput()
                 );
 

@@ -38,7 +38,8 @@ class ProfileNormalizationServiceTest {
 
         service = new ProfileNormalizationService(
                 new ProfileMapper(),
-                simulationApiClient
+                simulationApiClient,
+                "WHATTHEBUG"
         );
     }
 
@@ -58,6 +59,9 @@ class ProfileNormalizationServiceTest {
 
         assertThat(response.contractValidation().valid())
                 .isTrue();
+
+        assertThat(response.profile().source().providerId())
+                .isEqualTo("WHATTHEBUG");
     }
 
     @Test
@@ -88,7 +92,6 @@ class ProfileNormalizationServiceTest {
 
     private ProfileNormalizationRequest createRequest() {
         return new ProfileNormalizationRequest(
-                "WHATTHEBUG",
                 "chicken-store",
                 new ProfileInput(
                         "WHATTHEBUG-PROFILE-001",

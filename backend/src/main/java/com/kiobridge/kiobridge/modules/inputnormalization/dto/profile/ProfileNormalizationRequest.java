@@ -12,9 +12,6 @@ import java.time.Instant;
 
 public record ProfileNormalizationRequest(
         @NotBlank
-        String teamId,
-
-        @NotBlank
         @Pattern(regexp = "^chicken-store$")
         String environmentId,
 
