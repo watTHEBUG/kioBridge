@@ -30,15 +30,23 @@ public class ExecutionPlanService {
      * userDecision.approved()==false 이면 반드시 빈 ExecutionPlan을 반환한다 (Kit 검증 규칙,
      * 어기면 validate 단계에서 USER_NOT_APPROVED 류 오류로 거부된다).
      *
-     * TODO: 담당2의 Recommendation 타입이 확정되면 Object 대신 실제 타입으로 교체하고,
-     *       추천된 candidateId·선택된 옵션들을 바탕으로 Action 리스트를 조립한다.
+     * approved()==true인 경우의 실제 조립 로직(recommendation 기반 Action 리스트 생성)은
+     * 담당2의 Recommendation 타입이 확정되기 전까지 구현할 수 없다. 이 상태로 빈 ExecutionPlan을
+     * 반환하면 호출자(컨트롤러) 입장에서는 정상 성공 응답처럼 보이므로, 미구현임을 숨기지 않기
+     * 위해 명시적으로 실패시킨다.
+     *
+     * TODO: 담당2의 Recommendation 타입이 확정되면 Object 대신 실제 타입으로 교체하고, 아래
+     *       예외 대신 select_service_type -> select_menu -> select_option* -> confirm_option
+     *       -> open_cart_review -> verify_cart 순서로 Action 리스트를 조립한다.
      */
     public ExecutionPlan buildExecutionPlan(UserDecision userDecision, Object recommendation) {
         if (!userDecision.approved()) {
             return ExecutionPlan.empty();
         }
-        // TODO: recommendation 기반 Action 조립 (select_service -> select_menu -> select_option* -> confirm_option -> open_cart_review -> verify_cart)
-        return ExecutionPlan.empty();
+        throw new UnsupportedOperationException(
+            "buildExecutionPlan: recommendation 기반 Action 조립이 아직 구현되지 않았습니다. "
+                + "승인된 요청에 빈 ExecutionPlan을 성공으로 반환하지 않도록 임시로 실패 처리합니다."
+        );
     }
 
     /** POST /api/v1/sessions 위임. 내부 API 컨트롤러의 /internal/simulation/session 에서 호출한다. */
