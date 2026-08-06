@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.contracts.client;
 
+import com.kiobridge.kiobridge.contracts.Evidence;
 import tools.jackson.databind.JsonNode;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
 import com.kiobridge.kiobridge.contracts.client.dto.*;
@@ -84,6 +85,14 @@ public class SimulationApiClient {
             .body(ExecuteResult.class);
     }
 
+    /** GET /api/v1/sessions/:sessionId/evidence — evidence 조회 */
+    public Evidence getEvidence(String sessionId) {
+        return restClient.get()
+            .uri("/api/v1/sessions/{sessionId}/evidence", sessionId)
+            .retrieve()
+            .body(Evidence.class);
+    }
+
     /** GET /api/v1/contracts — 지원하는 계약 버전을 조회한다. */
     public SupportedContractsResponse getSupportedContracts() {
         return restClient.get()
@@ -153,5 +162,4 @@ public class SimulationApiClient {
                 .retrieve()
                 .body(ContractValidationResult.class);
     }
-
 }
