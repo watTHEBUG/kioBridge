@@ -1,6 +1,6 @@
 package com.kiobridge.kiobridge.contracts.client.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 /**
  * POST /api/v1/sessions/:id/execute 응답.

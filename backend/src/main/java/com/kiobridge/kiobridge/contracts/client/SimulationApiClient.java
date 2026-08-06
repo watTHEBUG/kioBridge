@@ -1,9 +1,9 @@
 package com.kiobridge.kiobridge.contracts.client;
 
+import tools.jackson.databind.JsonNode;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
-import com.kiobridge.kiobridge.contracts.client.dto.ExecuteResult;
-import com.kiobridge.kiobridge.contracts.client.dto.SessionCreateResponse;
-import com.kiobridge.kiobridge.contracts.client.dto.ValidationResult;
+import com.kiobridge.kiobridge.contracts.client.dto.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -26,6 +26,7 @@ public class SimulationApiClient {
 
     private final RestClient restClient;
 
+    @Autowired
     public SimulationApiClient(
         @Value("${kiobridge.simulation-api.base-url}") String baseUrl,
         @Value("${kiobridge.simulation-api.connect-timeout-ms:3000}") int connectTimeoutMs,
@@ -40,6 +41,10 @@ public class SimulationApiClient {
             .requestFactory(requestFactory)
             .build();
     }
+    SimulationApiClient(RestClient restClient) {
+        this.restClient = restClient;
+    }
+
 
     /** POST /api/v1/sessions */
     public SessionCreateResponse createSession(String environmentId) {
@@ -77,6 +82,76 @@ public class SimulationApiClient {
             .body(Map.of())
             .retrieve()
             .body(ExecuteResult.class);
+    }
+
+    /** GET /api/v1/contracts — 지원하는 계약 버전을 조회한다. */
+    public SupportedContractsResponse getSupportedContracts() {
+        return restClient.get()
+                .uri("/api/v1/contracts")
+                .retrieve()
+                .body(SupportedContractsResponse.class);
+    }
+
+    /** GET /api/v1/environments/:environmentId/input-contract */
+    public InputContractResponse getInputContract(String environmentId) {
+        return restClient.get()
+                .uri(
+                        "/api/v1/environments/{environmentId}/input-contract",
+                        environmentId
+                )
+                .retrieve()
+                .body(InputContractResponse.class);
+    }
+
+    /** GET /api/v1/vocabularies/:environmentId */
+    public JsonNode getVocabulary(String environmentId) {
+        return restClient.get()
+                .uri(
+                        "/api/v1/vocabularies/{environmentId}",
+                        environmentId
+                )
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
+    /** POST /api/v1/contracts/profile/validate */
+    public ContractValidationResult validateProfile(Object profile) {
+        return restClient.post()
+                .uri("/api/v1/contracts/profile/validate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(profile)
+                .retrieve()
+                .body(ContractValidationResult.class);
+    }
+
+    /** POST /api/v1/contracts/session-context/validate */
+    public ContractValidationResult validateSessionContext(
+            String environmentId,
+            Object sessionContext
+    ) {
+        Map<String, Object> request = Map.of(
+                "environmentId", environmentId,
+                "sessionContext", sessionContext
+        );
+
+        return restClient.post()
+                .uri("/api/v1/contracts/session-context/validate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .retrieve()
+                .body(ContractValidationResult.class);
+    }
+
+    /** POST /api/v1/contracts/input/validate */
+    public ContractValidationResult validateCanonicalInput(
+            Object canonicalInput
+    ) {
+        return restClient.post()
+                .uri("/api/v1/contracts/input/validate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(canonicalInput)
+                .retrieve()
+                .body(ContractValidationResult.class);
     }
 
 }
