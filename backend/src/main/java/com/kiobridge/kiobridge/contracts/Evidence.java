@@ -20,9 +20,9 @@ public record Evidence(
     Object recommendation,
     Object userDecision,
     List<Object> executionPlan,
-    List<Object> executedActions,
+    List<ExecutedAction> executedActions,
     List<String> stateHistory,
-    List<Object> safetyChecks,
+    List<SafetyCheckResult> safetyChecks,
     List<Object> validationErrors,
     int plannedPaymentActionCount,
     int executedPaymentActionCount,
@@ -40,5 +40,6 @@ public record Evidence(
     Map<String, Object> reviewSnapshot,
     Map<String, Object> sessionContextSummary,
     String resultScope,
-    SimulationValidation simulationValidation
+    SimulationValidation simulationValidation,
+    List<Map<String, Object>> resolvedSimulationTrace
 ) {}
