@@ -2,5 +2,6 @@ package com.kiobridge.kiobridge.modules.inputnormalization.dto;
 
 public enum NormalizationStatus {
     VALID,
-    INVALID
+    INVALID,
+    RECONFIRMATION_REQUIRED
 }
