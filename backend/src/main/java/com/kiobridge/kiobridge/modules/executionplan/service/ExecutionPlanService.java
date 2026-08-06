@@ -13,6 +13,9 @@ import org.springframework.stereotype.Service;
  * STEP 8~9 + Simulation API 제출 파이프라인을 오케스트레이션한다.
  * 담당2 의 recommendation, 프론트에서 받은 사용자 승인 결과를 받아
  * 실행계획을 만들고 KioBridge 서버에 제출 -> 검증 -> 실행까지 처리한다.
+ *
+ * 세션 생성(/internal/simulation/session)과 제출-검증-실행(/internal/simulation/submit-and-run)이
+ * 내부 API에서 별도 엔드포인트로 분리되어 있으므로, submitAndRun은 이미 생성된 sessionId를 받아 처리한다.
  */
 @Service
 public class ExecutionPlanService {
@@ -38,23 +41,26 @@ public class ExecutionPlanService {
         return ExecutionPlan.empty();
     }
 
+    /** POST /api/v1/sessions 위임. 내부 API 컨트롤러의 /internal/simulation/session 에서 호출한다. */
+    public SessionCreateResponse createSession(String environmentId) {
+        return simulationApiClient.createSession(environmentId);
+    }
+
     /**
-     * 세션 생성 -> 제출 -> 검증 -> (통과 시) 실행까지 한 번에 처리한다.
+     * 이미 생성된 세션에 제출 -> 검증 -> (통과 시) 실행까지 한 번에 처리한다.
      * 검증에 실패하면 execute를 호출하지 않고 그 자리에서 실패 결과를 반환한다.
      */
-    public ExecuteResult submitAndRun(String environmentId, ParticipantSubmission submission) {
+    public ExecuteResult submitAndRun(String sessionId, ParticipantSubmission submission) {
         assertApprovalInvariant(submission);
 
-        SessionCreateResponse session = simulationApiClient.createSession(environmentId);
+        simulationApiClient.submit(sessionId, submission);
 
-        simulationApiClient.submit(session.sessionId(), submission);
-
-        ValidationResult validation = simulationApiClient.validate(session.sessionId());
+        ValidationResult validation = simulationApiClient.validate(sessionId);
         if (!validation.valid()) {
             return new ExecuteResult(false, null, null, validation);
         }
 
-        return simulationApiClient.execute(session.sessionId());
+        return simulationApiClient.execute(sessionId);
     }
 
     /**
