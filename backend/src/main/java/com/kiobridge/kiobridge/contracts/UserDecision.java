@@ -1,6 +1,7 @@
 package com.kiobridge.kiobridge.contracts;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.Set;
 
@@ -23,6 +24,21 @@ public record UserDecision(
     public UserDecision {
         if (decision == null || !VALID_DECISIONS.contains(decision)) {
             throw new IllegalArgumentException("decision은 APPROVE/REJECT/MODIFY 중 하나여야 합니다.");
+        }
+        if (confirmedAt != null) {
+            // schemas/core/iso-8601-utc.schema.json: 로컬시각·숫자 오프셋 금지, 반드시 대문자 Z로 끝나야 함
+            if (!confirmedAt.endsWith("Z")) {
+                throw new IllegalArgumentException(
+                    "confirmedAt은 UTC(Z로 끝나는 ISO-8601) 형식이어야 합니다: " + confirmedAt
+                );
+            }
+            try {
+                Instant.parse(confirmedAt);
+            } catch (DateTimeParseException e) {
+                throw new IllegalArgumentException(
+                    "confirmedAt이 유효한 ISO-8601 UTC 시각이 아닙니다: " + confirmedAt, e
+                );
+            }
         }
     }
 
