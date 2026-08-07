@@ -25,8 +25,11 @@ public class EvidenceSummaryService {
 
         Recommendation rec = evidence.recommendation();
         String recommendationSummary = null;
-        if (rec != null && rec.recommendationReasons() != null && !rec.recommendationReasons().isEmpty()) {
-            recommendationSummary = rec.recommendationReasons().get(0);
+        if (rec != null && rec.recommendationReasons() != null) {
+            recommendationSummary = rec.recommendationReasons().stream()
+                .filter(r -> r != null && !r.isBlank())
+                .findFirst()
+                .orElse(null);
         }
 
         return new EvidenceSummary(status, recommendationSummary, reason);
