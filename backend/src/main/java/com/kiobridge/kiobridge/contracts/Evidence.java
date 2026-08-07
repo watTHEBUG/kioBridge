@@ -17,7 +17,7 @@ public record Evidence(
     boolean participantSubmissionUsed,
     boolean officialRecommendationGenerated,
     Map<String, Object> profileSummary,
-    Object recommendation,
+    Recommendation recommendation,
     Object userDecision,
     List<Object> executionPlan,
     List<ExecutedAction> executedActions,

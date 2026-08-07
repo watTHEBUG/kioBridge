@@ -1,6 +1,7 @@
 package com.kiobridge.kiobridge.modules.stateevidence.service;
 
 import com.kiobridge.kiobridge.contracts.Evidence;
+import com.kiobridge.kiobridge.contracts.Recommendation;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -22,10 +23,15 @@ public class EvidenceSummaryService {
             ? evidence.stopReason()
             : null;
 
-        return new EvidenceSummary(
-            status,
-            evidence.recommendation(),
-            reason
-        );
+        Recommendation rec = evidence.recommendation();
+        String recommendationSummary = null;
+        if (rec != null && rec.recommendationReasons() != null) {
+            recommendationSummary = rec.recommendationReasons().stream()
+                .filter(r -> r != null && !r.isBlank())
+                .findFirst()
+                .orElse(null);
+        }
+
+        return new EvidenceSummary(status, recommendationSummary, reason);
     }
 }
