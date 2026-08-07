@@ -6,6 +6,7 @@ import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * STEP4 filterCandidates 의 결과.
@@ -26,5 +27,11 @@ public record CandidateFilterResult(
         Objects.requireNonNull(eligibleCandidates, "eligibleCandidates는 null일 수 없습니다.");
         Objects.requireNonNull(excludedCandidates, "excludedCandidates는 null일 수 없습니다.");
         Objects.requireNonNull(warningsByCandidateId, "warningsByCandidateId는 null일 수 없습니다.");
+
+        // 방어적 복사: 호출자가 반환된 결과의 리스트/맵을 변경해도 이 레코드 내부 상태는 영향받지 않도록 불변으로 저장한다.
+        eligibleCandidates = List.copyOf(eligibleCandidates);
+        excludedCandidates = List.copyOf(excludedCandidates);
+        warningsByCandidateId = warningsByCandidateId.entrySet().stream()
+            .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())));
     }
 }
