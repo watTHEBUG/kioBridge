@@ -1,14 +1,14 @@
 package com.kiobridge.kiobridge.modules.inputnormalization.dto.context;
 
 import com.kiobridge.kiobridge.contracts.client.dto.ContractValidationResult;
-import com.kiobridge.kiobridge.contracts.input.context.SessionContext;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.NormalizationStatus;
 
 import java.util.List;
 
 public record SessionContextNormalizationResponse(
         NormalizationStatus status,
-        SessionContext sessionContext,
+        ChickenStoreSessionContext sessionContext,
         List<ReconfirmationField> reconfirmationFields,
         ContractValidationResult contractValidation
 ) {

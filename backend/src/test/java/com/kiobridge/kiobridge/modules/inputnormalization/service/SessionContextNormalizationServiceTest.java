@@ -3,8 +3,8 @@ package com.kiobridge.kiobridge.modules.inputnormalization.service;
 import com.kiobridge.kiobridge.contracts.client.SimulationApiClient;
 import com.kiobridge.kiobridge.contracts.client.dto.ContractValidationError;
 import com.kiobridge.kiobridge.contracts.client.dto.ContractValidationResult;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.contracts.input.context.MetadataSource;
-import com.kiobridge.kiobridge.contracts.input.context.SessionContext;
 import com.kiobridge.kiobridge.contracts.input.context.SessionTask;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.NormalizationStatus;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.context.SessionContextNormalizationRequest;
@@ -47,7 +47,7 @@ class SessionContextNormalizationServiceTest {
     void 공식_검증에_성공하면_VALID을_반환한다() {
         when(simulationApiClient.validateSessionContext(
                 eq("chicken-store"),
-                any(SessionContext.class)
+                any(ChickenStoreSessionContext.class)
         )).thenReturn(new ContractValidationResult(
                 true,
                 "1.0.0",
@@ -73,7 +73,7 @@ class SessionContextNormalizationServiceTest {
         verify(simulationApiClient)
                 .validateSessionContext(
                         eq("chicken-store"),
-                        any(SessionContext.class)
+                        any(ChickenStoreSessionContext.class)
                 );
     }
 
@@ -89,7 +89,7 @@ class SessionContextNormalizationServiceTest {
 
         when(simulationApiClient.validateSessionContext(
                 eq("chicken-store"),
-                any(SessionContext.class)
+                any(ChickenStoreSessionContext.class)
         )).thenReturn(new ContractValidationResult(
                 false,
                 "1.0.0",
@@ -125,7 +125,7 @@ class SessionContextNormalizationServiceTest {
 
         when(simulationApiClient.validateSessionContext(
                 eq("chicken-store"),
-                any(SessionContext.class)
+                any(ChickenStoreSessionContext.class)
         )).thenReturn(new ContractValidationResult(
                 false,
                 "1.0.0",
@@ -176,7 +176,7 @@ class SessionContextNormalizationServiceTest {
 
         when(simulationApiClient.validateSessionContext(
                 eq("chicken-store"),
-                any(SessionContext.class)
+                any(ChickenStoreSessionContext.class)
         )).thenReturn(new ContractValidationResult(
                 false,
                 "1.0.0",
@@ -225,7 +225,7 @@ class SessionContextNormalizationServiceTest {
 
         when(simulationApiClient.validateSessionContext(
                 eq("chicken-store"),
-                any(SessionContext.class)
+                any(ChickenStoreSessionContext.class)
         )).thenReturn(new ContractValidationResult(
                 false,
                 "1.0.0",
