@@ -225,9 +225,7 @@ class SessionContextNormalizationServiceTest {
 
         when(simulationApiClient.validateSessionContext(
                 eq("chicken-store"),
-                any(
-
-                        ChickenStoreSessionContext.class)
+                any(ChickenStoreSessionContext.class)
         )).thenReturn(new ContractValidationResult(
                 false,
                 "1.0.0",

@@ -1,6 +1,18 @@
 package com.kiobridge.kiobridge.modules.inputnormalization.mapper;
 
-import com.kiobridge.kiobridge.contracts.input.context.*;
+import com.kiobridge.kiobridge.contracts.input.context.AllergenId;
+import com.kiobridge.kiobridge.contracts.input.context.BoneType;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreCapabilities;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreFacts;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreHardConstraints;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStorePreferences;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
+import com.kiobridge.kiobridge.contracts.input.context.CupOption;
+import com.kiobridge.kiobridge.contracts.input.context.FieldMetadata;
+import com.kiobridge.kiobridge.contracts.input.context.ServiceType;
+import com.kiobridge.kiobridge.contracts.input.context.SessionIntent;
+import com.kiobridge.kiobridge.contracts.input.context.SessionTask;
+import com.kiobridge.kiobridge.contracts.input.context.SpicyLevel;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.context.SessionContextNormalizationRequest;
 import org.springframework.stereotype.Component;
 
