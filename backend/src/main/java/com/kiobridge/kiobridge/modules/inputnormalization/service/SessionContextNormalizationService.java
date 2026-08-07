@@ -3,7 +3,7 @@ package com.kiobridge.kiobridge.modules.inputnormalization.service;
 import com.kiobridge.kiobridge.contracts.client.SimulationApiClient;
 import com.kiobridge.kiobridge.contracts.client.dto.ContractValidationError;
 import com.kiobridge.kiobridge.contracts.client.dto.ContractValidationResult;
-import com.kiobridge.kiobridge.contracts.input.context.SessionContext;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.NormalizationStatus;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.context.SessionContextNormalizationRequest;
 import com.kiobridge.kiobridge.modules.inputnormalization.dto.context.SessionContextNormalizationResponse;
@@ -37,7 +37,7 @@ public class SessionContextNormalizationService {
     public SessionContextNormalizationResponse normalize(
             SessionContextNormalizationRequest request
     ) {
-        SessionContext sessionContext =
+        ChickenStoreSessionContext sessionContext =
                 mapper.toSessionContext(request);
 
         ContractValidationResult validation =
