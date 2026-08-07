@@ -10,6 +10,9 @@ server:
 kiobridge:
   team-id: ${KIOBRIDGE_TEAM_ID:WHATTHEBUG}
 
+  cors:
+    allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:5173}
+
   simulation-api:
     base-url: ${SIMULATION_API_BASE_URL:http://localhost:4000}
     connect-timeout-ms: ${SIMULATION_API_CONNECT_TIMEOUT_MS:3000}
