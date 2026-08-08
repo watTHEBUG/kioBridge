@@ -59,9 +59,14 @@ public class ExecutionPlanService {
      * id를 검증하지 않는다는 점(kind만 screens.json의 targetKinds에 있으면 통과)도 확인했다.
      * 팀 전체가 공식 합의한 컨벤션은 아니지만, 엔진이 검증하지 않는 값이라 지금 단계에서
      * buildExecutionPlan을 막을 이유가 없다고 판단해 이 컨벤션으로 우선 진행한다.
+     *
+     * environmentId는 호출자가 다시 보내는 값을 그대로 믿지 않고, sessionId로 Simulation API의
+     * GET /api/v1/sessions/:sessionId를 조회해서 세션 생성 시점에 실제로 쓰인 값을 가져온다.
+     * (createSession(environmentId) 때 정해진 값과 buildExecutionPlan 때 쓰는 값이 어긋나는 걸
+     * 로컬에 별도 상태를 두지 않고 Kit 서버를 단일 진실 공급원으로 삼아 막는다.)
      */
     public ExecutionPlan buildExecutionPlan(
-        String environmentId,
+        String sessionId,
         Recommendation recommendation,
         UserDecision userDecision,
         SessionContextBase<?, ?, ?, ?> sessionContext
@@ -69,7 +74,7 @@ public class ExecutionPlanService {
         if (!userDecision.approved()) {
             return ExecutionPlan.empty();
         }
-        Objects.requireNonNull(environmentId, "environmentId는 null일 수 없습니다.");
+        Objects.requireNonNull(sessionId, "sessionId는 null일 수 없습니다.");
         Objects.requireNonNull(recommendation, "recommendation은 null일 수 없습니다.");
         Objects.requireNonNull(sessionContext, "sessionContext는 null일 수 없습니다.");
 
@@ -78,6 +83,13 @@ public class ExecutionPlanService {
             throw new IllegalStateException(
                 "승인된 결정(userDecision.approved=true)인데 recommendation.recommendedCandidateId가 없습니다. "
                     + "buildExecutionPlan은 추천 후보 없이 실행계획을 만들 수 없습니다."
+            );
+        }
+
+        String environmentId = simulationApiClient.getSession(sessionId).environmentId();
+        if (environmentId == null || environmentId.isBlank()) {
+            throw new IllegalStateException(
+                "sessionId(" + sessionId + ")에 대한 세션을 Simulation API에서 찾지 못했거나 environmentId가 없습니다."
             );
         }
 
