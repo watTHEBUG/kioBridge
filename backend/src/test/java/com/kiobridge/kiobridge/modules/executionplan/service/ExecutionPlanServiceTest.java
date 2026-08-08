@@ -1,6 +1,7 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
 import com.kiobridge.kiobridge.contracts.Action;
+import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
 import com.kiobridge.kiobridge.contracts.Recommendation;
 import com.kiobridge.kiobridge.contracts.State;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -176,6 +178,35 @@ class ExecutionPlanServiceTest {
 
         assertThat(plan.actions()).hasSize(9);
         assertThat(plan.actions()).noneMatch(a -> "CUP".equals(a.target().groupId()));
+    }
+
+    @Test
+    void 추천된_후보가_사용자_선호값을_지원하지_않으면_후보가_지원하는_값으로_대체한다() {
+        // 실제 candidates.json처럼 SPICY_LEVEL을 MILD 하나만 지원하는 후보. 사용자 선호는 HOT이지만
+        // (fullPreferenceContext()) 이 후보가 지원하지 않는 옵션을 실행계획에 넣으면 안 된다.
+        stubValidSession();
+        Candidate narrowCandidate = ExecutionPlanTestFixtures.candidate(CANDIDATE_ID, Map.of(
+            "SERVICE_TYPE", List.of("DINE_IN", "TAKE_OUT"),
+            "SPICY_LEVEL", List.of("MILD"),
+            "BONE_TYPE", List.of("BONE", "BONELESS"),
+            "CUP", List.of("PAPER", "REGULAR"),
+            "QUANTITY", List.of("Q1", "Q2", "Q3")
+        ));
+        when(simulationApiClient.getFixture(ENVIRONMENT_ID))
+            .thenReturn(ExecutionPlanTestFixtures.fixture(narrowCandidate));
+
+        ExecutionPlan plan = service.buildExecutionPlan(
+            SESSION_ID,
+            ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
+            UserDecision.approve(),
+            fullPreferenceContext()
+        );
+
+        Action selectSpicy = plan.actions().stream()
+            .filter(a -> "SPICY_LEVEL".equals(a.target().groupId()))
+            .findFirst()
+            .orElseThrow();
+        assertThat(selectSpicy.target().id()).isEqualTo("MILD");
     }
 
     @Test

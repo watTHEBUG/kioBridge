@@ -16,12 +16,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ChickenStoreOptionResolverTest {
 
     @Test
-    void 선호값이_그룹에_실존하면_그대로_쓴다() {
+    void 선호값이_후보_지원목록에도_있으면_그대로_쓴다() {
+        // candidateWithSupport()의 SPICY_LEVEL 지원값은 [MILD, MEDIUM] — MEDIUM은 그 안에 있음
+        String result = ChickenStoreOptionResolver.resolveOptionId(
+            optionGroups(), "SPICY_LEVEL", "MEDIUM", candidateWithSupport()
+        );
+
+        assertThat(result).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void 후보가_지원하지_않는_선호값은_선택하지_않고_후보_지원값으로_대체한다() {
+        // HOT은 option-groups.json 상 유효한 그룹 값이지만, candidateWithSupport()는 SPICY_LEVEL을
+        // [MILD, MEDIUM]으로만 지원한다 — 그룹에 유효하다는 이유만으로 HOT을 고르면 실제로는
+        // 이 후보가 지원하지 않는 옵션을 선택하는 실행계획이 만들어진다 (CodeRabbit 지적 사항).
         String result = ChickenStoreOptionResolver.resolveOptionId(
             optionGroups(), "SPICY_LEVEL", "HOT", candidateWithSupport()
         );
 
-        assertThat(result).isEqualTo("HOT");
+        assertThat(result).isEqualTo("MILD");
     }
 
     @Test

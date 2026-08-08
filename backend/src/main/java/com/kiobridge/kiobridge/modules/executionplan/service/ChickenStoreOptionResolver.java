@@ -6,16 +6,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * environments/chicken-store/option-groups.json 기반으로 그룹별 실제 option id를 고른다.
+ * environments/chicken-store/option-groups.json + 후보(candidate)의 supportedOptions 기반으로
+ * 그룹별 실제 option id를 고른다.
  * (STEP4의 RuleValueResolver/RuleOperatorComparator와 같은 위치의 "환경 데이터 해석" 계층)
  *
- * 우선순위:
- *  1) preferredId가 그 그룹에 실제로 존재하는 id면 그대로 사용
- *     (ServiceType/SpicyLevel/BoneType/CupOption enum 상수명이 option id와 1:1로 같다 —
- *      option-groups.json 확인 완료. 단 NO_PREFERENCE/UNKNOWN/NONE 은 유효 id가 아니므로
- *      호출부에서 null로 변환해서 넘긴다.)
- *  2) candidate.supportedOptions().get(groupId) 중 그 그룹에 실존하는 첫 값
- *  3) 그룹 정의의 첫 번째 option id (최종 폴백)
+ * candidates.json 실제 데이터를 보면 후보마다 그룹별 지원값이 좁게 제한돼 있다
+ * (예: CHICKEN-002는 SPICY_LEVEL을 MILD로만 지원). 그래서 preferredId가 option-groups.json
+ * 상 유효한 값이라는 것만으로는 안 되고, "이 후보가 실제로 그 값을 지원하는지"까지 확인해야
+ * 한다 — 안 그러면 후보가 지원하지 않는 옵션을 선택하는 실행계획이 만들어진다.
+ *
+ * 우선순위 (candidate가 그 groupId에 대해 supportedOptions를 선언한 경우):
+ *  1) preferredId가 후보의 지원값이면서 그룹에도 실존하면 그대로 사용
+ *  2) 후보가 지원하는 값 중 그룹에 실존하는 첫 값으로 대체
+ *  3) 후보 지원값이 전부 그룹 정의와 어긋나면(데이터 불일치) 그룹의 첫 번째 option id로 폴백
+ *
+ * candidate가 그 groupId에 대해 supportedOptions를 아예 선언하지 않은 경우 (해당 후보에겐
+ * 그룹 제약이 없다는 뜻) — preferredId가 그룹에 실존하면 그대로 쓰고, 없으면 그룹 첫 옵션.
  */
 final class ChickenStoreOptionResolver {
 
@@ -36,13 +42,22 @@ final class ChickenStoreOptionResolver {
         if (validIds.isEmpty()) {
             throw new IllegalStateException(groupId + " 그룹에 옵션이 없습니다.");
         }
+
+        List<String> supportedIds = supportedOptionIds(candidate, groupId);
+        if (!supportedIds.isEmpty()) {
+            if (preferredId != null && supportedIds.contains(preferredId) && validIds.contains(preferredId)) {
+                return preferredId;
+            }
+            for (String supportedId : supportedIds) {
+                if (validIds.contains(supportedId)) {
+                    return supportedId;
+                }
+            }
+            return validIds.get(0);
+        }
+
         if (preferredId != null && validIds.contains(preferredId)) {
             return preferredId;
-        }
-        for (String supportedId : supportedOptionIds(candidate, groupId)) {
-            if (validIds.contains(supportedId)) {
-                return supportedId;
-            }
         }
         return validIds.get(0);
     }

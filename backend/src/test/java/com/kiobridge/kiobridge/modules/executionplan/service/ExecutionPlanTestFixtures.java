@@ -72,8 +72,22 @@ final class ExecutionPlanTestFixtures {
         );
     }
 
-    /** 모든 그룹을 지원하는 candidate. candidateId만 바꿔 재사용한다. */
+    /** 모든 그룹의 모든 옵션을 지원하는 candidate. candidateId만 바꿔 재사용한다. */
     static Candidate candidate(String candidateId) {
+        return candidate(candidateId, Map.of(
+            "SERVICE_TYPE", List.of("DINE_IN", "TAKE_OUT"),
+            "SPICY_LEVEL", List.of("MILD", "MEDIUM", "HOT"),
+            "BONE_TYPE", List.of("BONE", "BONELESS"),
+            "CUP", List.of("PAPER", "REGULAR"),
+            "QUANTITY", List.of("Q1", "Q2", "Q3")
+        ));
+    }
+
+    /**
+     * supportedOptions를 직접 지정하는 candidate. 실제 candidates.json처럼 그룹별 지원값이
+     * 좁게 제한된 후보(예: SPICY_LEVEL을 MILD 하나만 지원)를 만들 때 쓴다.
+     */
+    static Candidate candidate(String candidateId, Map<String, List<String>> supportedOptions) {
         return new Candidate(
             candidateId,
             candidateId + "-name",
@@ -82,13 +96,7 @@ final class ExecutionPlanTestFixtures {
             "PUBLIC",
             9900.0,
             candidateId + " 설명",
-            Map.of(
-                "SERVICE_TYPE", List.of("DINE_IN", "TAKE_OUT"),
-                "SPICY_LEVEL", List.of("MILD", "MEDIUM", "HOT"),
-                "BONE_TYPE", List.of("BONE", "BONELESS"),
-                "CUP", List.of("PAPER", "REGULAR"),
-                "QUANTITY", List.of("Q1", "Q2", "Q3")
-            ),
+            supportedOptions,
             Map.of(),
             Map.of(),
             Map.of()
