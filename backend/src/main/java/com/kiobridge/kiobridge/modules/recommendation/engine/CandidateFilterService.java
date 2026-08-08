@@ -4,6 +4,7 @@ import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.CompatibilityRule;
 import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
 import com.kiobridge.kiobridge.contracts.input.context.SessionContextBase;
+import com.kiobridge.kiobridge.modules.recommendation.ChickenStoreExclusionMessages;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -30,9 +31,11 @@ public class CandidateFilterService {
     private static final String BLOCK = "BLOCK";
 
     private final RuleEvaluator ruleEvaluator;
+    private final ChickenStoreExclusionMessages exclusionMessages;
 
-    public CandidateFilterService(RuleEvaluator ruleEvaluator) {
+    public CandidateFilterService(RuleEvaluator ruleEvaluator, ChickenStoreExclusionMessages exclusionMessages) {
         this.ruleEvaluator = ruleEvaluator;
+        this.exclusionMessages = exclusionMessages;
     }
 
     public CandidateFilterResult filter(List<Candidate> candidates, List<CompatibilityRule> rules,
@@ -48,11 +51,12 @@ public class CandidateFilterService {
         List<Candidate> eligible = new ArrayList<>();
         List<ExcludedCandidate> excluded = new ArrayList<>();
         Map<String, List<RuleEvaluationResult>> warningsByCandidateId = new LinkedHashMap<>();
-        boolean requiresReconfirmation = false;
+        Map<String, List<RuleEvaluationResult>> reconfirmationsByCandidateId = new LinkedHashMap<>();
 
         for (Candidate candidate : candidates) {
             boolean blocked = false;
             List<RuleEvaluationResult> warnings = new ArrayList<>();
+            List<RuleEvaluationResult> reconfirmations = new ArrayList<>();
 
             // RECONFIRM은 후보 제외 여부와 무관한 세션 단위 신호이므로, 이미 BLOCK이 확정된 후보라도
             // 나머지 규칙을 계속 평가해서 놓치지 않는다 (중간에 break하지 않음).
@@ -70,7 +74,7 @@ public class CandidateFilterService {
                                     "ruleId=" + rule.ruleId()
                                         + ", sourceValue=" + result.sourceValue()
                                         + ", candidateValue=" + result.candidateValue(),
-                                    rule.description() // TODO: 담당2 - 사용자용 친절한 문장으로 교체 (errorCode -> 메시지 템플릿)
+                                    exclusionMessages.resolve(result.errorCode(), result.sourceValue())
                                 ));
                             }
                             blocked = true;
@@ -78,7 +82,7 @@ public class CandidateFilterService {
                             warnings.add(result);
                         }
                     }
-                    case RECONFIRM -> requiresReconfirmation = true;
+                    case RECONFIRM -> reconfirmations.add(result);
                     case PASS, SKIPPED -> {
                         // no-op
                     }
@@ -90,10 +94,13 @@ public class CandidateFilterService {
                 if (!warnings.isEmpty()) {
                     warningsByCandidateId.put(candidate.candidateId(), warnings);
                 }
+                if (!reconfirmations.isEmpty()) {
+                    reconfirmationsByCandidateId.put(candidate.candidateId(), reconfirmations);
+                }
             }
         }
 
-        return new CandidateFilterResult(eligible, excluded, warningsByCandidateId, requiresReconfirmation);
+        return new CandidateFilterResult(eligible, excluded, warningsByCandidateId, reconfirmationsByCandidateId);
     }
 
     /**
