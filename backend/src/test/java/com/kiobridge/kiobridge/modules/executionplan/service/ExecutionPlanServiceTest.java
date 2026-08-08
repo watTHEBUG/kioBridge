@@ -6,6 +6,7 @@ import com.kiobridge.kiobridge.contracts.Recommendation;
 import com.kiobridge.kiobridge.contracts.State;
 import com.kiobridge.kiobridge.contracts.UserDecision;
 import com.kiobridge.kiobridge.contracts.client.SimulationApiClient;
+import com.kiobridge.kiobridge.contracts.client.dto.SessionStatusResponse;
 import com.kiobridge.kiobridge.contracts.input.context.BoneType;
 import com.kiobridge.kiobridge.contracts.input.context.CupOption;
 import com.kiobridge.kiobridge.contracts.input.context.FieldMetadata;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 class ExecutionPlanServiceTest {
 
+    private static final String SESSION_ID = "SIM-TEST-001";
     private static final String ENVIRONMENT_ID = "chicken-store";
     private static final String CANDIDATE_ID = "CHICKEN-001";
 
@@ -48,7 +50,7 @@ class ExecutionPlanServiceTest {
     @Test
     void approved가_false면_빈_실행계획을_반환하고_외부_호출을_하지_않는다() {
         ExecutionPlan plan = service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.reject("사용자가 거절함"),
             fullPreferenceContext()
@@ -63,11 +65,12 @@ class ExecutionPlanServiceTest {
 
     @Test
     void approved가_true이고_모든_선호값이_있으면_10개_액션을_순서대로_조립한다() {
+        stubValidSession();
         when(simulationApiClient.getFixture(ENVIRONMENT_ID))
             .thenReturn(ExecutionPlanTestFixtures.fixture(ExecutionPlanTestFixtures.candidate(CANDIDATE_ID)));
 
         ExecutionPlan plan = service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             fullPreferenceContext()
@@ -140,11 +143,12 @@ class ExecutionPlanServiceTest {
 
     @Test
     void CUP_선호가_없으면_9개_액션만_조립하고_CUP_액션은_생략한다() {
+        stubValidSession();
         when(simulationApiClient.getFixture(ENVIRONMENT_ID))
             .thenReturn(ExecutionPlanTestFixtures.fixture(ExecutionPlanTestFixtures.candidate(CANDIDATE_ID)));
 
         ExecutionPlan plan = service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             ExecutionPlanTestFixtures.sessionContext(ServiceType.DINE_IN, SpicyLevel.HOT, BoneType.BONE, null, 2)
@@ -157,11 +161,12 @@ class ExecutionPlanServiceTest {
 
     @Test
     void CUP이_NO_PREFERENCE면_역시_CUP_액션을_생략한다() {
+        stubValidSession();
         when(simulationApiClient.getFixture(ENVIRONMENT_ID))
             .thenReturn(ExecutionPlanTestFixtures.fixture(ExecutionPlanTestFixtures.candidate(CANDIDATE_ID)));
 
         ExecutionPlan plan = service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             ExecutionPlanTestFixtures.sessionContext(
@@ -174,24 +179,26 @@ class ExecutionPlanServiceTest {
     }
 
     @Test
-    void 추천된_candidateId가_없으면_예외를_던지고_외부_호출을_하지_않는다() {
+    void 추천된_candidateId가_없으면_예외를_던지고_세션_조회조차_하지_않는다() {
         assertThatThrownBy(() -> service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(null),
             UserDecision.approve(),
             fullPreferenceContext()
         )).isInstanceOf(IllegalStateException.class);
 
+        verify(simulationApiClient, never()).getSession(any());
         verify(simulationApiClient, never()).getFixture(any());
     }
 
     @Test
     void 추천된_candidate가_fixture에_없으면_예외를_던진다() {
+        stubValidSession();
         when(simulationApiClient.getFixture(ENVIRONMENT_ID))
             .thenReturn(ExecutionPlanTestFixtures.fixture(ExecutionPlanTestFixtures.candidate("CHICKEN-999")));
 
         assertThatThrownBy(() -> service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             fullPreferenceContext()
@@ -200,15 +207,55 @@ class ExecutionPlanServiceTest {
 
     @Test
     void chickenStore가_아닌_sessionContext면_예외를_던진다() {
+        stubValidSession();
         when(simulationApiClient.getFixture(ENVIRONMENT_ID))
             .thenReturn(ExecutionPlanTestFixtures.fixture(ExecutionPlanTestFixtures.candidate(CANDIDATE_ID)));
 
         assertThatThrownBy(() -> service.buildExecutionPlan(
-            ENVIRONMENT_ID,
+            SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             nonChickenStoreContext()
         )).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 세션의_environmentId가_비어있으면_예외를_던지고_fixture를_조회하지_않는다() {
+        when(simulationApiClient.getSession(SESSION_ID))
+            .thenReturn(new SessionStatusResponse(SESSION_ID, null, "WAITING", "NOT_STARTED", "NOT_STARTED"));
+
+        assertThatThrownBy(() -> service.buildExecutionPlan(
+            SESSION_ID,
+            ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
+            UserDecision.approve(),
+            fullPreferenceContext()
+        )).isInstanceOf(IllegalStateException.class);
+
+        verify(simulationApiClient, never()).getFixture(any());
+    }
+
+    @Test
+    void environmentId는_요청이_아니라_세션_조회_결과로_결정된다() {
+        // 클라이언트가 (있지도 않은) environmentId를 따로 안 보내도, sessionId만으로
+        // Simulation API에 조회해서 environmentId를 얻어 그걸로 getFixture를 호출해야 한다.
+        stubValidSession();
+        when(simulationApiClient.getFixture(ENVIRONMENT_ID))
+            .thenReturn(ExecutionPlanTestFixtures.fixture(ExecutionPlanTestFixtures.candidate(CANDIDATE_ID)));
+
+        service.buildExecutionPlan(
+            SESSION_ID,
+            ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
+            UserDecision.approve(),
+            fullPreferenceContext()
+        );
+
+        verify(simulationApiClient).getSession(SESSION_ID);
+        verify(simulationApiClient).getFixture(ENVIRONMENT_ID);
+    }
+
+    private void stubValidSession() {
+        when(simulationApiClient.getSession(SESSION_ID))
+            .thenReturn(new SessionStatusResponse(SESSION_ID, ENVIRONMENT_ID, "WAITING", "NOT_STARTED", "NOT_STARTED"));
     }
 
     private static void assertActionIndicesAreSequential(java.util.List<Action> actions) {
