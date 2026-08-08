@@ -4,6 +4,7 @@ import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.CompatibilityRule;
 import com.kiobridge.kiobridge.contracts.Recommendation;
 import com.kiobridge.kiobridge.contracts.client.SimulationApiClient;
+import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.modules.recommendation.RecommendationEngineService;
 import com.kiobridge.kiobridge.modules.recommendation.RecommendationValidator;
 import com.kiobridge.kiobridge.modules.recommendation.ValidationOutcome;
@@ -41,24 +42,26 @@ public class RecommendationController {
     @PostMapping("/candidate-filters")
     public CandidateFilterResult filterCandidates(@RequestBody CandidateFilterRequest request) {
         Objects.requireNonNull(request, "request는 null일 수 없습니다.");
-
-        List<Candidate> candidates = simulationApiClient.getFixture(request.environmentId()).candidates();
-        List<CompatibilityRule> rules = simulationApiClient.getCompatibilityRules(request.environmentId()).rules();
-
-        return candidateFilterService.filter(candidates, rules, request.sessionContext());
+        return computeCandidateFilterResult(request.environmentId(), request.sessionContext());
     }
 
     /**
      * POST /api/v1/recommendations — STEP5~7.
-     * candidateFilterResult는 반드시 직전 /candidate-filters 응답을 그대로 넣어야 한다.
-     * 이 메서드는 그 값을 다시 계산하지 않고 그대로 신뢰한다.
+     * candidateFilterResult를 클라이언트에게서 받지 않고 매번 서버에서 environmentId/sessionContext로
+     * 직접 다시 계산한다 — 클라이언트가 필터 결과를 조작해 안전 필터링(알레르기·가격 등)을 우회하는 것을 막기 위함.
      */
     @PostMapping("/recommendations")
     public Recommendation recommend(@RequestBody RecommendationRequest request) {
         Objects.requireNonNull(request, "request는 null일 수 없습니다.");
 
-        return recommendationEngineService.recommend(
-            request.candidateFilterResult(), request.sessionContext(), request.profile());
+        CandidateFilterResult filterResult = computeCandidateFilterResult(request.environmentId(), request.sessionContext());
+        return recommendationEngineService.recommend(filterResult, request.sessionContext(), request.profile());
+    }
+
+    private CandidateFilterResult computeCandidateFilterResult(String environmentId, ChickenStoreSessionContext sessionContext) {
+        List<Candidate> candidates = simulationApiClient.getFixture(environmentId).candidates();
+        List<CompatibilityRule> rules = simulationApiClient.getCompatibilityRules(environmentId).rules();
+        return candidateFilterService.filter(candidates, rules, sessionContext);
     }
 
     /** POST /api/v1/recommendation-output-validations — recommend() 결과를 제출 전 자체 검증한다. */
