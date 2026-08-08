@@ -6,6 +6,7 @@ import com.kiobridge.kiobridge.contracts.Recommendation;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,6 +32,7 @@ public class RecommendationValidator {
     // 팀 내부 전용 코드 (Kit 공식 ERROR_CATALOG엔 없음, 우리 쪽 정합성 체크용)
     private static final String EXCLUDED_CANDIDATE_ID_UNKNOWN = "EXCLUDED_CANDIDATE_ID_UNKNOWN";
     private static final String ALTERNATIVE_DUPLICATES_RECOMMENDED = "ALTERNATIVE_DUPLICATES_RECOMMENDED";
+    private static final String ALTERNATIVE_CANDIDATE_DUPLICATED = "ALTERNATIVE_CANDIDATE_DUPLICATED";
     private static final String ALTERNATIVES_WITHOUT_RECOMMENDATION = "ALTERNATIVES_WITHOUT_RECOMMENDATION";
     private static final String RECOMMENDATION_REASONS_EMPTY = "RECOMMENDATION_REASONS_EMPTY";
     private static final String CONFIDENCE_OUT_OF_RANGE = "CONFIDENCE_OUT_OF_RANGE";
@@ -50,7 +52,7 @@ public class RecommendationValidator {
         Set<String> excludedCandidateIds = excludedCandidateIds(recommendation);
 
         List<ValidationIssue> issues = new ArrayList<>();
-        issues.addAll(validateRecommendedCandidate(recommendation, candidatesById));
+        issues.addAll(validateRecommendedCandidate(recommendation, candidatesById, excludedCandidateIds));
         issues.addAll(validateAlternativeCandidates(recommendation, candidatesById, excludedCandidateIds));
         issues.addAll(validateExcludedCandidateIds(recommendation, candidatesById));
         issues.addAll(validateRecommendationReasons(recommendation));
@@ -74,7 +76,9 @@ public class RecommendationValidator {
     // recommendedCandidateId
     // ------------------------------------------------------------------
 
-    private static List<ValidationIssue> validateRecommendedCandidate(Recommendation recommendation, Map<String, Candidate> candidatesById) {
+    private static List<ValidationIssue> validateRecommendedCandidate(
+        Recommendation recommendation, Map<String, Candidate> candidatesById, Set<String> excludedCandidateIds
+    ) {
         String recommendedCandidateId = recommendation.recommendedCandidateId();
 
         if (recommendedCandidateId == null) {
@@ -82,6 +86,11 @@ public class RecommendationValidator {
                 ? List.of()
                 : List.of(new ValidationIssue(ALTERNATIVES_WITHOUT_RECOMMENDATION,
                     "recommendedCandidateId가 없는데 alternativeCandidateIds가 채워져 있습니다.", RECOMMENDED_CANDIDATE_PATH));
+        }
+
+        if (excludedCandidateIds.contains(recommendedCandidateId)) {
+            return List.of(new ValidationIssue(EXCLUDED_CANDIDATE_NOT_FOUND,
+                "recommendedCandidateId=" + recommendedCandidateId + "는 이미 제외된 후보입니다.", RECOMMENDED_CANDIDATE_PATH));
         }
 
         Candidate recommended = candidatesById.get(recommendedCandidateId);
@@ -104,18 +113,29 @@ public class RecommendationValidator {
         Recommendation recommendation, Map<String, Candidate> candidatesById, Set<String> excludedCandidateIds
     ) {
         List<String> alternativeCandidateIds = recommendation.alternativeCandidateIds();
-        return IntStream.range(0, alternativeCandidateIds.size())
-            .mapToObj(index -> validateAlternativeCandidate(
-                alternativeCandidateIds.get(index), index, recommendation.recommendedCandidateId(), candidatesById, excludedCandidateIds))
-            .flatMap(Optional::stream)
-            .toList();
+        List<ValidationIssue> issues = new ArrayList<>();
+        Set<String> seenCandidateIds = new HashSet<>();
+
+        for (int index = 0; index < alternativeCandidateIds.size(); index++) {
+            String candidateId = alternativeCandidateIds.get(index);
+            String path = "/recommendation/alternativeCandidateIds/" + index;
+
+            if (!seenCandidateIds.add(candidateId)) {
+                issues.add(new ValidationIssue(ALTERNATIVE_CANDIDATE_DUPLICATED,
+                    "alternativeCandidateIds에 " + candidateId + "가 중복으로 들어있습니다.", path));
+                continue;
+            }
+
+            validateAlternativeCandidate(candidateId, path, recommendation.recommendedCandidateId(), candidatesById, excludedCandidateIds)
+                .ifPresent(issues::add);
+        }
+
+        return List.copyOf(issues);
     }
 
     private static Optional<ValidationIssue> validateAlternativeCandidate(
-        String candidateId, int index, String recommendedCandidateId, Map<String, Candidate> candidatesById, Set<String> excludedCandidateIds
+        String candidateId, String path, String recommendedCandidateId, Map<String, Candidate> candidatesById, Set<String> excludedCandidateIds
     ) {
-        String path = "/recommendation/alternativeCandidateIds/" + index;
-
         if (candidateId.equals(recommendedCandidateId)) {
             return Optional.of(new ValidationIssue(ALTERNATIVE_DUPLICATES_RECOMMENDED,
                 "alternativeCandidateIds에 recommendedCandidateId(" + candidateId + ")가 중복으로 들어있습니다.", path));
