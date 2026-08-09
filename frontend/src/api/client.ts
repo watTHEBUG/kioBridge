@@ -3,6 +3,9 @@ import type {
 } from "@/domain/types";
 import { buildCart, buildMapping } from "@/api/mock";
 import { STEPS } from "@/domain/catalog";
+// backend.ts 도 이 파일의 KioBridgeError 를 가져간다(순환). 둘 다 함수 안에서만
+// 쓰므로 평가 시점에는 서로를 건드리지 않는다. 최상위에서 쓰면 그때 깨진다.
+import { createApi, createTeamBackend } from "@/api/backend";
 
 export class KioBridgeError extends Error {
   constructor(readonly code: string, message: string, readonly recoverable: boolean) {
@@ -81,6 +84,14 @@ const profiles = new Map<string, ProfileData>();
 export const registerProfile = (profile: ProfileData): void => {
   profiles.set(profile.id, profile);
 };
+/**
+ * 등록해 둔 프로필을 id 로 찾는다.
+ *
+ * 팀 백엔드에는 프로필 저장소가 없어서, 후보 필터·추천·승인 때마다 내용을 함께
+ * 보내야 한다. 그 내용을 들고 있는 곳이 여기다. createApi 의 세 번째 인자로 넘긴다.
+ * 서버가 profileId 로 찾아 줄 수 있게 되면 이 함수도 registerProfile 과 함께 사라진다.
+ */
+export const getProfile = (id: string): ProfileData | undefined => profiles.get(id);
 export const unregisterProfile = (id: string): void => {
   profiles.delete(id);
 };
@@ -298,5 +309,22 @@ export const mockApi: KioBridgeApi = {
   },
 };
 
-export const api: KioBridgeApi = mockApi;
+/**
+ * 화면이 쓰는 API.
+ *
+ * 기본은 목이다. VITE_BACKEND=team 일 때만 팀 백엔드로 간다(npm run dev:team).
+ *
+ * 기본값을 아직 목으로 두는 이유는 두 가지다.
+ *   1. 추천 응답에 조건별 일치 여부(matchedOptions)가 없어서, 확인 카드가
+ *      "무엇을 왜 골랐는지" 를 항목별로 보여 주지 못한다.
+ *   2. 백엔드 운영 배포(main)가 dev 보다 한참 뒤처져 컨트롤러가 하나도 없다.
+ *
+ * 그래서 배포본은 목으로 두고, 연동 시험은 로컬에서 dev 를 돌려서 한다.
+ * 둘 다 풀리면 이 스위치를 걷어내고 팀 백엔드를 기본으로 삼는다.
+ * docs/BACKEND_INTEGRATION.md 참고.
+ */
+export const api: KioBridgeApi =
+  import.meta.env.VITE_BACKEND === "team"
+    ? createApi(createTeamBackend(), "chicken-store", getProfile)
+    : mockApi;
 export const POLL_MS = 600;

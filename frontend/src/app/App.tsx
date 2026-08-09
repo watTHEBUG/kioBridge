@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+﻿import { useState, useRef, useEffect } from "react";
 import { ChevronLeft, Check, Phone } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
@@ -15,6 +15,7 @@ import type {
 } from "@/domain/types";
 import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, MOCK_PROFILES, STEPS } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerProfile, unregisterProfile, type Scenario } from "@/api/client";
+import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 
 // 휴대폰 틀 크기. 큰 글씨 모드가 이 값을 기준으로 안쪽 크기를 되계산한다.
 const FRAME_W = 384;
@@ -2468,6 +2469,80 @@ function ExecutionScreen({ planId, onHome }: { planId: string; onHome: () => voi
 // 제품 화면 밖(폰 프레임 바깥)에 둔다. 심사 중 예외 상태를 재현하기 위한 장치이며
 // 사용자가 보는 앱 UI에는 포함되지 않는다. 백엔드 연결 시 이 컴포넌트만 지우면 된다.
 
+/**
+ * 지금 목인지 실서버인지, 방금 무엇이 오갔는지 보여 준다.
+ *
+ * 화면만 봐서는 구분할 방법이 없다. 둘 다 그럴듯한 답을 돌려주기 때문이다.
+ * 실제로 나간 요청을 그대로 띄워서 "진짜 붙었다" 를 눈으로 확인하게 한다.
+ *
+ * npm run dev:team 일 때만 나온다. 기본 빌드에서는 팀백엔드모드가 상수 false 라
+ * 이 컴포넌트를 부르는 자리가 통째로 빠진다.
+ */
+function 연동표시() {
+  const [, 다시그리기] = useState(0);
+  // 화면이 좁으면 접어 둔다. 펼친 채로 두면 휴대폰 틀의 아래 버튼을 덮어
+  // 터치를 가로챈다. 200% 확대처럼 CSS 뷰포트가 작아질 때 실제로 그렇다.
+  const [펼침, 펼치기] = useState(false);
+  useEffect(() => 연동기록.구독(() => 다시그리기((n) => n + 1)), []);
+  const 목록 = 연동기록.읽기();
+  const 성공 = 목록.filter((x) => typeof x.상태 === "number" && x.상태 < 400).length;
+
+  return (
+    <div
+      style={{
+        position: "fixed", right: 12, bottom: 12, zIndex: 60,
+        // 좁은 화면에서는 폭을 줄인다. 340px 고정이면 작은 뷰포트를 다 덮는다.
+        width: "min(340px, calc(100vw - 24px))",
+        maxHeight: 펼침 ? "60vh" : undefined,
+        overflowY: 펼침 ? "auto" : undefined,
+        background: "#0b0b0c", color: "#e8e8ea", borderRadius: 10,
+        padding: 12, fontSize: 12, lineHeight: 1.5, fontFamily: "ui-monospace, monospace",
+        boxShadow: "0 8px 28px rgba(0,0,0,.35)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => 펼치기((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8, marginBottom: 펼침 ? 8 : 0,
+          background: "none", border: "none", color: "inherit", font: "inherit",
+          padding: 0, cursor: "pointer", width: "100%", textAlign: "left",
+        }}
+      >
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#37d67a", flexShrink: 0 }} />
+        <strong style={{ fontSize: 13 }}>실서버에 붙어 있습니다</strong>
+        <span style={{ marginLeft: "auto", color: "#9a9aa2" }}>{성공}/{목록.length} {펼침 ? "▾" : "▸"}</span>
+      </button>
+      {!펼침 ? null : (
+      <>
+      <div style={{ color: "#9a9aa2", marginBottom: 8 }}>
+        목이 아니라 팀 백엔드로 보냅니다 · /api/bff → KIOBRIDGE_API_BASE
+      </div>
+      {목록.length === 0 ? (
+        <div style={{ color: "#9a9aa2" }}>아직 오간 게 없습니다. QR 을 찍어 보세요.</div>
+      ) : (
+        <>
+          <div style={{ color: "#9a9aa2", marginBottom: 6 }}>
+            주고받은 요청 {목록.length}건 · 성공 {성공}건
+          </div>
+          {목록.map((x) => (
+            <div key={x.시각 + x.경로} style={{ display: "flex", gap: 8, padding: "3px 0", borderTop: "1px solid #232326" }}>
+              <span style={{
+                color: x.상태 === "실패" ? "#ff6b6b" : (x.상태 as number) < 400 ? "#37d67a" : "#ffb020",
+                width: 34, flexShrink: 0,
+              }}>{x.상태}</span>
+              <span style={{ flex: 1, wordBreak: "break-all" }}>{x.경로}</span>
+              <span style={{ color: "#9a9aa2", flexShrink: 0 }}>{x.걸린시간}ms</span>
+            </div>
+          ))}
+        </>
+      )}
+      </>
+      )}
+    </div>
+  );
+}
+
 function ScenarioPanel() {
   const [current, setCurrent] = useState<Scenario>(getScenario());
   const apply = (patch: Partial<Scenario>) => {
@@ -2677,6 +2752,7 @@ export default function App() {
     >
       <style>{FOCUS_STYLES}</style>
       <ScenarioPanel />
+      {팀백엔드모드 && <연동표시 />}
       {/*
         큰 글씨 모드. 화면 크기(휴대폰 틀)는 그대로 두고 안쪽 내용만 키운다.
         바깥 틀은 실제 크기(FRAME_W × FRAME_H)를 잡고, 안쪽은 그 크기를 배율로 나눠 잡는다.
