@@ -36,6 +36,13 @@ public record ParticipantSubmission(
         Objects.requireNonNull(recommendation, "recommendation은 null일 수 없습니다.");
         Objects.requireNonNull(userDecision, "userDecision은 null일 수 없습니다.");
         Objects.requireNonNull(executionPlan, "executionPlan은 null일 수 없습니다.");
+
+        if (!userDecision.approved() && !executionPlan.actions().isEmpty()) {
+            throw new IllegalArgumentException(
+                "userDecision.approved=false 인데 executionPlan.actions가 비어있지 않습니다. "
+                    + "Kit 검증 규칙 위반입니다."
+            );
+        }
     }
 
     private static void requireNonBlank(String value, String fieldName) {
