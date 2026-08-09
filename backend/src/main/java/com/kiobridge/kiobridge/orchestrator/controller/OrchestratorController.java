@@ -52,7 +52,7 @@ public class OrchestratorController {
         );
 
         EvidenceSummary summary = null;
-        if (result.valid() && result.evidence() != null) {
+        if (result.valid() && result.evidence() != null && !result.evidence().isNull()) {
             Evidence evidence = evidenceParsingService.parse(result.evidence());
             summary = evidenceSummaryService.summarize(evidence);
         }

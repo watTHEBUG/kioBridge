@@ -13,6 +13,12 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class EvidenceParsingService {
 
+    private static final String[] REQUIRED_FIELDS = {
+        "evidenceVersion", "runId", "sessionId", "environmentId", "fixtureVersion",
+        "submissionHash", "createdAt", "validationMode", "executionEnvironment",
+        "result", "stopType", "resultScope"
+    };
+
     private final ObjectMapper objectMapper;
 
     public EvidenceParsingService(ObjectMapper objectMapper) {
@@ -23,12 +29,23 @@ public class EvidenceParsingService {
         if (evidenceJson == null || evidenceJson.isNull()) {
             throw new IllegalArgumentException("evidence가 비어 있습니다.");
         }
+        validateRequiredFields(evidenceJson);
         try {
             return objectMapper.treeToValue(evidenceJson, Evidence.class);
         } catch (Exception e) {
             throw new IllegalStateException(
                 "evidence JSON을 Evidence 타입으로 변환하지 못했습니다: " + e.getMessage(), e
             );
+        }
+    }
+
+    private void validateRequiredFields(JsonNode evidenceJson) {
+        for (String field : REQUIRED_FIELDS) {
+            if (!evidenceJson.has(field) || evidenceJson.get(field).isNull()) {
+                throw new IllegalStateException(
+                    "evidence JSON에 필수 필드가 없습니다: " + field
+                );
+            }
         }
     }
 }
