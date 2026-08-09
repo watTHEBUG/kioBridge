@@ -12,6 +12,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 @Service
 @Transactional(readOnly = true)
@@ -46,11 +47,14 @@ public class AuthService {
                     new AppUser(loginId, passwordHash)
             );
         } catch (DataIntegrityViolationException e) {
-            /*
-             * existsByLoginId 검사 직후 다른 요청이 동일 아이디를
-             * 먼저 저장하는 동시 요청 상황도 중복 아이디로 처리한다.
-             */
-            throw new DuplicateLoginIdException();
+            if (e.getCause() instanceof ConstraintViolationException violation
+                    && "uk_app_users_login_id".equalsIgnoreCase(
+                    violation.getConstraintName()
+            )) {
+                throw new DuplicateLoginIdException();
+            }
+
+            throw e;
         }
 
         return new SignupResponse(

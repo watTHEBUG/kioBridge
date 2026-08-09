@@ -120,4 +120,42 @@ class AuthControllerTest {
                                 .value("INVALID_CREDENTIALS")
                 );
     }
+
+    @Test
+    void 회원가입_비밀번호가_72바이트를_초과하면_거절한다()
+            throws Exception {
+
+        String password = "가".repeat(25);
+
+        mockMvc.perform(
+                        post("/api/v1/auth/signup")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                    {
+                                      "loginId": "hyunwoo",
+                                      "password": "%s"
+                                    }
+                                    """.formatted(password))
+                )
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 로그인_비밀번호가_72바이트를_초과하면_거절한다()
+            throws Exception {
+
+        String password = "가".repeat(25);
+
+        mockMvc.perform(
+                        post("/api/v1/auth/login")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                    {
+                                      "loginId": "hyunwoo",
+                                      "password": "%s"
+                                    }
+                                    """.formatted(password))
+                )
+                .andExpect(status().isBadRequest());
+    }
 }
