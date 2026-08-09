@@ -2,6 +2,7 @@ package com.kiobridge.kiobridge.common.web;
 
 import com.kiobridge.kiobridge.modules.member.exception.DuplicateLoginIdException;
 import com.kiobridge.kiobridge.modules.member.exception.InvalidCredentialsException;
+import com.kiobridge.kiobridge.modules.member.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -90,6 +91,19 @@ public class GlobalExceptionHandler {
                 .body(
                         new ApiErrorResponse(
                                 "INVALID_CREDENTIALS",
+                                e.getMessage()
+                        )
+                );
+    }
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleUserNotFound(
+            UserNotFoundException e
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(
+                        new ApiErrorResponse(
+                                "USER_NOT_FOUND",
                                 e.getMessage()
                         )
                 );
