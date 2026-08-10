@@ -116,7 +116,7 @@ export const api = createApi(createTeamBackend(), "chicken-store", getProfile);
 
 ## 알려진 제한
 
-- **배포본은 운영 백엔드(`main`)가 올라간 뒤에 다시 배포해야 합니다.** `buildCommand` 가 `npm run build:team` 이라 배포본은 실제 백엔드로 붙습니다. 그런데 지금 `https://api.hyunwoocha.site` 는 `/actuator/health` 만 200 이고 컨트롤러 경로는 404 입니다(`main` 이 `dev` 보다 뒤처져 있어서). **순서가 있습니다 — 백엔드를 먼저 배포하고, 그 다음에 프론트를 다시 배포하세요.** 반대로 하면 배포본이 아무것도 못 합니다. 확인은 `npm run check:backend https://kiobridge-app.vercel.app` 로 합니다.
+- **배포본은 운영 백엔드(`main`)가 올라간 뒤에 다시 배포해야 합니다.** `buildCommand` 가 `npm run build:team` 이라 배포본은 실제 백엔드로 붙습니다. 그런데 지금 `https://api.hyunwoocha.site` 는 `/actuator/health` 만 200 이고 컨트롤러 경로는 404 입니다(`main` 이 `dev` 보다 뒤처져 있어서). **순서가 있습니다 — 백엔드를 먼저 배포하고, 그 다음에 프론트를 다시 배포하세요.** 반대로 하면 배포본이 아무것도 못 합니다. 확인은 `npm run check:backend -- https://kiobridge-app.vercel.app` 로 합니다.
 - 주문표와 로그인 상태는 메모리에만 있습니다. `localStorage` 를 쓰지 않아 새로고침하면 사라집니다. 로그인한 사람의 주문표만 서버에 올라가고, 다시 로그인하면 돌아옵니다.
 - **서버에 올린 주문표를 지우는 경로가 아직 없습니다.** 그래서 '이 기기에서 정보 지우기' 는 이 기기 것만 지웁니다. 화면 문구도 그렇게 적어 두었습니다.
 - **로그인에 토큰이 없습니다.** 백엔드가 `{ userId, loginId }` 만 주어서 주문표 요청이 `userId` 를 경로에 넣어 나갑니다 — 인증이 아니라 식별입니다. 프론트에서 고칠 수 없어 [docs/BACKEND_INTEGRATION.md](docs/BACKEND_INTEGRATION.md) 에 요청으로 적어 두었습니다.
