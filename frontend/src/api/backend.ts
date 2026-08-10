@@ -1,11 +1,11 @@
-﻿import type {
-  ApproveInput, CartResult, MappedOption, MappingResponse, PairingResult, PlanCreated, PlanStatus, ProfileData, StepStatus,
+import type {
+  ApproveInput, CartResult, MappedOption, RejectInput, MappingResponse, PairingResult, PlanCreated, PlanStatus, OrderSheet, StepStatus,
 } from "@/domain/types";
 import {
   toChickenStoreContext, toContextNormalizationInput, toProfileNormalizationInput,
   type CanonicalProfile, type ChickenStoreSessionContext,
 } from "@/api/canonical";
-import { KioBridgeError, type KioBridgeApi } from "@/api/client";
+import { KioBridgeError, clearSheets, type KioBridgeApi } from "@/api/client";
 import { STEPS } from "@/domain/catalog";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 
@@ -40,10 +40,10 @@ export interface Backend {
   /**
    * POST /api/v1/candidate-filters — severity=BLOCK 위반 후보를 제외하고 생존 후보 반환
    *
-   * profile 은 선택 항목이다. 서버가 프로필을 id 로 찾아 줄 수 있으면 필요 없지만,
-   * 팀 백엔드는 프로필 저장소가 없어서 내용을 그대로 받아야 한다.
+   * profile 은 선택 항목이다. 서버가 주문표를 id 로 찾아 줄 수 있으면 필요 없지만,
+   * 팀 백엔드는 주문표 저장소가 없어서 내용을 그대로 받아야 한다.
    */
-  filterCandidates(input: { environmentId: string; profileId: string; profile?: ProfileData }): Promise<{
+  filterCandidates(input: { environmentId: string; profileId: string; profile?: OrderSheet }): Promise<{
     survivingCandidateIds: string[];
     excluded: { candidateId: string; reasonCode: string; explanation: string }[];
     /** 후보 표시 정보. 서버가 이름·가격을 함께 주면 여기 실린다. */
@@ -53,9 +53,10 @@ export interface Backend {
   /** POST /api/v1/recommendations — 1순위 추천·이유·대안·제외 사유·확신도 */
   recommend(input: {
     environmentId: string;
+    /** 백엔드가 이 값을 profileId 라 부른다. 앱 쪽 이름(sheetId)은 경계에서 여기로 맞춘다. */
     profileId: string;
     survivingCandidateIds: string[];
-    profile?: ProfileData;
+    profile?: OrderSheet;
   }): Promise<RecommendationResult>;
 
   /** POST /api/v1/sessions/:sessionId/submission — 검증 X, 저장만 */
@@ -69,6 +70,15 @@ export interface Backend {
 
   /** GET /internal/simulation/evidence/{sessionId} */
   getEvidence(sessionId: string): Promise<EvidenceSummary>;
+
+  /**
+   * 사용자가 승인하지 않겠다고 한 것을 서버에 남긴다.
+   *
+   * 킷 계약의 UserDecision.decision 이 APPROVE·REJECT·MODIFY 셋이다.
+   * 거절은 빈 실행계획으로 제출된다 — 검증까지만 가고 실행은 건너뛴다.
+   * 구현하지 않으면 화면은 그냥 되돌아간다. 사람을 붙잡지는 않는다.
+   */
+  reject?(sessionId: string, payload: unknown): Promise<void>;
 
   /**
    * 이 세션에 남은 사용자 정보를 서버에서 지운다.
@@ -112,6 +122,11 @@ export interface EvidenceSummary {
   reachedStep: number;
   cart?: CartResult;
   abort?: { code: string; title: string; message: string; userAction: string };
+  /**
+   * 서버가 증거를 읽어 만든 한 문장. 결과 화면에서 "왜 이걸 담았는지" 로 쓴다.
+   * 없으면 화면이 그 줄을 아예 그리지 않는다 — 지어내지 않는다.
+   */
+  note?: string;
 }
 
 // ─── 확신도 경계 ─────────────────────────────────────────────────────────────
@@ -126,14 +141,14 @@ export const LOW_CONFIDENCE = 0.7;
 /**
  * 화면이 쓰는 API 를 백엔드 위에 조립한다.
  *
- * getProfile 은 프로필 id 로 실제 내용을 찾아 주는 함수다. 팀 백엔드는 프로필
+ * getSheet 은 주문표 id 로 실제 내용을 찾아 주는 함수다. 팀 백엔드는 주문표
  * 저장소가 없어서 매번 내용을 함께 보내야 하고, 그 내용은 화면이 들고 있다.
  * 서버가 id 로 찾아 줄 수 있게 되면 이 인자는 빼면 된다.
  */
 export function createApi(
   backend: Backend,
   environmentId = "chicken-store",
-  getProfile?: (profileId: string) => ProfileData | undefined,
+  getSheet?: (sheetId: string) => OrderSheet | undefined,
 ): KioBridgeApi {
   // 세션 하나에 대해 서버가 뭐라고 답했는지. 승인 검사와 실행 조회의 기준이 된다.
   // 페어링 만료 시각. 승인 때 끝난 연결인지 다시 보려면 필요하다.
@@ -159,9 +174,18 @@ export function createApi(
   const 세션 = new Map<string, {
     rec: RecommendationResult;
     result: MappingResponse["result"];
-    profileId: string;
+    sheetId: string;
     expiresAt: number;
     executed?: boolean;
+    /*
+     * 거절한 세션. 지우지 않고 표시만 남긴다.
+     *
+     * 예전에는 reject 가 세션을 지웠다. 그러면 forgetAll 이 세션 목록으로
+     * 지울 대상을 찾을 때 이 페어링이 이미 없어서, 거절까지 갔던 사람의
+     * 정규화된 주문표(고른 알레르기·맵기 전부)가 메모리에 그대로 남았다.
+     * '이 기기에서 정보 지우기' 가 약속한 일이 실제로 안 일어난 것이다.
+     */
+    rejected?: boolean;
   }>();
 
   const 판정 = (r: RecommendationResult): MappingResponse["result"] => {
@@ -187,13 +211,13 @@ export function createApi(
       return out;
     },
 
-    async requestMapping(pairingId, profileId) {
-      // 서버에 프로필 저장소가 없으면 내용을 함께 보내야 한다. 있으면 id 만으로 충분하다.
-      const profile = getProfile?.(profileId);
+    async requestMapping(pairingId, sheetId) {
+      // 서버에 주문표 저장소가 없으면 내용을 함께 보내야 한다. 있으면 id 만으로 충분하다.
+      const profile = getSheet?.(sheetId);
       const env = 환경.get(pairingId) ?? environmentId;
-      const filtered = await backend.filterCandidates({ environmentId: env, profileId, ...(profile ? { profile } : {}) });
+      const filtered = await backend.filterCandidates({ environmentId: env, profileId: sheetId, ...(profile ? { profile } : {}) });
       const rec = await backend.recommend({
-        environmentId: env, profileId, survivingCandidateIds: filtered.survivingCandidateIds,
+        environmentId: env, profileId: sheetId, survivingCandidateIds: filtered.survivingCandidateIds,
         ...(profile ? { profile } : {}),
       });
       // 이름·가격을 추천이 안 주면 후보 필터가 준 것으로 채운다.
@@ -203,7 +227,7 @@ export function createApi(
       }
       const result = 판정(rec);
       세션.set(pairingId, {
-        rec, result, profileId,
+        rec, result, sheetId,
         // 페어링을 안 거치고 바로 매핑을 부르는 경우는 없어야 하지만,
         // 없으면 만료를 알 수 없으므로 0 으로 두어 승인에서 막힌다.
         expiresAt: 만료.get(pairingId) ?? 0,
@@ -252,7 +276,7 @@ export function createApi(
           // '맞았는지' 는 판단하지 않는다 — 어느 후보를 고르느냐에 따라 달라진다.
           // 서버가 준 matched 를 그대로 쓴다. 전부 true 로 덮으면
           // 어느 후보를 고르든 안 맞는 축이 있다는 사실이 사라진다.
-          profileOptions: rec.matchedOptions,
+          sheetOptions: rec.matchedOptions,
           // 상품 ID 를 화면으로 내보내지 않는다. 이번 응답 안에서만 쓰는 표식으로 바꾼다.
           candidates: 보일후보
             .map((id, i) => ({
@@ -283,8 +307,10 @@ export function createApi(
     async approve(input: ApproveInput): Promise<PlanCreated> {
       const s = 세션.get(input.pairingId);
       if (!s) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
+      // 아니라고 한 것을 뒤에서 되살리지 않는다. 담으려면 메뉴를 처음부터 다시 찾는다.
+      if (s.rejected) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
       // client.ts 와 같은 검사를 여기서도 한다. 한쪽만 막으면 구현을 바꿀 때 샌다.
-      if (s.profileId !== input.profileId) {
+      if (s.sheetId !== input.sheetId) {
         throw new KioBridgeError("PROFILE_MISMATCH", "메뉴를 다시 찾아 주세요", true);
       }
       if (s.expiresAt <= Date.now()) {
@@ -339,9 +365,9 @@ export function createApi(
       let planId: string;
       try {
         // 제출 → 검증 → 실행. 어느 단계에서 멈췄는지 구분해서 알린다.
-        // 프로필 내용을 함께 넘긴다. 팀 백엔드는 프로필 저장소가 없어서
+        // 주문표 내용을 함께 넘긴다. 팀 백엔드는 주문표 저장소가 없어서
         // 승인 때도 내용을 다시 받아야 제출물을 조립할 수 있다.
-        const profile = getProfile?.(input.profileId);
+        const profile = getSheet?.(input.sheetId);
         await backend.submit(input.pairingId, { ...input, candidateId, ...(profile ? { profile } : {}) });
         const v = await backend.validate(input.pairingId);
         if (!v.valid) {
@@ -357,16 +383,51 @@ export function createApi(
       return { planId: `${input.pairingId}::${planId}` };
     },
 
-    // 서버에 지우기 경로가 생기면 여기서 함께 부른다. 지금은 이 계층이 들고 있는
-    // 것만 지운다. 세션 Map 은 비우는 경로가 없으면 무한히 자라기도 한다.
+    /**
+     * 승인하지 않겠다는 결정을 서버에 남긴다.
+     *
+     * 실패해도 던지지 않는다. 사용자는 이미 "그만두겠다" 고 했고, 그 뒤에
+     * 오류 화면을 띄우면 나가려는 사람을 붙잡는 셈이다. 기록은 서버 사정이지
+     * 사용자가 감당할 일이 아니다.
+     */
+    async reject(input) {
+      const s = 세션.get(input.pairingId);
+      // 매핑도 안 한 상태면 거절할 대상이 없다. 조용히 끝낸다.
+      if (!s || s.sheetId !== input.sheetId) return;
+      // 지우지 않고 표시만 한다. 지우면 forgetAll 이 이 페어링을 못 찾아서,
+      // 거절까지 갔던 사람의 정규화된 주문표가 '정보 지우기' 뒤에도 남는다.
+      s.rejected = true;
+      if (!backend.reject) return;
+      try {
+        const profile = getSheet?.(input.sheetId);
+        await backend.reject(input.pairingId, { ...input, ...(profile ? { profile } : {}) });
+      } catch {
+        // 기록에 실패해도 화면은 되돌아간다.
+      }
+    },
+
+    /**
+     * '이 기기에서 정보 지우기'.
+     *
+     * 이 계층이 들고 있는 것을 전부 비운다. 서버에 지우기 경로가 생기면 여기서
+     * 함께 부른다 — 지금은 백엔드에 그 경로가 없어서, 이미 올라간 주문표와
+     * 승인·거절 기록은 남는다. 그 사실은 개인정보 안내 화면이 그대로 말한다.
+     * 지운 척하지 않는 것이 여기서 할 수 있는 전부다.
+     *
+     * 붙인 구현이 들고 있는 것도 함께 비운다. 세션이 하나도 없을 때도 부른다 —
+     * 예전에는 세션 목록으로만 돌아서, 거절해서 세션이 비었거나 매핑 전에
+     * 지운 경우에 정규화된 주문표가 그대로 남았다.
+     */
     async forgetAll() {
-      // 서버에 지우기 경로가 있으면 함께 부른다. 없으면 이 계층 것만 지운다.
       const ids = [...세션.keys()];
       세션.clear();
       만료.clear();
       환경.clear();
+      // 화면이 주문에 쓰라고 등록해 둔 주문표 사본. 여기 남으면 '모두 지워요' 가
+      // 사실이 아니다. 목(mockApi)은 이미 지우고 있었고 이 경로만 빠져 있었다.
+      clearSheets();
       if (backend.forgetSession) {
-        await Promise.all(ids.map((id) => backend.forgetSession!(id)));
+        await Promise.all((ids.length > 0 ? ids : [""]).map((id) => backend.forgetSession!(id)));
       }
     },
 
@@ -386,7 +447,9 @@ export function createApi(
           abort: { ...(e.abort ?? { code: "UNKNOWN", title: "안전을 위해 중단되었습니다", message: "예상하지 못한 화면이 감지되어 작동을 멈췄어요.", userAction: "직원 초기화를 기다려 주세요" }), recoverable: false },
         };
       }
-      if (e.state === "cart_ready") return { state: "cart_ready", steps, cart: e.cart };
+      if (e.state === "cart_ready") {
+        return { state: "cart_ready", steps, cart: e.cart, ...(e.note ? { note: e.note } : {}) };
+      }
       return { state: "running", steps };
     },
   };
@@ -439,6 +502,22 @@ interface ExecuteResult {
     executedActions?: unknown[];
     reviewSnapshot?: ReviewSnapshot;
   };
+}
+
+/**
+ * POST /internal/orchestrator/approve 응답 (#48 이후).
+ *
+ * 예전에는 ExecuteResult 가 그대로 왔고, 지금은 한 겹 감싸여 온다.
+ *   기존: { valid, run, evidence, validation }
+ *   이후: { valid, summary, raw }   ← raw 안에 위의 것이 그대로 있다
+ *
+ * 둘 다 받는다. #48 이 머지되기 전에도 뒤에도 같은 코드로 돈다.
+ */
+interface ApprovalResult {
+  valid: boolean;
+  /** 서버가 증거를 읽어 만든 한 줄 요약. 화면은 recommendation 만 쓴다. */
+  summary?: { status?: string; recommendation?: string; stopReason?: string };
+  raw?: ExecuteResult;
 }
 
 /** 킷 fixture 의 후보. candidate-filters 가 이 모양으로 돌려준다. */
@@ -496,7 +575,7 @@ interface RecommendationResponse {
  *
  * 서버가 값을 안 주는 축은 넣지 않는다. 모르는 것을 '맞았다' 고 하지 않는다.
  */
-function 확인표(c: KitCandidate | undefined, p: ProfileData): MappedOption[] {
+function 확인표(c: KitCandidate | undefined, p: OrderSheet): MappedOption[] {
   if (!c) return [];
   const ctx = toChickenStoreContext(p);
   const 축: { label: string; 고른: string | number | null; 후보: string | undefined; 어긋날때: string }[] = [
@@ -536,6 +615,27 @@ const 원 = (n: number | undefined) => (typeof n === "number" ? `${n.toLocaleStr
  * 한글이 아닌 이름은 판별할 방법이 없어 받침 없는 쪽으로 둔다.
  */
 /** 사용자가 고른 후보를 1순위로 올린다. 대안 목록도 함께 맞춘다. */
+/*
+ * 서버가 준 summary.status(#48)를 이 앱의 말투로 옮긴다.
+ *
+ * 서버 문장은 이미 한국어지만 '~되었습니다' 체다. 이 앱은 처음부터 끝까지
+ * '~해요' 로 말하는데, 마지막 화면에서만 문체가 바뀌면 거기부터는 앱이
+ * 사용자에게 하는 말이 아니라 기계가 뱉은 말로 읽힌다.
+ *
+ * stopType 만 보면 서버가 '실행할 수 없습니다' 로 판단한 경우를 구분하지 못한다.
+ * 그래서 중단 화면 제목은 이 표를 먼저 본다.
+ *
+ * 지금은 코드가 없고 문장만 온다(EvidenceSummary.status). 서버가 문구를 바꾸면
+ * 여기가 안 맞으므로 모르는 값이면 우리 문구로 물러난다 — 서버 문장을 그대로
+ * 올리지는 않는다. 문장 대신 코드로 달라고 docs 에 적어 두었다.
+ */
+const 앱말투: Record<string, string> = {
+  "정상적으로 장바구니에 추가되었습니다.": "장바구니에 담았어요",
+  "실행할 수 없습니다.": "담을 수 없어요",
+  "안전하게 중단되었습니다.": "안전을 위해 멈췄어요",
+  "처리 중 문제가 발생했습니다.": "끝까지 담지 못했어요",
+};
+
 function 고른것반영(rec: RecommendationResponse, 고른: string | undefined): RecommendationResponse {
   if (!고른 || 고른 === rec.recommendedCandidateId) return rec;
   const 대안 = (rec.alternativeCandidateIds ?? []).filter((id) => id !== 고른);
@@ -586,20 +686,34 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 실행결과 = new Map<string, ExecuteResult>();
   // 서버가 준 추천을 그대로 승인 요청에 되돌려 줘야 한다. 화면은 이 값을 보지 않는다.
   const 추천 = new Map<string, RecommendationResponse>();
+  // 승인 응답에 실려 온 서버 요약(#48). 결과 화면의 한 줄로 쓴다.
+  const 서버요약 = new Map<string, { status?: string; recommendation?: string; stopReason?: string }>();
   // 후보 필터가 준 후보들. 이름·가격과 축별 값이 여기 있다.
   const 후보 = new Map<string, Map<string, KitCandidate>>();
-  // 정규화를 거친 프로필·세션 맥락. 매핑과 승인이 같은 값을 쓴다.
-  // 키는 환경 + 정규화에 넣은 입력 전체다. 프로필 id 만 쓰면 프로필을 고치거나
+  // 정규화를 거친 주문표·세션 맥락. 매핑과 승인이 같은 값을 쓴다.
+  // 키는 환경 + 정규화에 넣은 입력 전체다. 주문표 id 만 쓰면 주문표를 고치거나
   // 다른 키오스크에 붙었을 때 낡은 값을 그대로 쓰게 된다.
   const 정규화됨 = new Map<string, { profile: CanonicalProfile; sessionContext: ChickenStoreSessionContext }>();
-  // 승인은 매핑 때 쓴 그 키를 찾아야 한다. 프로필별로 마지막 키를 기억해 둔다.
+  // 승인은 매핑 때 쓴 그 키를 찾아야 한다. 주문표별로 마지막 키를 기억해 둔다.
   const 마지막키 = new Map<string, string>();
 
-  const 캐시키 = (environmentId: string, p: ProfileData) => {
+  /*
+   * 위 네 Map(추천·후보·마지막키와 그 짝)은 주문표 id 를 키로 쓴다.
+   *
+   * 이건 "이 앱은 한 번에 연결 하나만 든다" 를 전제로 한다. App.tsx 가 pairingId 를
+   * 하나만 들고, QR 을 새로 찍으면 앞 연결을 대체하면서 확인 화면도 닫는다.
+   * 그래서 같은 주문표로 두 연결이 겹칠 일이 없다.
+   *
+   * 여러 연결을 동시에 다루게 되면 이 전제가 깨진다. 뒤 요청이 앞 요청의 추천과
+   * 정규화 결과를 덮어써서, 앞 세션의 승인이 사용자가 확인한 것과 다른 내용을
+   * 제출할 수 있다. 그때는 키를 pairingId(또는 서버 sessionId)로 옮겨야 한다.
+   */
+
+  const 캐시키 = (environmentId: string, p: OrderSheet) => {
     // collectedAt 은 부를 때마다 달라진다(현재 시각). 키에 넣으면 캐시가 한 번도
     // 안 맞는다. 결과를 바꾸는 건 고른 조건과 접근성 설정이라 그것만 넣는다.
-    const { collectedAt: _버림, ...프로필 } = toProfileNormalizationInput(p);
-    const 키 = `${environmentId}|${JSON.stringify(프로필)}|${JSON.stringify(toContextNormalizationInput(p).contextInput)}`;
+    const { collectedAt: _버림, ...주문표 } = toProfileNormalizationInput(p);
+    const 키 = `${environmentId}|${JSON.stringify(주문표)}|${JSON.stringify(toContextNormalizationInput(p).contextInput)}`;
     마지막키.set(p.id, 키);
     return 키;
   };
@@ -612,11 +726,11 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
    *   - 킷 스키마에 맞는지 아무도 확인하지 않는다. 승인 때 가서야 터진다.
    *
    * 정규화 경로는 원자료를 받아 표준형을 만들어 주고 킷으로 검증까지 해 준다.
-   * 그걸 그대로 후보 필터·추천·승인에 쓴다. 결과는 프로필당 한 번만 받아 둔다.
+   * 그걸 그대로 후보 필터·추천·승인에 쓴다. 결과는 주문표당 한 번만 받아 둔다.
    */
-  const 정규화 = async (environmentId: string, p: ProfileData) => {
-    // 같은 프로필이라도 붙은 키오스크가 다르면 표준형이 달라질 수 있다.
-    // 프로필 내용을 고쳤을 때도 낡은 값을 쓰면 안 된다. 둘 다 키에 넣는다.
+  const 정규화 = async (environmentId: string, p: OrderSheet) => {
+    // 같은 주문표라도 붙은 키오스크가 다르면 표준형이 달라질 수 있다.
+    // 주문표 내용을 고쳤을 때도 낡은 값을 쓰면 안 된다. 둘 다 키에 넣는다.
     const 키 = 캐시키(environmentId, p);
     const 있음 = 정규화됨.get(키);
     if (있음) return 있음;
@@ -646,7 +760,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       throw new KioBridgeError("RECONFIRM_REQUIRED", 첫줄 ?? "저장하신 조건을 다시 확인해 주세요", true);
     }
 
-    // 마지막 관문. 프로필과 세션 맥락을 합쳐 놓고 다시 본다.
+    // 마지막 관문. 주문표와 세션 맥락을 합쳐 놓고 다시 본다.
     //
     // 개별 정규화는 각자 반쪽만 검사한다. 합쳐야 보이는 게 있다 —
     // 특히 알레르기가 UNKNOWN 이면 여기서만 걸린다.
@@ -672,7 +786,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       throw new KioBridgeError(
         오류[0]?.code ?? "NOT_RECOMMENDATION_READY",
         알레르기모름
-          ? "저장하신 알레르기 중에 저희가 확인하지 못한 것이 있어요. 프로필에서 다시 골라 주시거나 직원에게 도움을 청해 주세요."
+          ? "저장하신 알레르기 중에 저희가 확인하지 못한 것이 있어요. 주문표에서 다시 골라 주시거나 직원에게 도움을 청해 주세요."
           : "저장하신 조건을 다시 확인해 주세요.",
         true,
       );
@@ -714,14 +828,15 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
      * 이 계층이 들고 있는 것을 비운다.
      *
      * 화면의 '이 기기에서 정보 지우기' 가 여기까지 닿아야 한다. 안 그러면
-     * 정규화된 프로필과 세션 맥락(고른 알레르기·맵기 전부)이 메모리에 그대로
+     * 정규화된 주문표와 세션 맥락(고른 알레르기·맵기 전부)이 메모리에 그대로
      * 남는다. 화면이 약속한 일이 실제로 일어나지 않는 것이다.
      *
-     * 세션 하나만 지우라고 불려도 프로필 단위 캐시까지 비운다. 이 계층은
+     * 세션 하나만 지우라고 불려도 주문표 단위 캐시까지 비운다. 이 계층은
      * 한 번에 한 사람을 도우므로, 남겨 둘 이유가 없다.
      */
     async forgetSession(sessionId) {
       실행결과.delete(sessionId);
+      서버요약.delete(sessionId);
       추천.clear();
       후보.clear();
       정규화됨.clear();
@@ -757,7 +872,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
      * 추천 응답에는 그 값이 없어서, 이게 없으면 화면에 상품 ID 밖에 보여 줄 게 없다.
      */
     async filterCandidates({ environmentId, profile }) {
-      if (!profile) throw new KioBridgeError("PROFILE_REQUIRED", "프로필을 찾을 수 없어요", false);
+      if (!profile) throw new KioBridgeError("PROFILE_REQUIRED", "주문표를 찾을 수 없어요", false);
       const { sessionContext } = await 정규화(environmentId, profile);
       const r = await 보내기<CandidateFilterResponse>("/api/v1/candidate-filters", { environmentId, sessionContext });
 
@@ -795,7 +910,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
      * 그 판단이 옳아서 여기서도 따로 보내지 않는다.
      */
     async recommend({ environmentId, profile }) {
-      if (!profile) throw new KioBridgeError("PROFILE_REQUIRED", "프로필을 찾을 수 없어요", false);
+      if (!profile) throw new KioBridgeError("PROFILE_REQUIRED", "주문표를 찾을 수 없어요", false);
       const 정 = await 정규화(environmentId, profile);
       const r = await 보내기<RecommendationResponse>("/api/v1/recommendations", {
         environmentId, profile: 정.profile, sessionContext: 정.sessionContext,
@@ -843,9 +958,9 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
      * P0-4 는 그대로다 — 이 호출은 승인 버튼 핸들러 안에서만 일어난다.
      */
     async submit(sessionId, submission) {
-      const input = submission as ApproveInput & { candidateId?: string; profile?: ProfileData };
+      const input = submission as ApproveInput & { candidateId?: string; profile?: OrderSheet };
       const profile = input.profile;
-      if (!profile) throw new KioBridgeError("PROFILE_REQUIRED", "프로필을 찾을 수 없어요", false);
+      if (!profile) throw new KioBridgeError("PROFILE_REQUIRED", "주문표를 찾을 수 없어요", false);
       const rec = 추천.get(profile.id);
       if (!rec) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
 
@@ -854,7 +969,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       const 키 = 마지막키.get(profile.id);
       const 정 = 키 ? 정규화됨.get(키) : undefined;
       if (!정) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
-      const r = await 보내기<ExecuteResult>("/internal/orchestrator/approve", {
+      const r = await 보내기<ApprovalResult>("/internal/orchestrator/approve", {
         sessionId,
         profile: 정.profile,
         sessionContext: 정.sessionContext,
@@ -867,7 +982,9 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // note 는 선택 필드다. null 을 보내면 킷 스키마가 'must be string' 으로 막는다.
         userDecision: { approved: true, decision: "APPROVE", confirmedAt: new Date().toISOString() },
       });
-      실행결과.set(sessionId, r);
+      // #48 이후에는 { valid, summary, raw } 로 감싸여 온다. 둘 다 받는다.
+      실행결과.set(sessionId, r.raw ?? (r as unknown as ExecuteResult));
+      if (r.summary) 서버요약.set(sessionId, r.summary);
     },
 
     // 서버가 실제로 판단한 결과를 읽는다.
@@ -892,6 +1009,36 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       return { planId: r.evidence?.runId ?? sessionId };
     },
 
+    /**
+     * POST /internal/orchestrator/approve — approved: false 로 보낸다.
+     *
+     * 같은 경로다. 백엔드가 userDecision.approved 를 보고 빈 실행계획을 만들어
+     * 제출·검증까지만 가고 실행은 건너뛴다(ExecutionPlanService).
+     * 키오스크는 건드려지지 않는다.
+     */
+    async reject(sessionId, payload) {
+      const input = payload as RejectInput & { profile?: OrderSheet };
+      const profile = input.profile;
+      if (!profile) return;
+      const 키 = 마지막키.get(profile.id);
+      const 정 = 키 ? 정규화됨.get(키) : undefined;
+      const rec = 추천.get(profile.id);
+      // 매핑을 안 거쳤으면 서버에 보낼 재료가 없다. 기록을 포기하고 넘어간다.
+      if (!정 || !rec) return;
+      await 보내기("/internal/orchestrator/approve", {
+        sessionId,
+        profile: 정.profile,
+        sessionContext: 정.sessionContext,
+        recommendation: rec,
+        userDecision: {
+          approved: false,
+          decision: "REJECT",
+          confirmedAt: new Date().toISOString(),
+          ...(input.note ? { note: input.note } : {}),
+        },
+      });
+    },
+
     // 증거는 submit-and-run 응답에 이미 실려 왔다. 따로 조회하지 않는다.
     // 예전에는 명세에만 있는 GET 경로를 불렀는데 백엔드에 그 경로가 없다.
     async getEvidence(sessionId) {
@@ -909,18 +1056,26 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       const state: EvidenceSummary["state"] =
         e.result === "PASS" ? "cart_ready" : e.result === "FAIL" ? "aborted" : "running";
 
+      const 요약 = 서버요약.get(sessionId);
       return {
         state,
         // 몇 번째 화면까지 갔는지. 실행한 동작 수가 그대로 진행도다.
         reachedStep: e.executedActions?.length ?? 0,
+        // 담긴 화면의 제목은 우리 문구다("장바구니에 담았어요"). status 를 여기에
+        // 또 쓰면 같은 말이 두 번 나온다. 그래서 성공했을 때는 왜 이 메뉴였는지를
+        // 말해 주는 recommendation 만 한 줄로 올린다.
+        ...(state === "cart_ready" && 요약?.recommendation ? { note: 요약.recommendation } : {}),
         ...(state === "cart_ready" ? { cart: 장바구니(e.reviewSnapshot) } : {}),
         ...(state === "aborted"
           ? {
               abort: {
                 code: e.stopType ?? "UNKNOWN",
-                title: 안전중단 ? "안전을 위해 중단되었습니다" : "끝까지 담지 못했어요",
+                // 서버가 분류한 결과를 제목으로 쓴다. stopType 만 보면 서버가
+                // '실행할 수 없습니다' 로 판단한 경우를 구분하지 못한다.
+                title: 앱말투[요약?.status ?? ""]
+                  ?? (안전중단 ? "안전을 위해 멈췄어요" : "끝까지 담지 못했어요"),
                 // 서버가 이유를 주면 그대로 쓴다. 지어내지 않는다.
-                message: e.stopReason ?? (안전중단
+                message: e.stopReason ?? 서버요약.get(sessionId)?.stopReason ?? (안전중단
                   ? "예상하지 못한 화면이 감지되어 작동을 멈췄어요."
                   : "키오스크가 예상과 다르게 움직여서 멈췄어요."),
                 // 안전 중단은 기계가 중간 상태일 수 있어 직원 초기화가 필요하다.
