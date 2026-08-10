@@ -697,6 +697,18 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   // 승인은 매핑 때 쓴 그 키를 찾아야 한다. 주문표별로 마지막 키를 기억해 둔다.
   const 마지막키 = new Map<string, string>();
 
+  /*
+   * 위 네 Map(추천·후보·마지막키와 그 짝)은 주문표 id 를 키로 쓴다.
+   *
+   * 이건 "이 앱은 한 번에 연결 하나만 든다" 를 전제로 한다. App.tsx 가 pairingId 를
+   * 하나만 들고, QR 을 새로 찍으면 앞 연결을 대체하면서 확인 화면도 닫는다.
+   * 그래서 같은 주문표로 두 연결이 겹칠 일이 없다.
+   *
+   * 여러 연결을 동시에 다루게 되면 이 전제가 깨진다. 뒤 요청이 앞 요청의 추천과
+   * 정규화 결과를 덮어써서, 앞 세션의 승인이 사용자가 확인한 것과 다른 내용을
+   * 제출할 수 있다. 그때는 키를 pairingId(또는 서버 sessionId)로 옮겨야 한다.
+   */
+
   const 캐시키 = (environmentId: string, p: OrderSheet) => {
     // collectedAt 은 부를 때마다 달라진다(현재 시각). 키에 넣으면 캐시가 한 번도
     // 안 맞는다. 결과를 바꾸는 건 고른 조건과 접근성 설정이라 그것만 넣는다.
