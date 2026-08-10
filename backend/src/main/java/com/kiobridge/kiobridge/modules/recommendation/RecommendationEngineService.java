@@ -69,6 +69,7 @@ public class RecommendationEngineService {
     private static final String BONE_TYPE_MATCH_REASON = "선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.";
     private static final String BEST_REMAINING_REASON = "남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.";
     private static final String RECONFIRMATION_REASON = "일부 정보의 확신도가 낮아 다시 확인이 필요합니다.";
+    private static final String STAFF_ASSISTANCE_REASON = "직원 도움을 선호하시는 것으로 확인돼, 필요하시면 언제든 직원을 불러드릴게요.";
     private static final String SERVICE_TYPE_UNMET_TEXT = "선호하신 이용 방식과 다릅니다.";
     private static final String SPICY_LEVEL_UNMET_TEXT = "선호하신 맵기와 다릅니다.";
     private static final String BONE_TYPE_UNMET_TEXT = "선호하신 뼈/순살과 다릅니다.";
@@ -92,7 +93,7 @@ public class RecommendationEngineService {
         Objects.requireNonNull(profile, "profile은 null일 수 없습니다.");
 
         if (filterResult.eligibleCandidates().isEmpty()) {
-            return buildNoEligibleCandidateRecommendation(filterResult);
+            return buildNoEligibleCandidateRecommendation(filterResult, profile);
         }
 
         List<ScoredCandidate> rankedCandidates = filterResult.eligibleCandidates().stream()
@@ -119,20 +120,24 @@ public class RecommendationEngineService {
             buildAlternativeCandidateIds(rankedCandidates, recommendedCandidateId),
             filterResult.excludedCandidates(),
             topCandidate.scoreBreakdown(),
-            buildRecommendationReasons(recommendedWarnings, recommendedPasses, recommendedBoneTypeMatch, recommendedNeedsReconfirmation),
+            buildRecommendationReasons(recommendedWarnings, recommendedPasses, recommendedBoneTypeMatch, recommendedNeedsReconfirmation, profile),
             buildUnmetConditions(recommendedWarnings, recommendedBoneTypeMatch, recommendedNeedsReconfirmation),
             confidence,
             requiresReconfirmation
         );
     }
 
-    private static Recommendation buildNoEligibleCandidateRecommendation(CandidateFilterResult filterResult) {
+    private static Recommendation buildNoEligibleCandidateRecommendation(CandidateFilterResult filterResult, CanonicalProfile profile) {
+        List<String> reasons = new ArrayList<>(List.of(NO_ELIGIBLE_CANDIDATE_REASON));
+        if (prefersStaffAssistance(profile)) {
+            reasons.add(STAFF_ASSISTANCE_REASON);
+        }
         return new Recommendation(
             null,
             List.of(),
             filterResult.excludedCandidates(),
             Map.of(),
-            List.of(NO_ELIGIBLE_CANDIDATE_REASON),
+            List.copyOf(reasons),
             List.of(),
             MIN_CONFIDENCE,
             false
@@ -294,7 +299,7 @@ public class RecommendationEngineService {
 
     private static List<String> buildRecommendationReasons(
         List<RuleEvaluationResult> recommendedWarnings, List<RuleEvaluationResult> recommendedPasses,
-        BoneTypeMatch recommendedBoneTypeMatch, boolean needsReconfirmation
+        BoneTypeMatch recommendedBoneTypeMatch, boolean needsReconfirmation, CanonicalProfile profile
     ) {
         List<String> reasons = new ArrayList<>();
         if (hasPass(recommendedPasses, SERVICE_TYPE_PREFERENCE_RULE_ID)) {
@@ -312,7 +317,14 @@ public class RecommendationEngineService {
         if (needsReconfirmation) {
             reasons.add(RECONFIRMATION_REASON);
         }
+        if (prefersStaffAssistance(profile)) {
+            reasons.add(STAFF_ASSISTANCE_REASON);
+        }
         return List.copyOf(reasons);
+    }
+
+    private static boolean prefersStaffAssistance(CanonicalProfile profile) {
+        return profile != null && profile.accessibility() != null && profile.accessibility().staffAssistancePreferred();
     }
 
     private static List<String> buildUnmetConditions(
