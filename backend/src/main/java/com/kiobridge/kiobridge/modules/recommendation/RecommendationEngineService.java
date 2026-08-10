@@ -2,6 +2,7 @@ package com.kiobridge.kiobridge.modules.recommendation;
 
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.Recommendation;
+import com.kiobridge.kiobridge.contracts.input.context.BoneType;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.contracts.input.context.SpicyLevel;
 import com.kiobridge.kiobridge.contracts.input.profile.CanonicalProfile;
@@ -26,18 +27,26 @@ public class RecommendationEngineService {
     private static final String SERVICE_TYPE_MISMATCH_CODE = "SERVICE_TYPE_MISMATCH";
     private static final String SPICY_LEVEL_MISMATCH_CODE = "SPICY_LEVEL_MISMATCH";
     private static final String SPICY_LEVEL_OPTION_KEY = "SPICY_LEVEL";
+    // Kit의 compatibility-rules.json엔 boneType을 다루는 CANDIDATE-scope 규칙이 없다(EXECUTION_CHOICE인
+    // CHICKEN_SELECTED_BONE_TYPE만 있음) — 그래서 WARN/PASS를 STEP4에서 받아올 수 없고, price처럼
+    // candidate.supportedOptions()와 ctx.preferences()를 직접 비교하는 방식으로 자체 판단한다.
+    private static final String BONE_TYPE_OPTION_KEY = "BONE_TYPE";
 
     private static final String SERVICE_TYPE_PREFERENCE_RULE_ID = "CHICKEN_SERVICE_TYPE_PREFERENCE";
     private static final String SPICY_LEVEL_PREFERENCE_RULE_ID = "CHICKEN_SPICY_LEVEL_PREFERENCE";
 
     private static final String SERVICE_TYPE_SCORE_KEY = "serviceTypeMatch";
     private static final String SPICY_LEVEL_SCORE_KEY = "spicyLevelMatch";
+    private static final String BONE_TYPE_SCORE_KEY = "boneTypeMatch";
     private static final String PRICE_SCORE_KEY = "priceScore";
 
     private static final double PREFERENCE_MATCH_BONUS = 1.0;
     private static final double PREFERENCE_MISMATCH_PENALTY = -0.3;
     private static final double PREFERENCE_PARTIAL_MISMATCH_PENALTY = -0.15;
     private static final double PREFERENCE_UNKNOWN_SCORE = 0.0;
+    // 뼈/순살은 serviceType/spicyLevel보다 우선순위를 낮게 두기로 해서(팀 합의) 절반 가중치를 쓴다.
+    private static final double BONE_TYPE_MATCH_BONUS = 0.5;
+    private static final double BONE_TYPE_MISMATCH_PENALTY = -0.15;
     private static final int ADJACENT_SPICY_LEVEL_DISTANCE = 1;
     private static final int UNRESOLVABLE_SPICY_LEVEL_DISTANCE = Integer.MAX_VALUE;
 
@@ -57,10 +66,12 @@ public class RecommendationEngineService {
     private static final String NO_ELIGIBLE_CANDIDATE_REASON = "조건에 맞는 메뉴를 찾지 못해 추천드릴 항목이 없습니다.";
     private static final String SERVICE_TYPE_MATCH_REASON = "선호하신 이용 방식과 일치하는 메뉴라 우선 추천드립니다.";
     private static final String SPICY_LEVEL_MATCH_REASON = "선호하신 맵기와 맞는 메뉴라 우선 추천드립니다.";
+    private static final String BONE_TYPE_MATCH_REASON = "선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.";
     private static final String BEST_REMAINING_REASON = "남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.";
     private static final String RECONFIRMATION_REASON = "일부 정보의 확신도가 낮아 다시 확인이 필요합니다.";
     private static final String SERVICE_TYPE_UNMET_TEXT = "선호하신 이용 방식과 다릅니다.";
     private static final String SPICY_LEVEL_UNMET_TEXT = "선호하신 맵기와 다릅니다.";
+    private static final String BONE_TYPE_UNMET_TEXT = "선호하신 뼈/순살과 다릅니다.";
     private static final String RECONFIRMATION_UNMET_TEXT = "확신도가 낮아 재확인이 필요한 항목이 있습니다.";
 
     private static final Comparator<ScoredCandidate> RANKING_COMPARATOR =
@@ -69,6 +80,10 @@ public class RecommendationEngineService {
             .thenComparing(scored -> scored.candidate().candidateId());
 
     private record ScoredCandidate(Candidate candidate, double totalScore, Map<String, Double> scoreBreakdown) {}
+
+    // boneType은 규칙 기반 WARN/PASS가 없어서 이 3가지 상태를 직접 판단해 scoring과 reasons/unmetConditions
+    // 양쪽에서 재사용한다 (같은 판단을 두 번 다른 방식으로 하지 않기 위함).
+    private enum BoneTypeMatch { MATCHED, MISMATCHED, UNKNOWN }
 
     //메인 진입점
     public Recommendation recommend(CandidateFilterResult filterResult, ChickenStoreSessionContext ctx, CanonicalProfile profile) {
@@ -92,6 +107,7 @@ public class RecommendationEngineService {
             filterResult.warningsByCandidateId().getOrDefault(recommendedCandidateId, List.of());
         List<RuleEvaluationResult> recommendedPasses =
             filterResult.passesByCandidateId().getOrDefault(recommendedCandidateId, List.of());
+        BoneTypeMatch recommendedBoneTypeMatch = resolveBoneTypeMatch(topCandidate.candidate(), ctx);
         boolean recommendedNeedsReconfirmation =
             !filterResult.reconfirmationsByCandidateId().getOrDefault(recommendedCandidateId, List.of()).isEmpty();
 
@@ -103,8 +119,8 @@ public class RecommendationEngineService {
             buildAlternativeCandidateIds(rankedCandidates, recommendedCandidateId),
             filterResult.excludedCandidates(),
             topCandidate.scoreBreakdown(),
-            buildRecommendationReasons(recommendedWarnings, recommendedPasses, recommendedNeedsReconfirmation),
-            buildUnmetConditions(recommendedWarnings, recommendedNeedsReconfirmation),
+            buildRecommendationReasons(recommendedWarnings, recommendedPasses, recommendedBoneTypeMatch, recommendedNeedsReconfirmation),
+            buildUnmetConditions(recommendedWarnings, recommendedBoneTypeMatch, recommendedNeedsReconfirmation),
             confidence,
             requiresReconfirmation
         );
@@ -142,6 +158,7 @@ public class RecommendationEngineService {
         Map<String, Double> scoreBreakdown = new LinkedHashMap<>();
         scoreBreakdown.put(SERVICE_TYPE_SCORE_KEY, scoreServiceType(warnings, passes));
         scoreBreakdown.put(SPICY_LEVEL_SCORE_KEY, scoreSpicyLevel(candidate, ctx, warnings, passes));
+        scoreBreakdown.put(BONE_TYPE_SCORE_KEY, scoreBoneType(candidate, ctx));
         scoreBreakdown.put(PRICE_SCORE_KEY, scorePrice(candidate, ctx));
         return Map.copyOf(scoreBreakdown);
     }
@@ -195,6 +212,38 @@ public class RecommendationEngineService {
         return level == SpicyLevel.NO_PREFERENCE || level == SpicyLevel.UNKNOWN;
     }
 
+    private static double scoreBoneType(Candidate candidate, ChickenStoreSessionContext ctx) {
+        return switch (resolveBoneTypeMatch(candidate, ctx)) {
+            case MATCHED -> BONE_TYPE_MATCH_BONUS;
+            case MISMATCHED -> BONE_TYPE_MISMATCH_PENALTY;
+            case UNKNOWN -> PREFERENCE_UNKNOWN_SCORE;
+        };
+    }
+
+    // 뼈/순살은 일치/불일치/판단불가 3갈래
+    private static BoneTypeMatch resolveBoneTypeMatch(Candidate candidate, ChickenStoreSessionContext ctx) {
+        BoneType preferredBoneType = ctx.preferences().boneType();
+        if (preferredBoneType == null || isNeutralBoneType(preferredBoneType)) {
+            return BoneTypeMatch.UNKNOWN;
+        }
+        List<String> supportedBoneTypes = candidateSupportedBoneTypes(candidate);
+        if (supportedBoneTypes.isEmpty()) {
+            // 후보가 이 항목 자체를 선언하지 않았다 — 맞다/틀리다 판단할 근거가 없다.
+            return BoneTypeMatch.UNKNOWN;
+        }
+        return supportedBoneTypes.contains(preferredBoneType.name()) ? BoneTypeMatch.MATCHED : BoneTypeMatch.MISMATCHED;
+    }
+
+    private static boolean isNeutralBoneType(BoneType boneType) {
+        return boneType == BoneType.NO_PREFERENCE || boneType == BoneType.UNKNOWN;
+    }
+
+    private static List<String> candidateSupportedBoneTypes(Candidate candidate) {
+        return candidate.supportedOptions() == null
+            ? List.of()
+            : candidate.supportedOptions().getOrDefault(BONE_TYPE_OPTION_KEY, List.of());
+    }
+
     private static double scorePrice(Candidate candidate, ChickenStoreSessionContext ctx) {
         BigDecimal maxPriceKrw = ctx.hardConstraints().maxPriceKrw();
         if (maxPriceKrw == null || maxPriceKrw.signum() <= 0 || candidate.price() == null) {
@@ -245,7 +294,7 @@ public class RecommendationEngineService {
 
     private static List<String> buildRecommendationReasons(
         List<RuleEvaluationResult> recommendedWarnings, List<RuleEvaluationResult> recommendedPasses,
-        boolean needsReconfirmation
+        BoneTypeMatch recommendedBoneTypeMatch, boolean needsReconfirmation
     ) {
         List<String> reasons = new ArrayList<>();
         if (hasPass(recommendedPasses, SERVICE_TYPE_PREFERENCE_RULE_ID)) {
@@ -253,6 +302,9 @@ public class RecommendationEngineService {
         }
         if (hasPass(recommendedPasses, SPICY_LEVEL_PREFERENCE_RULE_ID)) {
             reasons.add(SPICY_LEVEL_MATCH_REASON);
+        }
+        if (recommendedBoneTypeMatch == BoneTypeMatch.MATCHED) {
+            reasons.add(BONE_TYPE_MATCH_REASON);
         }
         if (reasons.isEmpty()) {
             reasons.add(BEST_REMAINING_REASON);
@@ -263,10 +315,15 @@ public class RecommendationEngineService {
         return List.copyOf(reasons);
     }
 
-    private static List<String> buildUnmetConditions(List<RuleEvaluationResult> recommendedWarnings, boolean needsReconfirmation) {
+    private static List<String> buildUnmetConditions(
+        List<RuleEvaluationResult> recommendedWarnings, BoneTypeMatch recommendedBoneTypeMatch, boolean needsReconfirmation
+    ) {
         List<String> unmetConditions = recommendedWarnings.stream()
             .map(RecommendationEngineService::describeUnmetWarning)
             .collect(Collectors.toCollection(ArrayList::new));
+        if (recommendedBoneTypeMatch == BoneTypeMatch.MISMATCHED) {
+            unmetConditions.add(BONE_TYPE_UNMET_TEXT);
+        }
         if (needsReconfirmation) {
             unmetConditions.add(RECONFIRMATION_UNMET_TEXT);
         }
