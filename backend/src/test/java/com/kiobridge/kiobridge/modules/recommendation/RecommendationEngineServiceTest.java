@@ -124,9 +124,15 @@ class RecommendationEngineServiceTest {
 
         Map<String, List<RuleEvaluationResult>> warnings = Map.of(worse.candidateId(), List.of(serviceTypeMismatch()));
         Map<String, List<RuleEvaluationResult>> reconfirmations = Map.of(worse.candidateId(), List.of(allergenReconfirm()));
+        // best는 두 항목 다, worse는 WARN 안 뜬 맵기만 실제로 PASS났다고 가정한다 (둘 다 HOT을 지원하니까).
+        // 이게 없으면 두 후보 점수 격차가 좁아져서 confidence가 재확인 임계값(0.6) 밑으로 떨어져버린다.
+        Map<String, List<RuleEvaluationResult>> passes = Map.of(
+            best.candidateId(), List.of(serviceTypePass(), spicyLevelPass()),
+            worse.candidateId(), List.of(spicyLevelPass())
+        );
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(best, worse), List.of(), warnings, reconfirmations, Map.of());
+            new CandidateFilterResult(List.of(best, worse), List.of(), warnings, reconfirmations, passes);
 
         Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
