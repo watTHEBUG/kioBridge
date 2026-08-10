@@ -31,6 +31,14 @@ class EvidenceParsingServiceTest {
     }
 
     @Test
+    void JSON_null_노드도_예외가_발생한다() {
+        JsonNode nullNode = objectMapper.nullNode();
+
+        assertThatThrownBy(() -> service.parse(nullNode))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void 필수_필드가_없으면_예외가_발생한다() {
         JsonNode json = objectMapper.readTree("""
             { "evidenceVersion": "1.2", "runId": "RUN-1" }
