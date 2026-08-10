@@ -953,7 +953,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
           */}
           {개인정보같은메모(memo) && (
             <p role="alert" style={{ ...TYPE.caption, color: FAIL, marginTop: 8 }}>
-              전화번호나 주민등록번호처럼 보이는 숫자가 있어요. 지워 주시면 저장할 수 있어요.
+              전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지워 주시면 저장할 수 있어요.
             </p>
           )}
         </div>

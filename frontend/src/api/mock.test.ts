@@ -382,13 +382,23 @@ describe("MOCK_MENU_NAME", () => {
       selections: { "이용 방식": ["포장하기"] },
     };
 
-    const 없음 = buildMapping("not_found", 이름없음);
-    expect(없음.message).not.toContain(MOCK_MENU_NAME);
-    expect(없음.message).toContain("저장하신 주문표가");
+    // 이름을 모르면 후보를 만들지 않는다. 무엇과 비슷한지 이 함수도 모르는 채로
+    // "저장하신 것과 비슷한 메뉴예요" 라고 말하게 되기 때문이다.
+    for (const state of ["not_found", "clarification", "exact", "changed"] as const) {
+      const r = buildMapping(state, 이름없음);
+      expect(r.result).toBe("not_found");
+      expect(r.item).toBeUndefined();
+      expect(r.candidates).toBeUndefined();
+      expect(JSON.stringify(r)).not.toContain(MOCK_MENU_NAME);
+    }
+    expect(buildMapping("not_found", 이름없음).message).toContain("메뉴 이름");
+  });
 
-    const 애매 = buildMapping("clarification", 이름없음);
-    expect(애매.reason).not.toContain(MOCK_MENU_NAME);
-    expect(애매.reason).toContain("저장하신 주문표와");
+  it("이름을 모르는 주문표를 인용할 때는 지어내지 않는다", () => {
+    // 주문표 자체를 못 찾은 경우. 이름을 채워 넣으면 저장한 적 없는 이름이
+    // "저장하신 '닭강정'" 으로 읽힌다.
+    const 없음 = buildMapping("not_found", undefined);
+    expect(JSON.stringify(없음)).not.toContain(MOCK_MENU_NAME);
   });
 });
 

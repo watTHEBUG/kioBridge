@@ -281,7 +281,10 @@ describe("forgetAll", () => {
 
     await api.forgetAll();
 
-    expect(forgetSession).toHaveBeenCalled();
+    // toHaveBeenCalled() 로는 부족하다. forgetAll 은 세션이 하나도 없어도
+    // forgetSession("") 을 한 번 부르므로, reject 가 다시 세션을 지우도록
+    // 되돌아가도 그 단언은 통과한다. 거절한 그 페어링으로 불렸는지를 본다.
+    expect(forgetSession).toHaveBeenCalledWith("s1");
   });
 
   it("거절한 세션으로는 다시 승인할 수 없다", async () => {

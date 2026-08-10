@@ -291,6 +291,23 @@ function 확인표(p: OrderSheet | undefined, 고름: 후보 | undefined): Mappe
  * 내용은 전부 실제 주문표에서 나온다.
  */
 export function buildMapping(state: MappingState, sheet?: OrderSheet): MappingResponse {
+  /*
+   * 이름 없는 주문표로는 후보를 만들지 않는다.
+   *
+   * 주문표 화면이 이름을 필수로 막고(`disabled={!menuName.trim()}`) `못올리는이유` 도
+   * 빈 이름을 거르므로 이 앱이 만드는 주문표에는 늘 이름이 있다. 그래도 여기서 한 번 더
+   * 막는 이유는, 이 함수가 등록해 둔 것을 그대로 받는 자리라 어디서든 들어올 수 있어서다.
+   *
+   * 이름을 모르는 채로 후보를 고르면 화면은 "저장하신 것과 비슷한 메뉴예요" 라고
+   * 말하게 된다. 무엇과 비슷한지 이 함수도 모르는 채로.
+   */
+  if (sheet && !메뉴이름(sheet)) {
+    return {
+      result: "not_found",
+      message: "주문표에 메뉴 이름을 적어 두시면 오늘의 메뉴에서 찾아드릴 수 있어요.",
+    };
+  }
+
   const { 남은, 뺀이유 } = 절대조건으로거르기(sheet);
   const 순위 = 점수순(남은, sheet);
   const 고름 = 순위[0];
