@@ -27,10 +27,10 @@ public class RecommendationEngineService {
     private static final String SERVICE_TYPE_MISMATCH_CODE = "SERVICE_TYPE_MISMATCH";
     private static final String SPICY_LEVEL_MISMATCH_CODE = "SPICY_LEVEL_MISMATCH";
     private static final String SPICY_LEVEL_OPTION_KEY = "SPICY_LEVEL";
-    // Kit의 compatibility-rules.json엔 boneType을 다루는 CANDIDATE-scope 규칙이 없다(EXECUTION_CHOICE인
-    // CHICKEN_SELECTED_BONE_TYPE만 있음) — 그래서 WARN/PASS를 STEP4에서 받아올 수 없고, price처럼
-    // candidate.supportedOptions()와 ctx.preferences()를 직접 비교하는 방식으로 자체 판단한다.
     private static final String BONE_TYPE_OPTION_KEY = "BONE_TYPE";
+
+    private static final String SERVICE_TYPE_PREFERENCE_RULE_ID = "CHICKEN_SERVICE_TYPE_PREFERENCE";
+    private static final String SPICY_LEVEL_PREFERENCE_RULE_ID = "CHICKEN_SPICY_LEVEL_PREFERENCE";
 
     private static final String SERVICE_TYPE_PREFERENCE_RULE_ID = "CHICKEN_SERVICE_TYPE_PREFERENCE";
     private static final String SPICY_LEVEL_PREFERENCE_RULE_ID = "CHICKEN_SPICY_LEVEL_PREFERENCE";
@@ -44,7 +44,6 @@ public class RecommendationEngineService {
     private static final double PREFERENCE_MISMATCH_PENALTY = -0.3;
     private static final double PREFERENCE_PARTIAL_MISMATCH_PENALTY = -0.15;
     private static final double PREFERENCE_UNKNOWN_SCORE = 0.0;
-    // 뼈/순살은 serviceType/spicyLevel보다 우선순위를 낮게 두기로 해서(팀 합의) 절반 가중치를 쓴다.
     private static final double BONE_TYPE_MATCH_BONUS = 0.5;
     private static final double BONE_TYPE_MISMATCH_PENALTY = -0.15;
     private static final int ADJACENT_SPICY_LEVEL_DISTANCE = 1;
@@ -82,8 +81,6 @@ public class RecommendationEngineService {
 
     private record ScoredCandidate(Candidate candidate, double totalScore, Map<String, Double> scoreBreakdown) {}
 
-    // boneType은 규칙 기반 WARN/PASS가 없어서 이 3가지 상태를 직접 판단해 scoring과 reasons/unmetConditions
-    // 양쪽에서 재사용한다 (같은 판단을 두 번 다른 방식으로 하지 않기 위함).
     private enum BoneTypeMatch { MATCHED, MISMATCHED, UNKNOWN }
 
     //메인 진입점
