@@ -53,6 +53,37 @@ describe("연동기록 — 자유 입력은 본문에서도 가린다", () => {
     expect(남은).toContain("p1");
   });
 
+  it("응답 본문에서도 memo 를 가리고, JSON 이 아니면 안 남긴다", () => {
+    /*
+     * 남기기() 는 요청.응답 양쪽에 같은 가리기를 건다. 그런데 테스트가 요청만
+     * 보고 있으면, 응답 쪽 가리기가 빠져도 초록으로 통과한다.
+     * 주문표 조회 응답에는 저장해 둔 memo 가 그대로 실려 온다.
+     */
+    연동기록.남기기({
+      방법: "GET", 경로: "/api/v1/users/7/profiles", 상태: 200, 걸린시간: 1, 시각: Date.now(),
+      응답: JSON.stringify([{ profileId: "p1", memo: "김할머니 앞으로 해주세요" }]),
+    });
+    const 응답 = 연동기록.읽기()[0].응답 ?? "";
+    expect(응답).not.toContain("김할머니");
+    expect(응답).toContain('"memo":"***"');
+
+    /*
+     * not.toContain 하나로는 부족하다. 응답이 undefined 여도 통과한다 - 가리기가
+     * 통째로 빠져도 초록이다. 무엇으로 바뀌었는지까지 본다.
+     *
+     * 기록 자체는 남는다. 본문만 통째로 갈린다 - 무엇을 불렀는지는 알아야
+     * 로그가 쓸모 있고, 못 가리는 본문만 안 보여 주면 된다.
+     */
+    const 이전 = 연동기록.읽기().length;
+    연동기록.남기기({
+      방법: "GET", 경로: "/api/v1/users/7/profiles", 상태: 200, 걸린시간: 1, 시각: Date.now(),
+      응답: "<html>프록시가 끼워 넣은 것</html>",
+    });
+    expect(연동기록.읽기()).toHaveLength(이전 + 1);
+    expect(연동기록.읽기()[0].응답 ?? "").not.toContain("html");
+    expect(연동기록.읽기()[0].응답).toContain("가리지 못했습니다");
+  });
+
   it("JSON 이 아니면 아예 남기지 않는다", () => {
     const 남은 = 남기고읽기("<html>프록시가 끼워 넣은 것</html>");
     expect(남은).not.toContain("html");
