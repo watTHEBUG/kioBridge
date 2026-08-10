@@ -50,6 +50,9 @@ jobs:
               git switch main
               git pull --ff-only origin main
 
+              docker network inspect kiobridge-network >/dev/null 2>&1 ||
+                docker network create kiobridge-network
+  
               docker build \
                 -t kiobridge-backend:$GITHUB_SHA \
                 ./backend
@@ -59,6 +62,7 @@ jobs:
               docker run -d \
                 --name kiobridge-backend \
                 --restart unless-stopped \
+                --network kiobridge-network \
                 --env-file /home/ec2-user/apps/kiobridge-config/backend.env \
                 -p 127.0.0.1:8080:8080 \
                 kiobridge-backend:$GITHUB_SHA
