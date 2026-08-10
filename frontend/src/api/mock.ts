@@ -89,7 +89,22 @@ const 로으로 = (w: string) =>
   w + (/[a-zA-Z]$/.test(w) ? (/[aeiouAEIOU]$/.test(w) ? "로" : "으로") : 조사(w, "으로", "로"));
 const 은는 = (w: string) => w + 조사(w, "은", "는");
 const 이가 = (w: string) => w + 조사(w, "이", "가");
-const 메뉴이름 = (p: OrderSheet | undefined) => p?.menuName || MOCK_MENU_NAME;
+/*
+ * 이 주문표에 적힌 메뉴 이름. 없으면 빈 문자열이다.
+ *
+ * 예전에는 없으면 MOCK_MENU_NAME("닭강정")으로 채웠다. 그러면 주문표를 못 찾은
+ * 상황에서 "저장하신 '닭강정'이 오늘의 메뉴에 없어요" 라고 말하게 된다.
+ * 사용자는 그런 이름을 저장한 적이 없다. 없는 것은 없다고 두고, 이름을 쓰는
+ * 문장이 이름 없이도 읽히게 만든다.
+ */
+const 메뉴이름 = (p: OrderSheet | undefined) => p?.menuName?.trim() ?? "";
+/** 이름을 아는 경우에만 따옴표로 인용한다. 모르면 '저장하신 주문표' 로 부른다. */
+const 저장하신 = (p: OrderSheet | undefined, 받침있음: string, 받침없음: string) => {
+  const 이름 = 메뉴이름(p);
+  return 이름
+    ? `저장하신 '${이름}'${조사(이름, 받침있음, 받침없음)}`
+    : `저장하신 주문표${조사("표", 받침있음, 받침없음)}`;
+};
 const 고른값 = (p: OrderSheet | undefined, 축: string) => p?.selections?.[축]?.[0];
 const 고른값들 = (p: OrderSheet | undefined, 축: string) => p?.selections?.[축] ?? [];
 
@@ -337,7 +352,7 @@ export function buildMapping(state: MappingState, sheet?: OrderSheet): MappingRe
         sheetOptions: 확인표(sheet, undefined),
         // menuName 은 사용자가 직접 적은 값이라 받침을 장담할 수 없다.
         // 따옴표가 뒤에 붙으면 헬퍼가 마지막 글자를 못 읽으므로 이름만 넘긴다.
-        reason: `저장하신 '${메뉴이름(sheet)}'${조사(메뉴이름(sheet), "과", "와")} 비슷한 메뉴가 여러 개예요`,
+        reason: `${저장하신(sheet, "과", "와")} 비슷한 메뉴가 여러 개예요`,
         reasons: 이유,
         // candidateId 는 이번 매핑 응답에서만 쓰는 임시 표식이다.
         // 키오스크 상품 ID 를 앱이 들고 있지 않도록 의도적으로 불투명한 값을 쓴다.
@@ -357,7 +372,7 @@ export function buildMapping(state: MappingState, sheet?: OrderSheet): MappingRe
     case "not_found":
       return {
         result: "not_found",
-        message: `저장하신 '${메뉴이름(sheet)}'${조사(메뉴이름(sheet), "이", "가")} 오늘의 메뉴에 없어요. 메뉴가 바뀌었을 수 있어요.`,
+        message: `${저장하신(sheet, "이", "가")} 오늘의 메뉴에 없어요. 메뉴가 바뀌었을 수 있어요.`,
       };
 
     case "changed": {

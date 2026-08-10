@@ -37,14 +37,18 @@ npm run typecheck
 ### 실제 백엔드로 붙여 볼 때
 
 킷 → 백엔드 → 프론트 순서로 띄웁니다. **킷이 먼저입니다** — 백엔드가 부팅하며 킷을 부릅니다.
+셋 다 끝나지 않는 명령이라 **터미널 세 개**가 필요합니다. 경로는 저장소 루트 기준입니다.
 
 ```bash
-cd <킷> && npm run start:api        # :4000
-cd ../backend && ./gradlew bootRun  # :8080  (JDK 21)
-npm run dev:team                    # :5199  목이 아니라 팀 백엔드로
+# 터미널 1
+cd <킷> && npm run start:api      # :4000
+# 터미널 2
+cd backend && ./gradlew bootRun   # :8080  (JDK 21)
+# 터미널 3
+cd frontend && npm run dev:team   # :5199  목이 아니라 팀 백엔드로
 ```
 
-붙었는지 확인하는 명령이 따로 있습니다.
+붙었는지 확인하는 명령이 따로 있습니다. 아래 둘 다 `frontend` 에서 실행합니다.
 
 ```bash
 npm run check:backend

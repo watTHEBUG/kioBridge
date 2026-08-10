@@ -106,8 +106,30 @@ export const 비밀번호검사 = (v: string): string | null => {
  * 뒤집히면 장소가 빈 주문표가 서버로 가서 이유 없는 실패 안내를 받는다.
  * 이름을 반환값에 맞춘다 — `!못올리는이유(p)` 는 "못 올릴 이유가 없으면" 으로 읽힌다.
  */
+/*
+ * 메모에 전화번호나 주민등록번호로 보이는 것이 들어 있는가.
+ *
+ * 메모는 자유 입력이다. "얼음 적게 부탁드려요" 처럼 주문에 필요한 말을 적으라고
+ * 둔 칸인데, 자유 입력인 이상 전화번호를 적을 수 있다. 이 앱은 실제 개인정보를
+ * 받지도 저장하지도 않겠다고 화면에서 약속했고, 그 약속은 칸 옆의 안내 한 줄만으로
+ * 지켜지지 않는다. 안내를 못 보거나 습관대로 적는 사람이 있다.
+ *
+ * 그래서 모양으로 걸러낸다. 완벽한 검사는 아니다 — 사람 이름은 이 방법으로
+ * 가려낼 수 없다. 다만 저장되면 가장 곤란한 두 가지는 여기서 막힌다.
+ *
+ * 걸러도 지우지는 않는다. 사용자가 적은 것을 앱이 말없이 고치면, 화면에 보이는
+ * 것과 저장된 것이 달라진다. 무엇을 지워야 하는지 말해 주고 사용자가 고친다.
+ */
+const 전화번호꼴 = /\d{2,3}[-.\s]?\d{3,4}[-.\s]?\d{4}/;
+const 주민번호꼴 = /\d{6}[-.\s]?[1-4]\d{6}/;
+export const 개인정보같은메모 = (memo: string): boolean =>
+  주민번호꼴.test(memo) || 전화번호꼴.test(memo);
+
 export const 못올리는이유 = (p: OrderSheet): string | null => {
   if (!p.place) return "장소를 정해 두시면 다음에도 불러올 수 있어요";
+  if (개인정보같은메모(p.memo ?? "")) {
+    return "메모에 전화번호나 주민등록번호처럼 보이는 숫자가 있어요. 지우고 다시 저장해 주세요";
+  }
   if (!p.menuName.trim()) return "메뉴 이름이 있어야 저장할 수 있어요";
   if (p.menuName.length > MENU_NAME_MAX) return `메뉴 이름은 ${MENU_NAME_MAX}자까지 저장돼요`;
   if ((p.memo ?? "").length > MEMO_MAX) return `메모는 ${MEMO_MAX}자까지 저장돼요`;
@@ -336,7 +358,10 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
       throw new KioBridgeError(code, 문구(code, b.message, res.status), true);
     }
 
-    const t = await res.text();
+    // 본문을 읽는 것도 실패할 수 있다. 스트림이 중간에 끊기면 res.json() 과 달리
+    // 여기는 막혀 있지 않아서 TypeError 가 그대로 화면까지 올라갔다.
+    const t = await res.text().catch(() => null);
+    if (t === null) throw new KioBridgeError("BAD_RESPONSE", "서버 응답을 읽지 못했어요", true);
     if (!t) return undefined as T;
     try {
       return JSON.parse(t) as T;
@@ -360,7 +385,13 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
 
     async listSheets(userId) {
       const r = await 부르기<UserProfileResponse[]>("GET", `/api/v1/users/${encodeURIComponent(userId)}/profiles`);
-      return (r ?? []).map(주문표읽기);
+      if (r == null) return [];
+      // 배열이 아닌 것이 오면 .map 에서 TypeError 가 난다. 그 오류는 KioBridgeError 가
+      // 아니라서 화면이 개발자 문장을 그대로 보여 준다. 이 함수의 계약을 지킨다.
+      if (!Array.isArray(r)) throw new KioBridgeError("BAD_RESPONSE", "서버 응답을 읽지 못했어요", true);
+      // 원소가 객체가 아니면 그 항목만 버린다. 하나가 이상하다고 저장해 둔 주문표를
+      // 전부 못 불러오게 하지 않는다.
+      return r.filter((x): x is UserProfileResponse => Boolean(x) && typeof x === "object").map(주문표읽기);
     },
 
     async saveSheet(userId, sheet) {

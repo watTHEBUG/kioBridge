@@ -372,6 +372,24 @@ describe("MOCK_MENU_NAME", () => {
   it("빈 문자열이 아니다", () => {
     expect(MOCK_MENU_NAME.length).toBeGreaterThan(0);
   });
+
+  it("메뉴 이름을 모르면 저장한 적 없는 이름을 지어내지 않는다", () => {
+    // 예전에는 이름이 비면 이 값으로 채웠다. 그러면 사용자가 저장한 적도 없는
+    // "저장하신 '닭강정'이 오늘의 메뉴에 없어요" 를 읽게 된다.
+    // 빠진 이름은 안 보여 주면 그만이지만, 틀린 이름은 그걸 보고 판단한다.
+    const 이름없음: OrderSheet = {
+      id: "x", menuName: "", place: "음식점", memo: "",
+      selections: { "이용 방식": ["포장하기"] },
+    };
+
+    const 없음 = buildMapping("not_found", 이름없음);
+    expect(없음.message).not.toContain(MOCK_MENU_NAME);
+    expect(없음.message).toContain("저장하신 주문표가");
+
+    const 애매 = buildMapping("clarification", 이름없음);
+    expect(애매.reason).not.toContain(MOCK_MENU_NAME);
+    expect(애매.reason).toContain("저장하신 주문표와");
+  });
 });
 
 describe("사용자에게 읽히는 문장", () => {
