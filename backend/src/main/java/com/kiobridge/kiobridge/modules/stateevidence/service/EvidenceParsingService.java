@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.stateevidence.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Evidence;
 import com.kiobridge.kiobridge.contracts.RunResult;
 import org.springframework.stereotype.Service;
@@ -28,13 +29,14 @@ public class EvidenceParsingService {
 
     public Evidence parse(JsonNode evidenceJson) {
         if (evidenceJson == null || evidenceJson.isNull()) {
-            throw new IllegalArgumentException("evidence가 비어 있습니다.");
+            throw new ApiException("EVIDENCE_EMPTY", "evidence가 비어 있습니다.");
         }
         validateRequiredFields(evidenceJson);
         try {
             return objectMapper.treeToValue(evidenceJson, Evidence.class);
         } catch (Exception e) {
-            throw new IllegalStateException(
+            throw new ApiException(
+                "EVIDENCE_PARSE_FAILED",
                 "evidence JSON을 Evidence 타입으로 변환하지 못했습니다: " + e.getMessage(), e
             );
         }
@@ -48,7 +50,8 @@ public class EvidenceParsingService {
         try {
             return objectMapper.treeToValue(runJson, RunResult.class);
         } catch (Exception e) {
-            throw new IllegalStateException(
+            throw new ApiException(
+                "RUN_RESULT_PARSE_FAILED",
                 "run JSON을 RunResult 타입으로 변환하지 못했습니다: " + e.getMessage(), e
             );
         }
@@ -57,7 +60,10 @@ public class EvidenceParsingService {
     private void validateRequiredFields(JsonNode evidenceJson) {
         for (String field : REQUIRED_FIELDS) {
             if (!evidenceJson.has(field) || evidenceJson.get(field).isNull()) {
-                throw new IllegalStateException(
+                // Kit이 evidence.schema.json을 어기고 필수 필드를 빠뜨린 경우 — 우리 자신의
+                // REQUIRED_FIELD_MISSING(우리 요청이 불완전할 때)과 구분하기 위해 별도 코드를 쓴다.
+                throw new ApiException(
+                    "EVIDENCE_REQUIRED_FIELD_MISSING",
                     "evidence JSON에 필수 필드가 없습니다: " + field
                 );
             }

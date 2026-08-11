@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.stateevidence.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -27,7 +28,9 @@ class EvidenceParsingServiceTest {
     @Test
     void evidence가_null이면_예외가_발생한다() {
         assertThatThrownBy(() -> service.parse(null))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("EVIDENCE_EMPTY");
     }
 
     @Test
@@ -35,7 +38,9 @@ class EvidenceParsingServiceTest {
         JsonNode nullNode = objectMapper.nullNode();
 
         assertThatThrownBy(() -> service.parse(nullNode))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("EVIDENCE_EMPTY");
     }
 
     @Test
@@ -45,8 +50,9 @@ class EvidenceParsingServiceTest {
             """);
 
         assertThatThrownBy(() -> service.parse(json))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("필수 필드가 없습니다");
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("EVIDENCE_REQUIRED_FIELD_MISSING");
     }
 
     private static final String VALID_EVIDENCE_JSON = """

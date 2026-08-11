@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.orchestrator.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
 import com.kiobridge.kiobridge.contracts.Recommendation;
 import com.kiobridge.kiobridge.contracts.UserDecision;
@@ -78,7 +79,8 @@ public class SubmissionOrchestrator {
             ? planResult.environmentId()
             : simulationApiClient.getSession(sessionId).environmentId();
         if (environmentId == null || environmentId.isBlank()) {
-            throw new IllegalStateException(
+            throw new ApiException(
+                "SESSION_ENVIRONMENT_UNRESOLVED",
                 "sessionId(" + sessionId + ")에 대한 세션을 Simulation API에서 찾지 못했거나 environmentId가 없습니다."
             );
         }

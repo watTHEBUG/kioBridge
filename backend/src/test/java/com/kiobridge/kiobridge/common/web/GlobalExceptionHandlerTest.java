@@ -13,6 +13,17 @@ class GlobalExceptionHandlerTest {
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
     @Test
+    void ApiException은_400과_담아온_code_message를_그대로_돌려준다() {
+        ResponseEntity<ApiErrorResponse> response = handler.handleApiException(
+            new ApiException("CANDIDATE_NOT_FOUND", "추천된 candidateId(CHICKEN-999)가 fixture 후보 목록에 없습니다.")
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().code()).isEqualTo("CANDIDATE_NOT_FOUND");
+        assertThat(response.getBody().message()).contains("CHICKEN-999");
+    }
+
+    @Test
     void IllegalArgumentException은_400과_원본_메시지를_그대로_돌려준다() {
         ResponseEntity<ApiErrorResponse> response =
             handler.handleIllegalArgument(new IllegalArgumentException("environmentId는 비어있을 수 없습니다."));
@@ -23,12 +34,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void NullPointerException은_400을_돌려준다() {
+    void NullPointerException은_400과_REQUIRED_FIELD_MISSING을_돌려준다() {
+        // Objects.requireNonNull은 사실상 항상 "필수 값이 없다"는 뜻이라 Kit ERROR_CATALOG의
+        // REQUIRED_FIELD_MISSING을 그대로 재사용한다 — INVALID_REQUEST보다 구체적이다.
         ResponseEntity<ApiErrorResponse> response =
             handler.handleNullPointer(new NullPointerException("sessionId는 null일 수 없습니다."));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody().code()).isEqualTo("INVALID_REQUEST");
+        assertThat(response.getBody().code()).isEqualTo("REQUIRED_FIELD_MISSING");
+        assertThat(response.getBody().message()).isEqualTo("sessionId는 null일 수 없습니다.");
     }
 
     @Test

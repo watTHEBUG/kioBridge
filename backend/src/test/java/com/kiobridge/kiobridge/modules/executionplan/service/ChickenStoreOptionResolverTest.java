@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import org.junit.jupiter.api.Test;
 
@@ -86,7 +87,9 @@ class ChickenStoreOptionResolverTest {
     void 존재하지_않는_그룹이면_예외를_던진다() {
         assertThatThrownBy(() ->
             ChickenStoreOptionResolver.resolveOptionId(optionGroups(), "NOT_A_GROUP", null, candidateWithSupport())
-        ).isInstanceOf(IllegalStateException.class);
+        ).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("EXECUTION_OPTION_GROUP_UNKNOWN");
     }
 
     @Test

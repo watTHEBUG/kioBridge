@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Action;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
@@ -237,7 +238,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(null),
             UserDecision.approve(),
             fullPreferenceContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("RECOMMENDATION_CANDIDATE_MISSING");
 
         verify(simulationApiClient, never()).getSession(any());
         verify(simulationApiClient, never()).getFixture(any());
@@ -254,7 +257,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             fullPreferenceContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("CANDIDATE_NOT_FOUND");
     }
 
     @Test
@@ -268,7 +273,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             nonChickenStoreContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("UNSUPPORTED_SESSION_CONTEXT_TYPE");
     }
 
     @Test
@@ -281,7 +288,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             fullPreferenceContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
 
         verify(simulationApiClient, never()).getFixture(any());
     }

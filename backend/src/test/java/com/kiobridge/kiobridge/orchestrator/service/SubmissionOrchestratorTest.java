@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.orchestrator.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
 import com.kiobridge.kiobridge.contracts.Recommendation;
@@ -122,7 +123,9 @@ class SubmissionOrchestratorTest {
 
         assertThatThrownBy(() -> orchestrator.runApprovalFlow(
             SESSION_ID, profile(), sessionContext, recommendation, userDecision
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
 
         verify(executionPlanService, never()).submitAndRun(any(), any());
     }

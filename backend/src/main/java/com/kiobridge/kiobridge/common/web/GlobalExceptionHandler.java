@@ -18,14 +18,26 @@ import org.springframework.web.client.RestClientException;
  * @RestControllerAdvice는 애플리케이션 전역에 적용되므로 이 프로젝트의 모든 컨트롤러(다른 STEP
  * 컨트롤러 포함)에 동일하게 적용된다 — 의도한 범위 확장이니 참고.
  *
- * IllegalArgumentException/NullPointerException/IllegalStateException 메시지는 우리가 직접
- * 호출자에게 보여주려고 작성한 문장들이라(예: "추천된 candidateId(...)가 fixture 후보 목록에
- * 없습니다") 그대로 노출한다. Simulation API 쪽 예외(RestClientException 계열)는 원본 응답 본문을
- * 그대로 흘려보내지 않고 일반화된 메시지로 감싼다 — 내부 통신 세부사항을 호출자에게 노출하지
- * 않기 위함이다.
+ * ApiException은 STEP1~9 파이프라인에서 "어떤 상황인지" 구분되는 code를 직접 실어 던지는 예외다
+ * (예: CANDIDATE_NOT_FOUND, EXECUTION_OPTION_GROUP_UNKNOWN). 이 handler는 그 code를 그대로
+ * ApiErrorResponse.code()에 반영한다.
+ *
+ * IllegalArgumentException/NullPointerException/IllegalStateException은 ApiException으로 아직
+ * 옮기지 않은(또는 프로그래밍 방어용 assertion에 가까운, 예: Objects.requireNonNull) 나머지
+ * 예외들을 위한 fallback이다 — code는 상황을 구분 못 하고 뭉뚱그려지지만, NullPointerException만은
+ * 거의 항상 "필수 값이 없다"는 뜻이라 Kit의 REQUIRED_FIELD_MISSING 코드를 그대로 재사용한다
+ * (docs/ERROR_CATALOG.md 1.계약·형식). 메시지는 우리가 직접 호출자에게 보여주려고 작성한
+ * 문장들이라(예: "추천된 candidateId(...)가 fixture 후보 목록에 없습니다") 그대로 노출한다.
+ * Simulation API 쪽 예외(RestClientException 계열)는 원본 응답 본문을 그대로 흘려보내지 않고
+ * 일반화된 메시지로 감싼다 — 내부 통신 세부사항을 호출자에게 노출하지 않기 위함이다.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleApiException(ApiException e) {
+        return ResponseEntity.badRequest().body(new ApiErrorResponse(e.code(), e.getMessage()));
+    }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
@@ -34,7 +46,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NullPointerException.class)
     public ResponseEntity<ApiErrorResponse> handleNullPointer(NullPointerException e) {
-        return badRequest(e.getMessage());
+        return ResponseEntity.badRequest().body(new ApiErrorResponse("REQUIRED_FIELD_MISSING", e.getMessage()));
     }
 
     @ExceptionHandler(IllegalStateException.class)

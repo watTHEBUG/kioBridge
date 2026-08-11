@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Candidate;
 
 import java.util.List;
@@ -36,11 +37,13 @@ final class ChickenStoreOptionResolver {
     ) {
         Map<String, Object> group = findGroup(optionGroups, groupId);
         if (group == null) {
-            throw new IllegalStateException("optionGroups에 " + groupId + " 그룹이 없습니다.");
+            // Kit ERROR_CATALOG.md 4.실행계획구조: 존재하지 않는 옵션 그룹
+            throw new ApiException("EXECUTION_OPTION_GROUP_UNKNOWN", "optionGroups에 " + groupId + " 그룹이 없습니다.");
         }
         List<String> validIds = optionIds(group);
         if (validIds.isEmpty()) {
-            throw new IllegalStateException(groupId + " 그룹에 옵션이 없습니다.");
+            // Kit 카탈로그엔 없는 fixture 데이터 무결성 문제 — 그룹은 있는데 옵션이 하나도 없음
+            throw new ApiException("OPTION_GROUP_EMPTY", groupId + " 그룹에 옵션이 없습니다.");
         }
 
         List<String> supportedIds = supportedOptionIds(candidate, groupId);

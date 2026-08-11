@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Action;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
@@ -87,7 +88,9 @@ public class ExecutionPlanService {
 
         String candidateId = recommendation.recommendedCandidateId();
         if (candidateId == null || candidateId.isBlank()) {
-            throw new IllegalStateException(
+            // Kit 카탈로그엔 없는 우리 파이프라인 내부 전제조건 위반 — recommendation 자체가 후보를 안 정함
+            throw new ApiException(
+                "RECOMMENDATION_CANDIDATE_MISSING",
                 "승인된 결정(userDecision.approved=true)인데 recommendation.recommendedCandidateId가 없습니다. "
                     + "buildExecutionPlan은 추천 후보 없이 실행계획을 만들 수 없습니다."
             );
@@ -95,7 +98,8 @@ public class ExecutionPlanService {
 
         String environmentId = simulationApiClient.getSession(sessionId).environmentId();
         if (environmentId == null || environmentId.isBlank()) {
-            throw new IllegalStateException(
+            throw new ApiException(
+                "SESSION_ENVIRONMENT_UNRESOLVED",
                 "sessionId(" + sessionId + ")에 대한 세션을 Simulation API에서 찾지 못했거나 environmentId가 없습니다."
             );
         }
@@ -104,12 +108,15 @@ public class ExecutionPlanService {
         Candidate candidate = fixture.candidates().stream()
             .filter(c -> candidateId.equals(c.candidateId()))
             .findFirst()
-            .orElseThrow(() -> new IllegalStateException(
+            .orElseThrow(() -> new ApiException(
+                // Kit ERROR_CATALOG.md 2.후보(Stage A): 존재하지 않는 후보 추천
+                "CANDIDATE_NOT_FOUND",
                 "추천된 candidateId(" + candidateId + ")가 " + environmentId + " fixture 후보 목록에 없습니다."
             ));
 
         if (!(sessionContext.preferences() instanceof ChickenStorePreferences preferences)) {
-            throw new IllegalStateException(
+            throw new ApiException(
+                "UNSUPPORTED_SESSION_CONTEXT_TYPE",
                 "buildExecutionPlan은 현재 chicken-store 환경(ChickenStorePreferences)만 지원합니다."
             );
         }
