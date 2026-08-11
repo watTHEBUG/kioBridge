@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
@@ -54,6 +55,33 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiErrorResponse> handleApiException(ApiException e) {
         return ResponseEntity.status(e.status()).body(new ApiErrorResponse(e.code(), e.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException e
+    ) {
+        String message = e.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .findFirst()
+                .map(error -> {
+                    String reason = error.getDefaultMessage() == null
+                            ? "값이 올바르지 않습니다."
+                            : error.getDefaultMessage();
+
+                    return error.getField() + ": " + reason;
+                })
+                .orElse("요청 값이 올바르지 않습니다.");
+
+        return ResponseEntity
+                .badRequest()
+                .body(
+                        new ApiErrorResponse(
+                                "INVALID_REQUEST",
+                                message
+                        )
+                );
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

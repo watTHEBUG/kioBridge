@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -141,8 +142,14 @@ class UserProfileControllerTest {
                                         }
                                         """)
                 )
+                .andExpect(status().isBadRequest())
                 .andExpect(
-                        status().isBadRequest()
+                        jsonPath("$.code")
+                                .value("INVALID_REQUEST")
+                )
+                .andExpect(
+                        jsonPath("$.message")
+                                .value(containsString("selections"))
                 );
     }
 
