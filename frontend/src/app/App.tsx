@@ -3725,30 +3725,40 @@ export default function App() {
   const 서버주문표모두지우기 = (userId: number, 아는것: string[]): void => {
     account.listSheets(userId).then(
       (목록) => 서버주문표지우기(userId, [...new Set([...아는것, ...목록.map((p) => p.id)])]),
-      () => {
-        서버주문표지우기(userId, 아는것);
-        set확인대기({
-          title: "서버에 무엇이 남았는지 확인하지 못했어요",
-          body: "화면에 있던 주문표는 지우려고 했지만, 서버 목록을 못 받아서 남은 것이 있는지 알 수 없어요.",
-          confirmLabel: "다시 시도",
-          run: () => 서버주문표모두지우기(userId, 아는것),
-        });
-      },
+      // 목록을 못 받았다는 사실을 아래로 넘긴다. 여기서 확인창을 따로 띄우면
+      // 삭제가 끝난 뒤 뜨는 창이 그걸 덮어쓴다 - 확인창 자리가 하나뿐이다.
+      () => 서버주문표지우기(userId, 아는것, true),
     );
   };
 
-  const 서버주문표지우기 = (userId: number, ids: string[]): void => {
-    if (ids.length === 0) return;
+  /**
+   * @param 목록못봄 서버 목록을 못 받은 채로 지우는 중인가.
+   *
+   * 이 값이 참이면 **지우지 못한 것이 없어도 알린다.** 화면이 "서버에 올라간
+   * 주문표도 함께 지워요" 라고 약속했는데, 무엇이 올라가 있었는지조차 모르는
+   * 상태라 다 지켰다고 말할 수 없다.
+   *
+   * 다시 시도도 갈래가 다르다. 목록을 못 봤으면 목록부터 다시 받아야 한다 -
+   * 못 지운 것만 다시 지우면, 처음 조회에서 빠진 서버 주문표는 영영 안 지워진다.
+   */
+  const 서버주문표지우기 = (userId: number, ids: string[], 목록못봄 = false): void => {
+    if (ids.length === 0 && !목록못봄) return;
     void Promise.all(
       ids.map((id) => account.deleteSheet(userId, id).then(() => null, () => id)),
     ).then((결과) => {
       const 못지운것 = 결과.filter((x): x is string => x !== null);
-      if (못지운것.length === 0) return;
+      if (못지운것.length === 0 && !목록못봄) return;
       set확인대기({
-        title: "이 기기에서는 지웠어요",
-        body: `서버에 있는 주문표 ${못지운것.length}개를 지우지 못했어요. 그대로 두면 다시 로그인했을 때 보입니다.`,
+        title: 목록못봄 ? "서버에 무엇이 남았는지 확인하지 못했어요" : "이 기기에서는 지웠어요",
+        body: 목록못봄
+          ? (못지운것.length === 0
+            ? "화면에 있던 주문표는 지웠지만, 서버 목록을 못 받아서 남은 것이 있는지 알 수 없어요."
+            : `서버 목록을 못 받았고, 지우지 못한 주문표도 ${못지운것.length}개 있어요. 남은 것이 더 있을 수 있어요.`)
+          : `서버에 있는 주문표 ${못지운것.length}개를 지우지 못했어요. 그대로 두면 다시 로그인했을 때 보입니다.`,
         confirmLabel: "다시 시도",
-        run: () => 서버주문표지우기(userId, 못지운것),
+        run: () => (목록못봄
+          ? 서버주문표모두지우기(userId, ids)
+          : 서버주문표지우기(userId, 못지운것)),
       });
     });
   };
