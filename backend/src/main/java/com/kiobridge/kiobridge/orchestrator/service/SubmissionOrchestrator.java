@@ -6,6 +6,7 @@ import com.kiobridge.kiobridge.contracts.UserDecision;
 import com.kiobridge.kiobridge.contracts.client.SimulationApiClient;
 import com.kiobridge.kiobridge.contracts.client.dto.ExecuteResult;
 import com.kiobridge.kiobridge.contracts.input.context.SessionContextBase;
+import com.kiobridge.kiobridge.contracts.input.profile.CanonicalProfile;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanResult;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanService;
 import org.springframework.beans.factory.annotation.Value;
@@ -58,7 +59,7 @@ public class SubmissionOrchestrator {
      */
     public ExecuteResult runApprovalFlow(
         String sessionId,
-        Object profile,
+        CanonicalProfile profile,
         SessionContextBase<?, ?, ?, ?> sessionContext,
         Recommendation recommendation,
         UserDecision userDecision
