@@ -670,15 +670,6 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     ]);
   });
 
-  /*
-   * 금지어를 소스에 문자열 그대로 적으면 이 파일 자신이 위반이 된다 -
-   * 심사 규칙은 "실행되지 않아도 코드에 존재하기만 하면" 위반으로 본다.
-   * mock.test.ts 의 결제 경계 테스트가 실제로 이 파일을 잡았다. 조각내서 만든다.
-   */
-  const PAY = "pay" + "ment";
-  const 돈내기 = "결" + "제";
-  const 끝났다는말 = "주문 " + "완료";
-
   it("모르는 값은 담지도 보여 주지도 않는다", async () => {
     /*
      * label 은 검증되지 않은 서버 입력이다. 그대로 통과시키면 서버가 무엇을
@@ -691,20 +682,39 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
       runSteps: [
         { actionIndex: 0, action: "select_menu", label: "CHICKEN-001", success: true },
         { actionIndex: 1, action: "select_option", label: "x=120,y=340", success: true },
-        { actionIndex: 2, action: "select_option", label: `${돈내기}수단 선택`, success: true },
-        { actionIndex: 3, action: `open_${PAY}_method`, label: `카드 ${돈내기}`, success: true },
-        { actionIndex: 4, action: "select_option", label: 끝났다는말, success: true },
+        { actionIndex: 2, action: "select_option", label: "서버가 보낸 모르는 값", success: true },
+        { actionIndex: 3, action: "unexpected_action", label: "서버가 보낸 모르는 값", success: true },
       ],
     });
     const e = await b.getEvidence("s1");
     const 통째로 = JSON.stringify(e.한일);
-    for (const 새면안되는것 of ["CHICKEN-001", "x=120", "340", 돈내기, "카드", 끝났다는말]) {
+    for (const 새면안되는것 of ["CHICKEN-001", "x=120", "340", "모르는 값"]) {
       expect(통째로).not.toContain(새면안되는것);
     }
     // 무슨 일이 있었는지는 동작으로만 말한다. 지어내지 않는다.
     expect(e.한일?.map((x) => x.text)).toEqual([
-      "하나 골랐어요", "하나 골랐어요", "하나 골랐어요", "한 단계 진행했어요", "하나 골랐어요",
+      "하나 골랐어요", "하나 골랐어요", "하나 골랐어요", "한 단계 진행했어요",
     ]);
+  });
+
+  it("고르지 않은 대안 후보 이름은 '골랐어요' 가 되지 않는다", async () => {
+    /*
+     * 흰 목록에 후보 전체를 넣으면, 서버가 대안 후보 이름을 보낼 때 사용자가
+     * 고른 적 없는 메뉴를 골랐다고 말하게 된다. 담기로 한 하나만 넣는다.
+     */
+    const b = 붙이기({ "candidate-filters": {
+      eligibleCandidates: [
+        { candidateId: "CHICKEN-001", name: "매운 순살 닭강정", price: 6000, available: true },
+        { candidateId: "CHICKEN-003", name: "매운 뼈 닭강정", price: 5500, available: true },
+      ],
+      excludedCandidates: [],
+    } });
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [{ actionIndex: 0, action: "select_menu", label: "매운 뼈 닭강정", success: true }],
+    });
+    // 서버 1순위는 CHICKEN-001 이다. 대안(매운 뼈)의 이름은 통과하면 안 된다.
+    expect((await b.getEvidence("s1")).한일?.[0].text).toBe("하나 골랐어요");
   });
 
   it("고른 값 자리에는 아는화면 표를 끼워 넣지 않는다", async () => {

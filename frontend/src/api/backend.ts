@@ -637,16 +637,24 @@ const 고른값을담는동작 = new Set(["select_service", "select_menu", "sele
 const 아는값인가 = (label: string, 아는값: Set<string>): boolean =>
   아는값.has(label) && 보여도되나(label);
 
-/** 주문표에 고른 값과 후보 필터가 알려 준 메뉴 이름. 이 둘이 우리가 아는 값의 전부다. */
+/*
+ * 주문표에 고른 값과 **이번에 담기로 한 메뉴 하나**의 이름.
+ *
+ * 후보 전체를 넣으면 안 된다. 대안 후보 이름까지 흰 목록에 들어가서, 서버가
+ * 사용자가 고르지 않은 후보 이름을 보내도 "OO 골랐어요" 로 뜬다. 고른 적 없는
+ * 메뉴를 골랐다고 말하는 셈이라, 대신 눌러 주는 앱에서 가장 나쁜 거짓말이다.
+ *
+ * 찾지 못하면 이름을 아예 넣지 않는다. 그때는 "하나 골랐어요" 로 물러난다.
+ */
 const 아는값모으기 = (
   profile: OrderSheet | undefined,
-  후보들: Map<string, KitCandidate> | undefined,
+  고른후보: KitCandidate | undefined,
 ): Set<string> => {
   const s = new Set<string>();
   for (const 값들 of Object.values(profile?.selections ?? {})) {
     for (const v of 값들) if (v) s.add(v);
   }
-  for (const c of 후보들?.values() ?? []) if (c.name) s.add(c.name);
+  if (고른후보?.name) s.add(고른후보.name);
   return s;
 };
 
@@ -1243,12 +1251,14 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       /*
        * 같은 이유로 여기도 덮거나 지운다 — 앞 승인의 단계가 남으면 안 된다.
        *
-       * 담기 전에 문장으로 바꾼다. 아는 값(주문표에 고른 값 · 화면에 띄운 후보
-       * 이름)만 통과하므로, 서버가 무엇을 보냈든 여기 남는 것은 우리가 이미
+       * 담기 전에 문장으로 바꾼다. 아는 값(주문표에 고른 값 · 이번에 담기로 한
+       * 메뉴 이름)만 통과하므로, 서버가 무엇을 보냈든 여기 남는 것은 우리가 이미
        * 알고 있던 값뿐이다.
        */
+      // 사용자가 다른 후보를 골랐으면 그것, 아니면 서버 1순위. 그 하나만 아는 값이다.
+      const 담을후보 = input.candidateId ?? rec.recommendedCandidateId ?? undefined;
       const 한일 = Array.isArray(r.runSteps)
-        ? 한일만들기(r.runSteps, 아는값모으기(profile, 후보.get(profile.id)))
+        ? 한일만들기(r.runSteps, 아는값모으기(profile, 담을후보 ? 후보.get(profile.id)?.get(담을후보) : undefined))
         : undefined;
       if (한일) {
         실행단계.set(sessionId, 한일);
