@@ -495,9 +495,25 @@ export function createApi(
     async getPlanStatus(planId): Promise<PlanStatus> {
       const sessionId = planId.split("::")[0];
       const e = await backend.getEvidence(sessionId);
+      /*
+       * reachedStep 은 '실행한 동작 수' 이고 STEPS 는 다섯 칸이다. 단위가 다르다.
+       *
+       * 백엔드가 만드는 동작은 9~10개다(select_service · select_menu ·
+       * select_option x4 · confirm_option x2 · open_cart_review · verify_cart).
+       * 그래서 중단됐을 때 reachedStep 이 거의 항상 5 이상이 되고, 다섯 칸이
+       * 전부 i < reachedStep 에 걸려 **모두 '완료'** 로 칠해졌다.
+       *
+       * 화면 위쪽은 "안전을 위해 멈췄어요" 인데 아래 단계는 다 끝난 것처럼
+       * 보인다. 같은 화면이 정반대 말을 한다.
+       *
+       * 마지막 칸을 넘지 않게 자른다. 실패 칸이 적어도 제자리 근처에는 찍힌다.
+       * 정확한 자리는 서버가 준 실행 내역(한일)이 아래에서 그대로 보여 준다 -
+       * 개수가 맞는 것은 그쪽이라 그 자리에 맡긴다.
+       */
+      const 멈춘칸 = Math.min(e.reachedStep, STEPS.length - 1);
       const steps: StepStatus[] =
         e.state === "aborted"
-          ? STEPS.map((_, i) => (i < e.reachedStep ? "done" : i === e.reachedStep ? "failed" : "waiting"))
+          ? STEPS.map((_, i) => (i < 멈춘칸 ? "done" : i === 멈춘칸 ? "failed" : "waiting"))
           : e.state === "cart_ready"
             ? STEPS.map(() => "done")
             : STEPS.map((_, i) => (i < e.reachedStep ? "done" : i === e.reachedStep ? "active" : "waiting"));
@@ -762,10 +778,62 @@ interface KitExcluded {
 }
 
 /** POST /api/v1/candidate-filters 응답 (CandidateFilterResult). */
+/** 규칙 하나에 대한 서버 판정. 후보별로 묶여서 온다. */
+interface 규칙판정 {
+  ruleId?: string;
+  result?: "PASS" | "FAIL" | "RECONFIRM" | "SKIPPED";
+  severity?: string;
+  errorCode?: string;
+}
+
 interface CandidateFilterResponse {
   eligibleCandidates?: KitCandidate[];
   excludedCandidates?: KitExcluded[];
+  /*
+   * 후보별 규칙 판정. 서버가 이미 계산해서 보내 준다.
+   *
+   * 예전에는 이 셋을 버리고 확인표() 에서 attributes.supportedOptions 로 같은
+   * 판단을 다시 했다. 같은 판단을 두 곳에서 하면 언젠가 갈라진다.
+   *
+   * 그리고 다시 하는 쪽이 알 수 없는 것이 있다 - **WARN 이 없다는 사실만으로는
+   * "일치한다" 를 뜻하지 않는다.** 값이 없거나, NO_PREFERENCE 같은 중립값이거나,
+   * unknownPolicy 가 IGNORE 거나, 후보가 그 항목을 아예 선언 안 했으면 SKIPPED 라
+   * 경고에 아무것도 안 남지만 실제로는 "비교한 적이 없다" 일 뿐이다.
+   * passes 를 함께 봐야 '맞음' 과 '비교 안 함' 이 갈린다.
+   */
+  warningsByCandidateId?: Record<string, 규칙판정[]>;
+  /*
+   * 재확인이 필요한 판정. **이 흐름에서는 여기까지 오지 않는다.**
+   *
+   * 서버에 직접 쏴 보면 이건 allergenIds 에 UNKNOWN 이 섞였을 때만 채워진다
+   * (CHICKEN_ALLERGEN_HARD_CONSTRAINT). 그런데 그 경우는 그보다 앞인 정규화에서
+   * 이미 막힌다 — session-context-normalizations 가 status: RECONFIRMATION_REQUIRED
+   * 를 돌려주고, 정규화() 가 거기서 RECONFIRM_REQUIRED 를 던진다. filterCandidates
+   * 는 정규화() 를 먼저 부르므로 후보 필터까지 도달하지 못한다.
+   *
+   * 그래도 서버판정있음 검사에는 넣는다. 안 넣으면 이것만 실려 오는 응답에서
+   * 우리가 다시 맞춰 보는 쪽으로 물러나고, 서버가 "비교하지 못했다" 고 한 축을
+   * 맞다고 말하게 된다.
+   *
+   * 안 읽는 이유를 적어 두는 까닭 — 선언만 보고 "안 쓰네" 하면 닿지도 않는 길을
+   * 화면에 이으려다 아무도 지나가지 않는 코드를 만들게 된다. (팀 #94 리뷰)
+   */
+  reconfirmationsByCandidateId?: Record<string, 규칙판정[]>;
+  passesByCandidateId?: Record<string, 규칙판정[]>;
 }
+
+/*
+ * 규칙 이름을 화면의 축 이름으로 옮긴다.
+ *
+ * errorCode 로 잇는다 - ruleId 는 환경마다 접두어가 붙지만(CHICKEN_...) errorCode 는
+ * 무엇이 어긋났는지를 가리키는 이름이라 더 안정적이다. 모르는 코드는 넘긴다.
+ */
+const 규칙축: Record<string, string> = {
+  SERVICE_TYPE_MISMATCH: "이용 방식",
+  SPICY_LEVEL_MISMATCH: "맵기",
+  BONE_TYPE_MISMATCH: "형태",
+  CUP_OPTION_MISMATCH: "컵",
+};
 
 /** 사람이 읽을 문장만 고른다. 없으면 비운다 — 규칙 추적 문자열을 보여 주지 않는다. */
 const 사유문장 = (e: KitExcluded): string => e.reasonText ?? "";
@@ -777,6 +845,16 @@ interface RecommendationResponse {
   excludedCandidates?: { candidateId: string; reasonCode?: string; explanation?: string }[];
   recommendationReasons?: string[];
   unmetConditions?: string[];
+  /**
+   * 축별 점수. 서버가 무엇을 보고 이 후보를 1순위로 골랐는지 남긴 것이다.
+   *
+   * 지금 화면에는 안 쓴다. 숫자를 그대로 띄우면 이 앱을 쓰는 분들에게는
+   * 읽을 수 없는 값이 하나 더 느는 것이라, 어떻게 보여 줄지를 먼저 정해야 한다.
+   *
+   * 다만 받아서 개발 기록에는 남긴다. 예전에는 타입에 선언조차 없어서 '왜 이게
+   * 1순위인지' 를 확인할 방법이 아예 없었다. 심사 축에 설명 가능성이 있다.
+   */
+  scoreBreakdown?: Record<string, number>;
   confidence?: number;
   requiresReconfirmation?: boolean;
 }
@@ -850,6 +928,9 @@ const 앱말투: Record<string, string> = {
   "실행할 수 없습니다.": "담을 수 없어요",
   "안전하게 중단되었습니다.": "안전을 위해 멈췄어요",
   "처리 중 문제가 발생했습니다.": "끝까지 담지 못했어요",
+  // OrchestratorController 가 증거를 못 읽었을 때 내는 문장. 표에 없으면
+  // 조용히 안 보여 주게 되는데, 그 경우야말로 서버 말을 인용할 자리다.
+  "결과를 처리하는 중 문제가 발생했습니다.": "끝까지 담지 못했어요",
 };
 
 /*
@@ -965,6 +1046,73 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 실행단계 = new Map<string, { text: string; ok: boolean }[]>();
   // 후보 필터가 준 후보들. 이름·가격과 축별 값이 여기 있다.
   const 후보 = new Map<string, Map<string, KitCandidate>>();
+  /*
+   * candidate-filters 가 준 후보별 규칙 판정. 주문표 id 로 묶어 둔다.
+   *
+   * 여기 있으면 확인표() 대신 이것을 쓴다. 서버가 이미 내린 판단이라
+   * 우리가 다시 계산할 이유가 없고, 다시 하면 언젠가 갈라진다.
+   */
+  const 규칙판정들 = new Map<string, {
+    /*
+     * 응답에 판정 필드가 **있었는가**. 후보별 배열이 있었는가와 다르다.
+     *
+     * 이 둘을 구분하지 않으면, 서버가 판정을 보냈는데 그 후보에 대한 항목만
+     * 없는 경우(전부 SKIPPED)에 우리가 다시 계산하는 쪽으로 물러난다. 그러면
+     * 서버가 '비교한 적 없다' 고 한 축을 우리가 맞다.틀리다로 말하게 된다 -
+     * 이 변경이 없애려던 바로 그 문제다.
+     *
+     * 필드 자체가 없을 때(옛 백엔드)만 물러난다.
+     */
+    서버판정있음: boolean;
+    warn: Record<string, 규칙판정[]>;
+    pass: Record<string, 규칙판정[]>;
+  }>();
+
+  /*
+   * 축별 일치 여부를 만든다.
+   *
+   * 서버가 후보별 규칙 판정을 줬으면 그것을 쓴다. FAIL 이면 어긋난 것,
+   * PASS 면 맞은 것이다. 둘 중 어느 쪽에도 없으면 **아무 말도 하지 않는다** -
+   * SKIPPED 라는 뜻이고, 그건 '맞았다' 가 아니라 '비교한 적이 없다' 이다.
+   *
+   * 판정이 아예 안 오면(옛 백엔드) 예전처럼 우리가 맞춰 본다.
+   */
+  const 축맞춤 = (profileId: string, candidateId: string, c: KitCandidate | undefined, p: OrderSheet): MappedOption[] => {
+    const 판정 = 규칙판정들.get(profileId);
+    // 필드 자체가 없을 때만 우리가 맞춰 본다. 후보별 항목이 없는 것은
+    // '이 후보는 비교한 축이 하나도 없다' 는 뜻이라 빈 것이 맞는 답이다.
+    if (!판정?.서버판정있음) return 확인표(c, p);
+    const warn = 판정.warn[candidateId];
+    const pass = 판정.pass[candidateId];
+
+    const 고른값 = p.selections ?? {};
+    const 한줄 = (축: string, matched: boolean): MappedOption | null => {
+      const 값 = 고른값[축]?.[0];
+      if (!값) return null;   // 사용자가 안 고른 축은 보여 줄 것이 없다
+      return matched
+        ? { label: 축, value: 값, matched: true }
+        : { label: 축, value: 값, matched: false, note: "오늘은 이 조합이 없어요" };
+    };
+
+    const 행: MappedOption[] = [];
+    const 본축 = new Set<string>();
+    for (const r of warn ?? []) {
+      const 축 = 규칙축[r.errorCode ?? ""];
+      if (!축 || 본축.has(축)) continue;
+      본축.add(축);
+      const x = 한줄(축, false);
+      if (x) 행.push(x);
+    }
+    for (const r of pass ?? []) {
+      const 축 = 규칙축[r.errorCode ?? ""] ?? 규칙축[(r.ruleId ?? "").replace(/^CHICKEN_/, "").replace(/_PREFERENCE$/, "_MISMATCH")];
+      if (!축 || 본축.has(축)) continue;
+      본축.add(축);
+      const x = 한줄(축, true);
+      if (x) 행.push(x);
+    }
+    return 행;
+  };
+
   // 정규화를 거친 주문표·세션 맥락. 매핑과 승인이 같은 값을 쓴다.
   // 키는 환경 + 정규화에 넣은 입력 전체다. 주문표 id 만 쓰면 주문표를 고치거나
   // 다른 키오스크에 붙었을 때 낡은 값을 그대로 쓰게 된다.
@@ -1027,18 +1175,32 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       contractValidation?: { valid: boolean; errors?: { message?: string }[] };
     }>("/api/v1/session-context-normalizations", { environmentId, ...toContextNormalizationInput(p) });
 
+    /*
+     * 재확인을 먼저 가른다. 순서가 뒤집혀 있어서 이 분기가 죽어 있었다.
+     *
+     * 백엔드는 reconfirmationFields 가 비지 않을 때만 RECONFIRMATION_REQUIRED 를
+     * 낸다. 그 필드는 contractValidation.errors 에서 HARD_CONSTRAINT_UNKNOWN 등을
+     * 골라 만든 것이고, 킷은 그것을 **warning 이 아니라 error** 로 넣는다.
+     *
+     * 그래서 RECONFIRMATION_REQUIRED 이면 contractValidation.valid 는 반드시
+     * false 다. 아래 INVALID 검사가 위에 있으면 항상 그쪽이 먼저 던진다.
+     *
+     * 무엇을 잃었나 - 알레르기가 UNKNOWN 인 분에게 recoverable: true 로
+     * 돌아갈 길을 주려던 것이 recoverable: false 가 됐고, 문구도 킷 원문이
+     * 그대로 나갔다("allergenIds 가 UNKNOWN 입니다. 임의로 추론하지 말고...").
+     * 앱이 모르는 알레르기를 가진 분을 위해 만든 문인데 정작 그 상황에서
+     * 한 줄도 닿지 않았다.
+     */
+    if (sr.status === "RECONFIRMATION_REQUIRED") {
+      const 첫줄 = sr.reconfirmationFields?.[0]?.message;
+      throw new KioBridgeError("RECONFIRM_REQUIRED", 첫줄 ?? "저장하신 조건을 다시 확인해 주세요", true);
+    }
     // 서버가 못 쓰겠다고 하면 거기서 멈춘다. 조용히 넘기면 승인 직전에 터진다.
     for (const r of [pr, sr]) {
       if (r.status === "INVALID" || r.contractValidation?.valid === false) {
         const 첫줄 = r.contractValidation?.errors?.[0]?.message;
         throw new KioBridgeError("PROFILE_INVALID", 첫줄 ?? "저장하신 조건을 서버가 읽지 못했어요", false);
       }
-    }
-    // 재확인이 필요하다는 건 우리가 확신도를 낮게 적었을 때만 나온다.
-    // 이 앱은 사용자가 직접 눌러 고르므로 여기 걸리면 보내는 쪽이 잘못된 것이다.
-    if (sr.status === "RECONFIRMATION_REQUIRED") {
-      const 첫줄 = sr.reconfirmationFields?.[0]?.message;
-      throw new KioBridgeError("RECONFIRM_REQUIRED", 첫줄 ?? "저장하신 조건을 다시 확인해 주세요", true);
     }
 
     // 마지막 관문. 주문표와 세션 맥락을 합쳐 놓고 다시 본다.
@@ -1169,6 +1331,16 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         if (c.name) display[c.candidateId] = { displayName: c.name, priceText: 원(c.price) };
       }
       후보.set(profile.id, new Map(담을수있는.map((c) => [c.candidateId, c])));
+      규칙판정들.set(profile.id, {
+        // 셋 중 하나라도 오면 '서버가 판정했다' 로 본다. 예전에는 앞의 둘만 봐서,
+        // 재확인 판정만 온 응답에서 우리가 다시 맞춰 보는 쪽으로 물러났다.
+        // 서버가 '비교하지 못했다' 고 한 축을 우리가 맞다고 말하게 되는 자리다.
+        서버판정있음: Boolean(
+          r.warningsByCandidateId || r.passesByCandidateId || r.reconfirmationsByCandidateId,
+        ),
+        warn: r.warningsByCandidateId ?? {},
+        pass: r.passesByCandidateId ?? {},
+      });
 
       const 뺀것 = (r.excludedCandidates ?? []).map((e) => ({
         candidateId: e.candidateId,
@@ -1220,14 +1392,16 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         requiresReconfirmation: r.requiresReconfirmation ?? false,
         // 이름·가격은 candidate-filters 에서 온다. 추천 응답에는 없다.
         display: {},
-        // 후보가 들고 있는 값과 사용자가 고른 값을 축별로 맞춰 본다.
-        // 서버가 matchedOptions 를 주면 그때는 이걸 걷어내고 그대로 쓴다.
-        matchedOptions: 고름 ? 확인표(알려진후보?.get(고름), profile) : [],
+        // 축별 일치 여부. 서버 판정이 있으면 그것을 쓰고, 없으면 우리가 맞춰 본다.
+        matchedOptions: 고름 ? 축맞춤(profile.id, 고름, 알려진후보?.get(고름), profile) : [],
         // 후보를 고르는 화면에서도 어느 축이 어긋나는지 보여 준다.
         unmatchedLabelsByCandidate: Object.fromEntries(
           [고름, ...(r.alternativeCandidateIds ?? [])]
             .filter((id): id is string => id !== null && 담을수있나(id))
-            .map((id) => [id, 확인표(알려진후보?.get(id), profile).filter((o) => !o.matched).map((o) => o.label)]),
+            .map((id) => [
+              id,
+              축맞춤(profile.id, id, 알려진후보?.get(id), profile).filter((o) => !o.matched).map((o) => o.label),
+            ]),
         ),
       };
     },
@@ -1260,7 +1434,10 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // 사용자가 다른 후보를 골랐으면 그것이 1순위다. 서버가 조립할 때 그 값을 쓴다.
         //
         // 1순위만 덮으면 그 후보가 대안에도 남아 두 필드가 겹친다.
-        // 백엔드 RecommendationValidator 가 ALTERNATIVE_DUPLICATES_RECOMMENDED 로 막는다.
+        // 1순위와 대안에 같은 후보가 겹치면 서버가 무엇을 담을지 알 수 없다.
+        // (백엔드 RecommendationValidator 에 그 규칙이 있지만 그건
+        //  /api/v1/recommendation-output-validations 에서만 돌고 승인 경로에는
+        //  안 걸린다. 그러니 여기서 겹치지 않게 보내는 것이 유일한 방어다.)
         // 고른 것을 대안에서 빼고, 원래 1순위를 대안으로 옮긴다.
         recommendation: 고른것반영(rec, input.candidateId),
         // note 는 선택 필드다. null 을 보내면 킷 스키마가 'must be string' 으로 막는다.
