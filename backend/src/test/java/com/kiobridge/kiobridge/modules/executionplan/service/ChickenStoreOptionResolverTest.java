@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import org.junit.jupiter.api.Test;
 
@@ -86,7 +87,34 @@ class ChickenStoreOptionResolverTest {
     void 존재하지_않는_그룹이면_예외를_던진다() {
         assertThatThrownBy(() ->
             ChickenStoreOptionResolver.resolveOptionId(optionGroups(), "NOT_A_GROUP", null, candidateWithSupport())
-        ).isInstanceOf(IllegalStateException.class);
+        ).isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EXECUTION_OPTION_GROUP_UNKNOWN");
+                // groupId는 호출자 입력이 아니라 우리 코드가 하드코딩한 상수라 400이 아니라 500이다
+                // (CodeRabbit 지적 사항).
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR);
+            });
+    }
+
+    @Test
+    void 그룹은_있는데_옵션이_하나도_없으면_예외를_던진다() {
+        // 존재하지 않는 그룹(EXECUTION_OPTION_GROUP_UNKNOWN)과는 다른 경로다 — 그룹 자체는
+        // optionGroups에 있지만 options 배열이 비어있는 fixture 데이터 무결성 문제(CodeRabbit 지적 사항).
+        List<Map<String, Object>> optionGroupsWithEmptyGroup = new java.util.ArrayList<>(optionGroups());
+        optionGroupsWithEmptyGroup.add(Map.of(
+            "groupId", "EMPTY_GROUP", "kind", "option", "required", true,
+            "options", List.of()
+        ));
+
+        assertThatThrownBy(() ->
+            ChickenStoreOptionResolver.resolveOptionId(optionGroupsWithEmptyGroup, "EMPTY_GROUP", null, candidateWithSupport())
+        ).isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("OPTION_GROUP_EMPTY");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR);
+            });
     }
 
     @Test

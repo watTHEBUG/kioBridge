@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Action;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
@@ -237,7 +238,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(null),
             UserDecision.approve(),
             fullPreferenceContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("RECOMMENDATION_CANDIDATE_MISSING");
 
         verify(simulationApiClient, never()).getSession(any());
         verify(simulationApiClient, never()).getFixture(any());
@@ -254,7 +257,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             fullPreferenceContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("CANDIDATE_NOT_FOUND");
     }
 
     @Test
@@ -268,7 +273,9 @@ class ExecutionPlanServiceTest {
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             nonChickenStoreContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).code())
+            .isEqualTo("UNSUPPORTED_SESSION_CONTEXT_TYPE");
     }
 
     @Test
@@ -276,12 +283,19 @@ class ExecutionPlanServiceTest {
         when(simulationApiClient.getSession(SESSION_ID))
             .thenReturn(new SessionStatusResponse(SESSION_ID, null, "WAITING", "NOT_STARTED", "NOT_STARTED"));
 
+        // Kit이 200으로 응답했지만(RestClientException이 아님) environmentId가 비어있는 경우라
+        // 400이 아니라 502여야 한다(CodeRabbit 지적 사항) — 호출자가 요청을 고쳐도 재현되는 문제.
         assertThatThrownBy(() -> service.buildExecutionPlan(
             SESSION_ID,
             ExecutionPlanTestFixtures.recommendation(CANDIDATE_ID),
             UserDecision.approve(),
             fullPreferenceContext()
-        )).isInstanceOf(IllegalStateException.class);
+        )).isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
 
         verify(simulationApiClient, never()).getFixture(any());
     }
