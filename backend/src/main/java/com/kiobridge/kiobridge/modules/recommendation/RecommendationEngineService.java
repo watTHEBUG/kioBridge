@@ -31,10 +31,6 @@ public class RecommendationEngineService {
 
     private static final String SERVICE_TYPE_PREFERENCE_RULE_ID = "CHICKEN_SERVICE_TYPE_PREFERENCE";
     private static final String SPICY_LEVEL_PREFERENCE_RULE_ID = "CHICKEN_SPICY_LEVEL_PREFERENCE";
-
-    private static final String SERVICE_TYPE_PREFERENCE_RULE_ID = "CHICKEN_SERVICE_TYPE_PREFERENCE";
-    private static final String SPICY_LEVEL_PREFERENCE_RULE_ID = "CHICKEN_SPICY_LEVEL_PREFERENCE";
-
     private static final String SERVICE_TYPE_SCORE_KEY = "serviceTypeMatch";
     private static final String SPICY_LEVEL_SCORE_KEY = "spicyLevelMatch";
     private static final String BONE_TYPE_SCORE_KEY = "boneTypeMatch";
