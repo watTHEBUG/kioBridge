@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/kiobridge
+    driver-class-name: org.postgresql.Driver
+    username: sa
+    password: sa
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration,classpath:db/postgresql
+
+  h2:
+    console:
+      enabled: false
+
+openai:
+  api-key: ${OPENAI_API_KEY}
