@@ -16,6 +16,7 @@ import com.kiobridge.kiobridge.contracts.client.dto.SessionCreateResponse;
 import com.kiobridge.kiobridge.contracts.client.dto.ValidationResult;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStorePreferences;
 import com.kiobridge.kiobridge.contracts.input.context.SessionContextBase;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -98,7 +99,12 @@ public class ExecutionPlanService {
 
         String environmentId = simulationApiClient.getSession(sessionId).environmentId();
         if (environmentId == null || environmentId.isBlank()) {
+            // getSession()이 여기까지 왔다는 건 Kit이 200으로 응답했다는 뜻이다(그렇지 않았다면
+            // RestClientException/ResourceAccessException으로 먼저 걸러진다) — 즉 세션 자체는
+            // 찾았는데 그 안의 environmentId가 비어있는, Kit 응답 데이터 자체의 문제다. 호출자가
+            // 같은 sessionId로 재시도해도 고쳐지지 않으므로 400이 아니라 502다(CodeRabbit 지적 사항).
             throw new ApiException(
+                HttpStatus.BAD_GATEWAY,
                 "SESSION_ENVIRONMENT_UNRESOLVED",
                 "sessionId(" + sessionId + ")에 대한 세션을 Simulation API에서 찾지 못했거나 environmentId가 없습니다."
             );

@@ -2,6 +2,7 @@ package com.kiobridge.kiobridge.modules.executionplan.service;
 
 import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Candidate;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
 import java.util.Map;
@@ -37,13 +38,21 @@ final class ChickenStoreOptionResolver {
     ) {
         Map<String, Object> group = findGroup(optionGroups, groupId);
         if (group == null) {
-            // Kit ERROR_CATALOG.md 4.실행계획구조: 존재하지 않는 옵션 그룹
-            throw new ApiException("EXECUTION_OPTION_GROUP_UNKNOWN", "optionGroups에 " + groupId + " 그룹이 없습니다.");
+            // Kit ERROR_CATALOG.md 4.실행계획구조: 존재하지 않는 옵션 그룹.
+            // groupId는 호출자가 보낸 값이 아니라 이 클래스 호출부(ExecutionPlanService)가 하드코딩한
+            // 상수라서, 여기서 실패한다는 건 우리 코드나 Kit fixture 중 하나가 깨졌다는 뜻이다 —
+            // 호출자가 요청을 고쳐서 재시도해도 재현되므로 400이 아니라 500이다(CodeRabbit 지적 사항).
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR, "EXECUTION_OPTION_GROUP_UNKNOWN", "optionGroups에 " + groupId + " 그룹이 없습니다."
+            );
         }
         List<String> validIds = optionIds(group);
         if (validIds.isEmpty()) {
-            // Kit 카탈로그엔 없는 fixture 데이터 무결성 문제 — 그룹은 있는데 옵션이 하나도 없음
-            throw new ApiException("OPTION_GROUP_EMPTY", groupId + " 그룹에 옵션이 없습니다.");
+            // Kit 카탈로그엔 없는 fixture 데이터 무결성 문제 — 그룹은 있는데 옵션이 하나도 없음.
+            // 위와 같은 이유로 500이다.
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR, "OPTION_GROUP_EMPTY", groupId + " 그룹에 옵션이 없습니다."
+            );
         }
 
         List<String> supportedIds = supportedOptionIds(candidate, groupId);

@@ -27,10 +27,15 @@ class EvidenceParsingServiceTest {
 
     @Test
     void evidence가_null이면_예외가_발생한다() {
+        // evidenceJson은 우리 호출자가 아니라 Kit이 돌려준 응답이라 400이 아니라 502다
+        // (CodeRabbit 지적 사항).
         assertThatThrownBy(() -> service.parse(null))
             .isInstanceOf(ApiException.class)
-            .extracting(e -> ((ApiException) e).code())
-            .isEqualTo("EVIDENCE_EMPTY");
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EVIDENCE_EMPTY");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
     }
 
     @Test
@@ -39,8 +44,11 @@ class EvidenceParsingServiceTest {
 
         assertThatThrownBy(() -> service.parse(nullNode))
             .isInstanceOf(ApiException.class)
-            .extracting(e -> ((ApiException) e).code())
-            .isEqualTo("EVIDENCE_EMPTY");
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EVIDENCE_EMPTY");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
     }
 
     @Test
@@ -51,8 +59,11 @@ class EvidenceParsingServiceTest {
 
         assertThatThrownBy(() -> service.parse(json))
             .isInstanceOf(ApiException.class)
-            .extracting(e -> ((ApiException) e).code())
-            .isEqualTo("EVIDENCE_REQUIRED_FIELD_MISSING");
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EVIDENCE_REQUIRED_FIELD_MISSING");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
     }
 
     private static final String VALID_EVIDENCE_JSON = """

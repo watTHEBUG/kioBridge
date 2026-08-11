@@ -88,8 +88,13 @@ class ChickenStoreOptionResolverTest {
         assertThatThrownBy(() ->
             ChickenStoreOptionResolver.resolveOptionId(optionGroups(), "NOT_A_GROUP", null, candidateWithSupport())
         ).isInstanceOf(ApiException.class)
-            .extracting(e -> ((ApiException) e).code())
-            .isEqualTo("EXECUTION_OPTION_GROUP_UNKNOWN");
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EXECUTION_OPTION_GROUP_UNKNOWN");
+                // groupId는 호출자 입력이 아니라 우리 코드가 하드코딩한 상수라 400이 아니라 500이다
+                // (CodeRabbit 지적 사항).
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR);
+            });
     }
 
     @Test

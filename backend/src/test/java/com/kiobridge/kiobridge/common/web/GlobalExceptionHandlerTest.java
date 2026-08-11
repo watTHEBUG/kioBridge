@@ -24,6 +24,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void status를_명시한_ApiException은_그_status를_그대로_돌려준다() {
+        // EXECUTION_OPTION_GROUP_UNKNOWN/SESSION_ENVIRONMENT_UNRESOLVED 등 우리·Kit 쪽 데이터
+        // 문제로 던지는 코드는 400이 아니라 명시적으로 5xx를 실어 보낸다(CodeRabbit 지적 사항).
+        ResponseEntity<ApiErrorResponse> response = handler.handleApiException(
+            new ApiException(HttpStatus.BAD_GATEWAY, "SESSION_ENVIRONMENT_UNRESOLVED", "environmentId가 없습니다.")
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody().code()).isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
+    }
+
+    @Test
     void IllegalArgumentException은_400과_원본_메시지를_그대로_돌려준다() {
         ResponseEntity<ApiErrorResponse> response =
             handler.handleIllegalArgument(new IllegalArgumentException("environmentId는 비어있을 수 없습니다."));
@@ -34,14 +46,16 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void NullPointerException은_400과_REQUIRED_FIELD_MISSING을_돌려준다() {
-        // Objects.requireNonNull은 사실상 항상 "필수 값이 없다"는 뜻이라 Kit ERROR_CATALOG의
-        // REQUIRED_FIELD_MISSING을 그대로 재사용한다 — INVALID_REQUEST보다 구체적이다.
+    void NullPointerException은_500과_상황을_특정하지_않는_code를_돌려준다() {
+        // CodeRabbit 지적 사항: Objects.requireNonNull이 던지는 NPE("필수 요청 필드 없음")와
+        // 프로그램 결함으로 인한 임의의 null 역참조는 타입상 구분이 안 된다. 이걸 전부
+        // REQUIRED_FIELD_MISSING(400)으로 묶으면 우리 쪽 버그가 클라이언트 요청 문제로 둔갑한다.
+        // 그래서 500 + 상황을 특정하지 않는 code로만 응답한다.
         ResponseEntity<ApiErrorResponse> response =
             handler.handleNullPointer(new NullPointerException("sessionId는 null일 수 없습니다."));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody().code()).isEqualTo("REQUIRED_FIELD_MISSING");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody().code()).isEqualTo("INTERNAL_SERVER_ERROR");
         assertThat(response.getBody().message()).isEqualTo("sessionId는 null일 수 없습니다.");
     }
 

@@ -124,8 +124,11 @@ class SubmissionOrchestratorTest {
         assertThatThrownBy(() -> orchestrator.runApprovalFlow(
             SESSION_ID, profile(), sessionContext, recommendation, userDecision
         )).isInstanceOf(ApiException.class)
-            .extracting(e -> ((ApiException) e).code())
-            .isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
 
         verify(executionPlanService, never()).submitAndRun(any(), any());
     }
