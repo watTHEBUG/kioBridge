@@ -3,7 +3,6 @@ package com.kiobridge.kiobridge.modules.recommendation;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
 import com.kiobridge.kiobridge.contracts.Recommendation;
-import com.kiobridge.kiobridge.contracts.input.context.BoneType;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreCapabilities;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreFacts;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreHardConstraints;
@@ -97,6 +96,8 @@ class RecommendationEngineServiceTest {
 
         assertThat(recommendation.scoreBreakdown().get("serviceTypeMatch")).isEqualTo(0.0);
         assertThat(recommendation.scoreBreakdown().get("spicyLevelMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(0.0);
         assertThat(recommendation.recommendationReasons())
             .containsExactly("남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.");
     }
@@ -172,13 +173,17 @@ class RecommendationEngineServiceTest {
 
     @Test
     void 뼈타입_선호와_일치하면_점수_보너스와_일치_사유를_받는다() {
-        Candidate boneless = candidate("CHICKEN-BONELESS", 6000.0, List.of("HOT"), List.of("BONELESS"));
+        // v5.1.6 RC5부터 CHICKEN_BONE_TYPE_PREFERENCE가 CANDIDATE-scope WARN 규칙으로 추가됐다.
+        // serviceType/spicyLevel과 동일하게 PASS가 실제로 나야 "일치" 보너스를 준다.
+        Candidate boneless = candidate("CHICKEN-BONELESS", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> passes =
+            Map.of(boneless.candidateId(), List.of(boneTypePass()));
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(boneless), List.of(), Map.of(), Map.of(), Map.of());
+            new CandidateFilterResult(List.of(boneless), List.of(), Map.of(), Map.of(), passes);
 
-        Recommendation recommendation =
-            service.recommend(filterResult, sessionContext(null, BoneType.BONELESS), profile());
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
         assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.5);
         assertThat(recommendation.recommendationReasons()).contains("선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.");
@@ -186,29 +191,52 @@ class RecommendationEngineServiceTest {
 
     @Test
     void 뼈타입_선호와_불일치하면_감점되고_불만족_조건에_반영된다() {
-        Candidate boneOnly = candidate("CHICKEN-BONE-ONLY", 6000.0, List.of("HOT"), List.of("BONE"));
+        Candidate boneOnly = candidate("CHICKEN-BONE-ONLY", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> warnings =
+            Map.of(boneOnly.candidateId(), List.of(boneTypeMismatch()));
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(boneOnly), List.of(), Map.of(), Map.of(), Map.of());
+            new CandidateFilterResult(List.of(boneOnly), List.of(), warnings, Map.of(), Map.of());
 
-        Recommendation recommendation =
-            service.recommend(filterResult, sessionContext(null, BoneType.BONELESS), profile());
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
         assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(-0.15);
         assertThat(recommendation.unmetConditions()).contains("선호하신 뼈/순살과 다릅니다.");
     }
 
     @Test
-    void 뼈타입_선호가_없으면_후보가_지원해도_중립_점수를_받는다() {
-        Candidate both = candidate("CHICKEN-BOTH", 6000.0, List.of("HOT"), List.of("BONE", "BONELESS"));
+    void 컵옵션_선호와_일치하면_점수_보너스와_일치_사유를_받는다() {
+        // v5.1.6 RC5부터 CHICKEN_CUP_OPTION_PREFERENCE도 boneType과 동일한 구조의 CANDIDATE-scope
+        // WARN 규칙으로 추가됐다. boneType과 동일한 hasWarning→penalty; else hasPass→bonus 패턴을 따른다.
+        Candidate cupOk = candidate("CHICKEN-CUP-OK", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> passes =
+            Map.of(cupOk.candidateId(), List.of(cupOptionPass()));
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(both), List.of(), Map.of(), Map.of(), Map.of());
+            new CandidateFilterResult(List.of(cupOk), List.of(), Map.of(), Map.of(), passes);
 
-        Recommendation recommendation =
-            service.recommend(filterResult, sessionContext(null, BoneType.NO_PREFERENCE), profile());
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
-        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(0.5);
+        assertThat(recommendation.recommendationReasons()).contains("선호하신 컵 옵션과 일치하는 메뉴라 우선 추천드립니다.");
+    }
+
+    @Test
+    void 컵옵션_선호와_불일치하면_감점되고_불만족_조건에_반영된다() {
+        Candidate cupMismatch = candidate("CHICKEN-CUP-MISMATCH", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> warnings =
+            Map.of(cupMismatch.candidateId(), List.of(cupOptionMismatch()));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(cupMismatch), List.of(), warnings, Map.of(), Map.of());
+
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(-0.15);
+        assertThat(recommendation.unmetConditions()).contains("선호하신 컵 옵션과 다릅니다.");
     }
 
     @Test
@@ -264,6 +292,26 @@ class RecommendationEngineServiceTest {
             "CHICKEN_SPICY_LEVEL_PREFERENCE", "HOT", List.of("HOT"));
     }
 
+    private RuleEvaluationResult boneTypeMismatch() {
+        return RuleEvaluationResult.fail(
+            "CHICKEN_BONE_TYPE_PREFERENCE", "WARN", "BONE_TYPE_MISMATCH", "BONELESS", List.of("BONE"));
+    }
+
+    private RuleEvaluationResult boneTypePass() {
+        return RuleEvaluationResult.pass(
+            "CHICKEN_BONE_TYPE_PREFERENCE", "BONELESS", List.of("BONELESS"));
+    }
+
+    private RuleEvaluationResult cupOptionMismatch() {
+        return RuleEvaluationResult.fail(
+            "CHICKEN_CUP_OPTION_PREFERENCE", "WARN", "CUP_OPTION_MISMATCH", "PAPER_CUP", List.of("NO_CUP"));
+    }
+
+    private RuleEvaluationResult cupOptionPass() {
+        return RuleEvaluationResult.pass(
+            "CHICKEN_CUP_OPTION_PREFERENCE", "PAPER_CUP", List.of("PAPER_CUP"));
+    }
+
     private RuleEvaluationResult allergenReconfirm() {
         return RuleEvaluationResult.reconfirm(
             "CHICKEN_ALLERGEN_HARD_CONSTRAINT", "LOW_CONFIDENCE_RECONFIRMATION_REQUIRED", "UNKNOWN");
@@ -278,28 +326,11 @@ class RecommendationEngineServiceTest {
         );
     }
 
-    private Candidate candidate(String candidateId, Double price, List<String> spicyLevels, List<String> boneTypes) {
-        return new Candidate(
-            candidateId, "테스트 후보", "chicken-store", true, "SYNTHETIC_MOCK",
-            price, null,
-            Map.of(
-                "SERVICE_TYPE", List.of("DINE_IN", "TAKE_OUT"),
-                "SPICY_LEVEL", spicyLevels,
-                "BONE_TYPE", boneTypes
-            ),
-            Map.of(), Map.of(), Map.of()
-        );
-    }
-
     private ChickenStoreSessionContext sessionContext(java.math.BigDecimal maxPriceKrw) {
-        return sessionContext(maxPriceKrw, null);
-    }
-
-    private ChickenStoreSessionContext sessionContext(java.math.BigDecimal maxPriceKrw, BoneType boneType) {
         return new ChickenStoreSessionContext(
             new SessionIntent(SessionTask.ORDER_FOOD),
             new ChickenStoreFacts(),
-            new ChickenStorePreferences(ServiceType.TAKE_OUT, SpicyLevel.HOT, boneType, null, null),
+            new ChickenStorePreferences(ServiceType.TAKE_OUT, SpicyLevel.HOT, null, null, null),
             new ChickenStoreHardConstraints(List.of(), maxPriceKrw),
             new ChickenStoreCapabilities(),
             Map.of()
