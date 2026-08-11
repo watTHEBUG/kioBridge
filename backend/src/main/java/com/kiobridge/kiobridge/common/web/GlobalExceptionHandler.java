@@ -3,6 +3,8 @@ package com.kiobridge.kiobridge.common.web;
 import com.kiobridge.kiobridge.modules.member.exception.DuplicateLoginIdException;
 import com.kiobridge.kiobridge.modules.member.exception.InvalidCredentialsException;
 import com.kiobridge.kiobridge.modules.member.exception.UserNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,9 +39,17 @@ import org.springframework.web.client.RestClientException;
  * fixture 후보 목록에 없습니다") 그대로 노출한다.
  * Simulation API 쪽 예외(RestClientException 계열)는 원본 응답 본문을 그대로 흘려보내지 않고
  * 일반화된 메시지로 감싼다 — 내부 통신 세부사항을 호출자에게 노출하지 않기 위함이다.
+ *
+ * NullPointerException의 e.getMessage()는 응답에 그대로 노출하지 않는다(CodeRabbit 지적 사항).
+ * 위 ApiException/IllegalArgumentException/IllegalStateException은 전부 우리가 직접 호출자에게
+ * 보여주려고 작성한 문장이라 노출해도 안전하지만, 처리되지 않은 NPE는 예상 못 한 위치에서
+ * 터진 것이라 메시지에 어떤 내부 상태(필드값, 클래스 구조 등)가 실려 있을지 보장할 수 없다.
+ * 그래서 원본은 서버 로그에만 남기고, 응답에는 고정된 일반 메시지만 돌려준다.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiErrorResponse> handleApiException(ApiException e) {
@@ -54,10 +64,14 @@ public class GlobalExceptionHandler {
     /**
      * 임의의 null 역참조 버그와 "필수 요청 필드 없음"을 구분할 수 없으므로(CodeRabbit 지적 사항),
      * 500 + 상황을 특정하지 않는 code로만 응답한다. ApiException 쪽 Javadoc 참고.
+     * 원본 메시지는 로그에만 남기고 응답에는 고정 문구만 실어 보낸다(CodeRabbit 지적 사항 —
+     * 예상 못 한 NPE 메시지가 내부 상태를 노출할 수 있음).
      */
     @ExceptionHandler(NullPointerException.class)
     public ResponseEntity<ApiErrorResponse> handleNullPointer(NullPointerException e) {
-        return ResponseEntity.internalServerError().body(new ApiErrorResponse("INTERNAL_SERVER_ERROR", e.getMessage()));
+        log.error("처리되지 않은 NullPointerException", e);
+        return ResponseEntity.internalServerError()
+            .body(new ApiErrorResponse("INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다."));
     }
 
     @ExceptionHandler(IllegalStateException.class)

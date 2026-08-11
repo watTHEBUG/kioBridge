@@ -56,7 +56,18 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getBody().code()).isEqualTo("INTERNAL_SERVER_ERROR");
-        assertThat(response.getBody().message()).isEqualTo("sessionId는 null일 수 없습니다.");
+        assertThat(response.getBody().message()).isEqualTo("서버 내부 오류가 발생했습니다.");
+    }
+
+    @Test
+    void NullPointerException_원본_메시지는_응답에_노출되지_않는다() {
+        // CodeRabbit 지적 사항: 예상 못 한 NPE 메시지에 어떤 내부 상태가 실려 있을지 보장할 수
+        // 없으므로, 원본 메시지 문자열이 응답 본문에 그대로 나가면 안 된다.
+        ResponseEntity<ApiErrorResponse> response = handler.handleNullPointer(
+            new NullPointerException("내부 필드 secretToken이 null입니다")
+        );
+
+        assertThat(response.getBody().message()).doesNotContain("secretToken");
     }
 
     @Test
