@@ -21,6 +21,7 @@ import {
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, type 접근성 } from "@/api/a11y";
+import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
 // 휴대폰 틀 크기. 큰 글씨 모드가 이 값을 기준으로 안쪽 크기를 되계산한다.
@@ -821,18 +822,35 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
     const 배타 = options.find((o) => o.label === sectionLabel)?.exclusive ?? [];
     setSelections((prev) => {
       const current = prev[sectionLabel] ?? [];
+      /*
+       * 다 끄면 축 자체를 뺀다. 빈 배열을 남기면 안 된다.
+       *
+       * 빈 배열과 '축이 없는 것' 은 같은 뜻인데 모양만 다르다. 그런데 서버는
+       * 그 둘을 다르게 본다 - selections 의 값에 @NotEmpty 가 걸려 있어서
+       * 빈 배열이 섞이면 저장이 400 으로 막힌다(팀 #79).
+       *
+       * 그 400 은 스프링 기본 응답이라 code 도 message 도 없다. 화면은
+       * "적어 주신 내용을 다시 확인해 주세요" 만 띄우고 **무엇이 문제인지
+       * 말해 주지 못한다.** 맵기를 눌렀다 다시 눌러 끈 것뿐인데 주문표가
+       * 통째로 안 올라가고, 사용자는 이유를 알 길이 없다.
+       */
+      const 넣기 = (값: string[]): Record<string, string[]> => {
+        if (값.length > 0) return { ...prev, [sectionLabel]: 값 };
+        const { [sectionLabel]: _버림, ...나머지 } = prev;
+        return 나머지;
+      };
       if (multi) {
         if (current.includes(choice)) {
-          return { ...prev, [sectionLabel]: current.filter((c) => c !== choice) };
+          return 넣기(current.filter((c) => c !== choice));
         }
         // '시럽 없음' 을 고르면 다른 시럽은 내린다. 반대로 시럽을 고르면 '없음'을 내린다.
         // 둘이 같이 켜져 있으면 앱도 사용자도 무엇을 시킨 건지 알 수 없다.
         const 남길 = 배타.includes(choice)
           ? []
           : current.filter((c) => !배타.includes(c));
-        return { ...prev, [sectionLabel]: [...남길, choice] };
+        return 넣기([...남길, choice]);
       } else {
-        return { ...prev, [sectionLabel]: current[0] === choice ? [] : [choice] };
+        return 넣기(current[0] === choice ? [] : [choice]);
       }
     });
   };
@@ -1199,6 +1217,9 @@ function SavedSheetsScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheets]);
 
+  const 고른것 = sheets.find((p) => p.id === selectedId) ?? null;
+  const 주문가능 = 고른것 !== null && 백엔드가아는장소(고른것);
+
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `20px ${GAP.screenX}px 20px` }}>
@@ -1245,13 +1266,34 @@ function SavedSheetsScreen({
       </div>
 
       <StickyFooter>
+        {/*
+          아직 연결되지 않은 장소는 주문으로 보내지 않는다.
+          
+          지금 백엔드가 다루는 것은 닭강정집뿐이다. 카페 주문표로 주문하면
+          "매장컵"·"테이크아웃" 을 이용방식 표에서 못 찾아 serviceType 이
+          UNKNOWN 이 되고, 음료·온도·사이즈·시럽은 축 자체가 없어 전부
+          NO_PREFERENCE 가 된다. 킷 스키마가 UNKNOWN 을 허용하는 enum 이라
+          **검증은 통과하고 닭강정이 추천된다.**
+          
+          게다가 확인표() 는 UNKNOWN·NO_PREFERENCE 축을 건너뛰므로 확인 카드가
+          텅 빈 채로 승인 화면이 뜬다. 무엇을 담는지 못 보고 승인하게 된다.
+          
+          막을 때 이유를 말한다. 버튼만 잠그면 왜 안 되는지 알 수 없다.
+        */}
+        {showOrder && 고른것 && !백엔드가아는장소(고른것) && (
+          <div style={{ marginBottom: 4 }} role="status">
+            <InfoBox>
+              {고른것.place ?? "이 장소"}는 아직 키오스크와 연결되지 않았어요. 지금은 음식점 주문표로만 주문할 수 있어요.
+            </InfoBox>
+          </div>
+        )}
         {showOrder && (
           <PrimaryBtn
             onClick={() => {
               const picked = sheets.find((p) => p.id === selectedId);
               if (picked) onOrder(picked);
             }}
-            disabled={!selectedId}
+            disabled={!selectedId || !주문가능}
           >
             이 주문표로 주문하기
           </PrimaryBtn>
@@ -2061,7 +2103,9 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
       // 주문표만이 아니라 키오스크에 보낸 승인·거절 기록도 서버에 남는다.
       body: guest
         ? "지금은 로그인 없이 쓰고 계셔서 이 기기에는 이번 이용이 끝나면 남지 않아요. 바로 지우시려면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요."
-        : "계정 화면의 ‘이 기기에서 정보 지우기’를 누르면 이 기기에 있는 내용이 모두 사라지고 로그아웃돼요. 다만 서버에 올라간 주문표와 키오스크에 보낸 주문 기록은 아직 지우는 길이 없어서, 다시 로그인하면 주문표는 그대로 보입니다.",
+        // 둘을 뭉뚱그려 "다 지워져요" 라고 쓰면 그게 거짓말이 된다.
+        // 주문표는 지워지고(팀 #79 의 DELETE), 주문 기록은 여전히 남는다.
+        : "계정 화면의 ‘이 기기에서 정보 지우기’를 누르면 이 기기에 있는 내용이 모두 사라지고, 서버에 올라간 주문표도 함께 지워요. 서버 쪽이 잘 안 되면 그때 화면으로 알려 드리고 다시 시도하실 수 있어요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 그건 아직 지우는 길이 없어서요.",
     },
   ];
   return rows;
@@ -3633,6 +3677,36 @@ export default function App() {
   };
 
   /**
+   * 서버에 있는 주문표를 지운다. 실패한 것은 삼키지 않는다.
+   *
+   * 이 기기에서 지우는 것은 이미 끝났고 되돌리지 않는다 - 사용자가 원한 것이
+   * 그것이고, 서버가 안 된다고 이 기기에 남겨 두면 더 나쁘다.
+   *
+   * 다만 조용히 넘기면 화면은 "서버에 올라간 주문표도 함께 지워져요" 라고
+   * 말해 놓고 실제로는 남는다. 그러면 다시 로그인했을 때 지운 줄 알았던 것이
+   * 그대로 보인다. 실패한 것만 모아서 알리고 다시 시도할 길을 준다.
+   *
+   * 세대는 보지 않는다. 주문표올리기 와 다른 점이다 - 저기는 '이 계정에 올릴까'
+   * 를 묻는 것이라 계정이 바뀌면 물으면 안 되지만, 여기는 사용자가 이미
+   * 지우겠다고 한 것을 끝내는 일이다. 로그아웃했다고 그만둘 이유가 없다.
+   */
+  const 서버주문표지우기 = (userId: number, ids: string[]): void => {
+    if (ids.length === 0) return;
+    void Promise.all(
+      ids.map((id) => account.deleteSheet(userId, id).then(() => null, () => id)),
+    ).then((결과) => {
+      const 못지운것 = 결과.filter((x): x is string => x !== null);
+      if (못지운것.length === 0) return;
+      set확인대기({
+        title: "이 기기에서는 지웠어요",
+        body: `서버에 있는 주문표 ${못지운것.length}개를 지우지 못했어요. 그대로 두면 다시 로그인했을 때 보입니다.`,
+        confirmLabel: "다시 시도",
+        run: () => 서버주문표지우기(userId, 못지운것),
+      });
+    });
+  };
+
+  /**
    * 새 주문표를 저장한다. 로그인했으면 서버에도 올린다.
    *
    * 장소를 안 고른 주문표는 올리지 않는다 — 서버의 place 가 @NotBlank 라 400 이 나는데,
@@ -3950,8 +4024,9 @@ export default function App() {
               onClearLocal={() => set확인대기({
                 title: "이 기기에서 정보를 지울까요?",
                 body: 계정
-                  // 서버에 주문표 삭제 경로가 없다. 지운 척하지 않는다.
-                  ? "이 기기에 있는 주문표와 호칭이 사라지고 로그아웃돼요. 서버에 저장해 둔 주문표는 남아 있어서, 다시 로그인하면 그대로 보입니다."
+                  // 서버 주문표까지 지운다(팀 #79). 주문 기록은 여전히 남으므로
+                  // 뭉뚱그리지 않는다. 못 지운 것이 있으면 지운 뒤에 알린다.
+                  ? "이 기기에 있는 주문표와 호칭이 사라지고 로그아웃돼요. 서버에 저장해 둔 주문표도 함께 지워져요. 다만 키오스크에 보낸 주문 기록은 남아요."
                   : "저장한 주문표와 호칭이 모두 사라져요. 되돌릴 수 없어요.",
                 confirmLabel: "모두 지우기",
                 run: () => {
@@ -3962,6 +4037,19 @@ export default function App() {
                   // 화면이 '모두 지워요' 라고 말한 것에 이것도 들어간다.
                   접근성설정.비우기();
                   서버까지지우기();
+                  /*
+                   * 서버에 올라간 주문표도 지운다 (팀 #79 의 DELETE).
+                   *
+                   * 화면이 "모두 지워요" 라고 말하는데 서버에 남으면 다시
+                   * 로그인했을 때 그대로 보인다. 지금 화면에 있는 것을 전부
+                   * 지우려 든다 - 그중 서버에 안 올라간 것도 섞여 있지만
+                   * 없는 것을 지워도 204 라 문제가 없다.
+                   *
+                   * 실패해도 붙잡지 않는다. 사용자는 이미 지우겠다고 했고
+                   * 그 뒤에 오류 화면을 띄우면 나가려는 사람을 붙잡는 셈이다.
+                   * 이 기기에서 지우는 것은 아래에서 이미 끝난다.
+                   */
+                  if (계정) 서버주문표지우기(계정.userId, sheets.map((p) => p.id));
                   setSheets([]); setName("");
                   // 계정도 함께 푼다. 안 풀면 주문표를 다 지운 화면에 회원으로 남아
                   // '저장된 주문표 관리' 가 빈 목록을 회원 것처럼 보여 준다.

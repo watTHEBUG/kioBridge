@@ -430,6 +430,31 @@ describe("evidence 를 화면이 아는 상태로 옮긴다", () => {
     expect(s.steps[2]).toBe("failed");
     expect(s.abort?.recoverable).toBe(false);
   });
+
+  it("동작 수가 단계 수보다 많아도 전부 완료로 보이지 않는다", async () => {
+    /*
+     * reachedStep 은 '실행한 동작 수' 이고 STEPS 는 다섯 칸이라 단위가 다르다.
+     * 백엔드가 만드는 동작은 9~10개라 중단이 나면 거의 항상 5 이상이 된다.
+     *
+     * 자르지 않으면 다섯 칸이 전부 i < reachedStep 에 걸려 모두 done 이 되고,
+     * 화면 위쪽은 "안전을 위해 멈췄어요" 인데 아래는 다 끝난 것처럼 보인다.
+     */
+    const b = 가짜백엔드({
+      getEvidence: async () => ({
+        state: "aborted", reachedStep: 8,
+        abort: { code: "SAFETY_STOP", title: "안전을 위해 멈췄어요", message: "예상하지 못한 화면", userAction: "직원을 불러 주세요" },
+      }),
+    });
+    const api = createApi(b);
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    const { planId } = await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    const s = await api.getPlanStatus(planId);
+    expect(s.steps.every((x) => x === "done")).toBe(false);
+    // 실패 칸이 반드시 하나 찍힌다. 멈췄다는 사실이 단계에도 남아야 한다.
+    expect(s.steps.filter((x) => x === "failed")).toHaveLength(1);
+    expect(s.steps[s.steps.length - 1]).toBe("failed");
+  });
 });
 
 // ─── 팀 백엔드 어댑터 ─────────────────────────────────────────────────────────
@@ -536,6 +561,122 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 주문표 });
     await b.submit("s1", { pairingId: "s1", sheetId: "p1", mappingResult: "exact", profile: 주문표 });
   };
+
+  it("재확인이 필요하면 돌아갈 길이 있는 오류로 알린다", async () => {
+    /*
+     * 이 분기가 죽어 있었다.
+     *
+     * 백엔드는 reconfirmationFields 가 비지 않을 때만 RECONFIRMATION_REQUIRED 를
+     * 내고, 그 필드는 contractValidation.errors 에서 골라 만든다. 킷은
+     * HARD_CONSTRAINT_UNKNOWN 을 warning 이 아니라 error 로 넣는다.
+     *
+     * 즉 RECONFIRMATION_REQUIRED 이면 valid 는 반드시 false 다. INVALID 검사가
+     * 위에 있으면 항상 그쪽이 먼저 던지고, 알레르기를 모르는 분에게
+     * 돌아갈 길 없는(recoverable: false) 오류와 킷 원문이 그대로 나간다.
+     */
+    const b = 붙이기({
+      "session-context-normalizations": {
+        status: "RECONFIRMATION_REQUIRED",
+        sessionContext: 정규화응답.맥락.sessionContext,
+        reconfirmationFields: [{ field: "allergenIds", message: "알레르기를 다시 확인해 주세요" }],
+        contractValidation: {
+          valid: false,
+          errors: [{ code: "HARD_CONSTRAINT_UNKNOWN", message: "allergenIds 가 UNKNOWN 입니다. 임의로 추론하지 말고..." }],
+        },
+      },
+    });
+    const e = await b.recommend({
+      environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표,
+    }).then(() => null, (err: KioBridgeError) => err);
+
+    expect(e?.code).toBe("RECONFIRM_REQUIRED");
+    // 돌아갈 길을 준다. 이게 이 분기를 만든 이유다.
+    expect(e?.recoverable).toBe(true);
+    // 킷 원문이 아니라 재확인 쪽 문장을 쓴다.
+    expect(e?.message).toBe("알레르기를 다시 확인해 주세요");
+    expect(e?.message).not.toContain("UNKNOWN");
+  });
+
+  it("서버가 준 규칙 판정을 그대로 쓴다", async () => {
+    /*
+     * 예전에는 이 셋을 버리고 attributes.supportedOptions 로 같은 판단을 다시 했다.
+     * 같은 판단을 두 곳에서 하면 언젠가 갈라진다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-alpha": [{ ruleId: "CHICKEN_BONE_TYPE_PREFERENCE", result: "FAIL", severity: "WARN", errorCode: "BONE_TYPE_MISMATCH" }],
+        },
+        passesByCandidateId: {
+          "candidate-alpha": [{ ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "PASS", errorCode: "SPICY_LEVEL_MISMATCH" }],
+        },
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+
+    const 표 = Object.fromEntries(rec.matchedOptions.map((o) => [o.label, o.matched]));
+    expect(표["형태"]).toBe(false);   // WARN 이 왔다
+    expect(표["맵기"]).toBe(true);    // PASS 가 왔다
+    /*
+     * 이용 방식은 어느 쪽에도 안 왔다. WARN 이 없다는 사실만으로는 '일치한다' 를
+     * 뜻하지 않는다 - SKIPPED 면 '비교한 적이 없다' 다. 아무 말도 하지 않는다.
+     */
+    expect(표["이용 방식"]).toBeUndefined();
+  });
+
+  it("규칙 판정이 아예 안 오면 예전처럼 우리가 맞춰 본다", async () => {
+    // 옛 백엔드에서도 확인 카드가 비지 않아야 한다.
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{
+          candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true,
+          attributes: { spicyLevel: "HOT", boneType: "BONELESS" },
+          supportedOptions: { SERVICE_TYPE: ["TAKE_OUT"], CUP: ["PAPER"] },
+        }],
+        excludedCandidates: [],
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    /*
+     * length 만 보면 안 된다. 확인표() 는 수량을 늘 matched: true 로 넣어서,
+     * 이용 방식.맵기.형태.컵 비교가 전부 깨져도 length 는 1 이상이 된다.
+     */
+    expect(rec.matchedOptions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "맵기", matched: true }),
+      expect.objectContaining({ label: "형태", matched: true }),
+    ]));
+  });
+
+  it("판정 필드가 있는데 그 후보 항목만 없으면 우리가 다시 계산하지 않는다", async () => {
+    /*
+     * 후보별 항목이 없는 것은 '이 후보는 비교한 축이 하나도 없다' 는 뜻이다.
+     * 여기서 확인표() 로 물러나면 서버가 비교한 적 없다고 한 축을 우리가
+     * 맞다.틀리다로 말하게 된다 - 이 변경이 없애려던 바로 그 문제다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{
+          candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true,
+          attributes: { spicyLevel: "HOT", boneType: "BONELESS" },
+          supportedOptions: { SERVICE_TYPE: ["TAKE_OUT"], CUP: ["PAPER"] },
+        }],
+        excludedCandidates: [],
+        // 필드는 왔는데 이 후보에 대한 항목은 없다.
+        warningsByCandidateId: {},
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.matchedOptions).toEqual([]);
+  });
 
   it("submit-and-run 한 번으로 검증·실행·증거를 모두 채운다", async () => {
     const b = 붙이기();
@@ -721,7 +862,7 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     const e = await b.getEvidence("s1");
     /*
      * 상품 ID 나 좌표 모양을 값으로 쓰지 않는다. 테스트 데이터여도 그 형식이
-     * frontend/src 아래 남는다. 거르는 기준이 값의 모양이 아니라 '아는 값인지'
+     * 소스 트리에 남는다. 거르는 기준이 값의 모양이 아니라 '아는 값인지'
      * 라서, 중립적인 값으로도 똑같이 검증된다.
      */
     const 통째로 = JSON.stringify(e.한일);
