@@ -3,6 +3,7 @@ package com.kiobridge.kiobridge.modules.spicylevel.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -15,10 +16,19 @@ public class EmbeddingService {
 
     private final RestClient restClient;
 
-    public EmbeddingService(@Value("${openai.api-key}") String apiKey) {
+    public EmbeddingService(
+        @Value("${openai.api-key}") String apiKey,
+        @Value("${openai.connect-timeout-ms:3000}") int connectTimeoutMs,
+        @Value("${openai.read-timeout-ms:10000}") int readTimeoutMs
+    ) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(connectTimeoutMs);
+        requestFactory.setReadTimeout(readTimeoutMs);
+
         this.restClient = RestClient.builder()
             .baseUrl("https://api.openai.com/v1")
             .defaultHeader("Authorization", "Bearer " + apiKey)
+            .requestFactory(requestFactory)
             .build();
     }
 

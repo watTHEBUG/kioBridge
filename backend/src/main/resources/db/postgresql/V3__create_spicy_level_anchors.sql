@@ -7,7 +7,8 @@ CREATE TABLE spicy_level_anchors (
                                      embedding vector(1536) NOT NULL,
                                      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-                                     CONSTRAINT uk_spicy_level_anchors_expression UNIQUE (expression)
+                                     CONSTRAINT uk_spicy_level_anchors_expression UNIQUE (expression),
+                                     CONSTRAINT ck_spicy_level_anchors_spicy_level CHECK (spicy_level IN ('HOT', 'MEDIUM', 'MILD'))
 );
 
 CREATE INDEX idx_spicy_level_anchors_embedding

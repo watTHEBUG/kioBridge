@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.spicylevel.service;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +9,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("external")
 @SpringBootTest
 @ActiveProfiles("vector")
 @EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
