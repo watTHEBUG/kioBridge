@@ -12,7 +12,7 @@ spring:
 
   flyway:
     enabled: true
-    locations: classpath:db/migration,classpath:db/migration-postgres
+    locations: classpath:db/migration,classpath:db/postgresql
 
   h2:
     console:

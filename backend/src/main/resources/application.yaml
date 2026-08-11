@@ -28,6 +28,3 @@ management:
   endpoint:
     health:
       show-details: never
-
-openai:
-  api-key: ${OPENAI_API_KEY}
