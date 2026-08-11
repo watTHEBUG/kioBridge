@@ -136,6 +136,13 @@ export interface EvidenceSummary {
    * 구분할 수 없어진다. 문체가 다른 것은 인용이라고 밝혀서 푼다.
    */
   serverStatus?: string;
+  /**
+   * 키오스크가 실제로 한 일을 순서대로 (#71 의 runSteps).
+   *
+   * 위의 reachedStep 은 '몇 번째까지 갔나' 뿐이라 무엇을 했는지는 모른다.
+   * 서버가 안 주면 없다 — 화면이 지어내지 않는다.
+   */
+  한일?: { text: string; ok: boolean }[];
 }
 
 // ─── 확신도 경계 ─────────────────────────────────────────────────────────────
@@ -460,9 +467,13 @@ export function createApi(
             ? STEPS.map(() => "done")
             : STEPS.map((_, i) => (i < e.reachedStep ? "done" : i === e.reachedStep ? "active" : "waiting"));
 
+      // 어디서 멈췄든 무엇까지 했는지는 알려 준다. 중단됐을 때가 오히려
+      // 더 알고 싶은 자리다 — 어디까지 갔는지 눈으로 봐야 다음을 정한다.
+      const 한일 = e.한일 ? { done: e.한일 } : {};
+
       if (e.state === "aborted") {
         return {
-          state: "aborted", steps,
+          state: "aborted", steps, ...한일,
           abort: { ...(e.abort ?? { code: "UNKNOWN", title: "안전을 위해 중단되었습니다", message: "예상하지 못한 화면이 감지되어 작동을 멈췄어요.", userAction: "직원 초기화를 기다려 주세요" }), recoverable: false },
           // 중단됐을 때야말로 "이게 키오스크가 한 말이다" 를 보여 줄 자리다.
           // 잘 된 경우에만 싣고 여기서 빠뜨리면, 정작 확인이 필요한 쪽이 비어 있다.
@@ -471,12 +482,12 @@ export function createApi(
       }
       if (e.state === "cart_ready") {
         return {
-          state: "cart_ready", steps, cart: e.cart,
+          state: "cart_ready", steps, cart: e.cart, ...한일,
           ...(e.note ? { note: e.note } : {}),
           ...(e.serverStatus ? { serverStatus: e.serverStatus } : {}),
         };
       }
-      return { state: "running", steps };
+      return { state: "running", steps, ...한일 };
     },
   };
 }
@@ -553,8 +564,142 @@ interface ApprovalResult {
    * 예전처럼 raw.validation.errors 의 message 를 쓴다.
    */
   validationMessages?: string[];
+  /**
+   * 키오스크에서 실제로 한 동작을 순서대로 (#71).
+   *
+   * 지금까지 화면은 우리가 정해 둔 다섯 단계를 '실행한 동작 수' 로 채웠다.
+   * 개수만 보고 그린 것이라 몇 번째까지 갔는지만 맞고 무엇을 했는지는 몰랐다.
+   * 이건 서버가 실제로 한 일이다.
+   */
+  runSteps?: RunStep[];
   raw?: ExecuteResult;
 }
+
+/** ApprovalResult.runSteps 의 한 칸. 킷의 ExecutedAction 을 추린 것이다. */
+interface RunStep {
+  actionIndex: number;
+  /** select_option, confirm_option, open_cart_review ... */
+  action: string;
+  /**
+   * 킷의 resolvedLabel. 고른 값이면 사람 말이고("종이컵"),
+   * 화면 이동이면 코드다("CART_REVIEW"). 아래 한일한줄 참고.
+   */
+  label: string;
+  success: boolean;
+}
+
+/*
+ * 한 동작을 사람이 읽는 한 줄로 옮긴다.
+ *
+ * label 을 그대로 쓸 수 없다. 규칙이 이렇게 갈린다.
+ *
+ *   select_service   포장하기            <- 고른 값이라 사람 말
+ *   select_menu      매운 뼈 닭강정
+ *   select_option    매운맛 · 뼈 · 종이컵 · 1개
+ *   confirm_option   OPTION_CONFIRM      <- 화면 이름이라 코드
+ *   open_cart_review CART_REVIEW
+ *   verify_cart      CART_REVIEW
+ *
+ * 그래서 문장은 action 에서 만들고, label 은 사람 말일 때만 끼워 넣는다.
+ * 모르는 action 에 코드 label 만 있으면 무슨 일이 있었는지 지어내지 않는다.
+ */
+/*
+ * 고른 값을 담아 오는 동작들.
+ *
+ * 이 셋에서는 label 이 사용자가 실제로 고른 값이다. 대문자든 한글이든 그대로
+ * 보여 준다 - 모양으로 코드인지 아닌지 가리면 안 된다.
+ *
+ * 처음에는 모든 동작에 /^[A-Z][A-Z0-9_]*$/ 를 걸어 대문자면 코드로 봤다.
+ * 그러면 `ICE`·`HOT`·`Q1` 같은 **진짜 고른 값**이 코드로 몰려 "하나 골랐어요"
+ * 로 뭉개진다. 카페 주문표에는 이미 ICE 가 들어 있다.
+ *
+ * 사용자가 고른 것을 화면에서 지우는 셈이라, 대신 눌러 주는 앱에서 가장 하면
+ * 안 되는 쪽이다. 판별은 아래 아는화면 처럼 **자리를 아는 곳에서만** 한다.
+ */
+const 고른값을담는동작 = new Set(["select_service", "select_menu", "select_option"]);
+
+/*
+ * 서버가 준 label 을 화면에 올려도 되는지.
+ *
+ * label 은 검증되지 않은 서버 입력이다. 여기를 그대로 통과시키면 서버가 무엇을
+ * 담아 보내든 결과 화면에 뜬다 - 상품 ID(CHICKEN-001) · 화면 좌표 · 결제 문구
+ * 전부. 우리 실격 요건 둘을 정면으로 건드린다.
+ *
+ * 그런데 우리는 **사용자가 무엇을 골랐는지 이미 안다.** 주문표의 선택값과
+ * 화면에 띄우고 있는 후보 이름이 그것이다. 그 목록에 있는 값만 통과시킨다.
+ *
+ * 흰 목록이라 새는 길이 없다. 모르는 값이면 값을 지우고 동작만 말한다 -
+ * 무엇을 골랐는지 한 줄 잃지만, 지어낸 값이나 새면 안 되는 값을 띄우는 것보다 낫다.
+ *
+ * 앞서 ICE 를 살리려고 모양 검사를 없앴는데, 그때 '고른 값 자리는 안전하다' 고
+ * 전제했다. 그 전제에 근거가 없었다. 모양이 아니라 **아는 값인지**로 가른다.
+ */
+const 아는값인가 = (label: string, 아는값: Set<string>): boolean =>
+  아는값.has(label) && 보여도되나(label);
+
+/*
+ * 주문표에 고른 값과 **이번에 담기로 한 메뉴 하나**의 이름.
+ *
+ * 후보 전체를 넣으면 안 된다. 대안 후보 이름까지 흰 목록에 들어가서, 서버가
+ * 사용자가 고르지 않은 후보 이름을 보내도 "OO 골랐어요" 로 뜬다. 고른 적 없는
+ * 메뉴를 골랐다고 말하는 셈이라, 대신 눌러 주는 앱에서 가장 나쁜 거짓말이다.
+ *
+ * 찾지 못하면 이름을 아예 넣지 않는다. 그때는 "하나 골랐어요" 로 물러난다.
+ */
+const 아는값모으기 = (
+  profile: OrderSheet | undefined,
+  고른후보: KitCandidate | undefined,
+): Set<string> => {
+  const s = new Set<string>();
+  for (const 값들 of Object.values(profile?.selections ?? {})) {
+    for (const v of 값들) if (v) s.add(v);
+  }
+  if (고른후보?.name) s.add(고른후보.name);
+  return s;
+};
+
+/*
+ * 아는 화면 코드만 갈라 준다.
+ *
+ * confirm_option 이 두 번 온다 — 옵션을 확정할 때와 메뉴를 장바구니로 넘길 때다.
+ * action 만 보면 같은 문장이 두 줄 나란히 서서 앱이 헛돈 것처럼 읽힌다.
+ * 킷은 label 로 둘을 구분하고 있으니 그것만 받아 쓴다.
+ *
+ * 모르는 코드는 여기 없다. 그때는 아래 action 문장으로 물러난다 — 코드 이름을
+ * 보고 무슨 화면인지 짐작해서 지어내지 않는다.
+ */
+const 아는화면: Record<string, string> = {
+  OPTION_CONFIRM: "옵션을 확정했어요",
+  MENU_SELECTION_WITH_CART: "메뉴를 장바구니로 넘겼어요",
+};
+const 동작말 = (action: string, label: string, 아는값: Set<string>): string => {
+  // 고른 값 자리라도 우리가 아는 값일 때만 그대로 쓴다. ICE 는 주문표에 있으니
+  // "ICE 골랐어요" 가 되고, CHICKEN-001 은 없으니 "하나 골랐어요" 가 된다.
+  if (고른값을담는동작.has(action)) {
+    return 아는값인가(label, 아는값) ? `${label} 골랐어요` : "하나 골랐어요";
+  }
+  if (아는화면[label]) return 아는화면[label];
+  switch (action) {
+    case "confirm_option":
+      return "고른 것을 확정했어요";
+    case "open_cart_review":
+      return "장바구니를 열었어요";
+    case "verify_cart":
+      return "장바구니를 확인했어요";
+    default:
+      // 모르는 동작이다. 아는 값이 아니면 무슨 일이 있었는지 지어내지 않는다.
+      return 아는값인가(label, 아는값) ? label : "한 단계 진행했어요";
+  }
+};
+const 한일만들기 = (
+  단계: RunStep[] | undefined,
+  아는값: Set<string>,
+): { text: string; ok: boolean }[] | undefined => {
+  if (!단계 || 단계.length === 0) return undefined;
+  return [...단계]
+    .sort((a, b) => a.actionIndex - b.actionIndex)
+    .map((s) => ({ text: 동작말(s.action, (s.label ?? "").trim(), 아는값), ok: s.success }));
+};
 
 /** 킷 fixture 의 후보. candidate-filters 가 이 모양으로 돌려준다. */
 interface KitCandidate {
@@ -775,6 +920,14 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   // 승인 응답에 실려 온 검증 실패 문장(#66). 확인 화면이 그대로 보여 준다.
   // 실행결과(raw)에는 없는 값이라 따로 들고 있어야 한다.
   const 검증문장 = new Map<string, string[]>();
+  /*
+   * 승인 응답에 실려 온 실행 단계(#71).
+   *
+   * **원문을 담지 않는다.** 화면에 올릴 문장으로 바꾼 뒤에 담는다. 원문에는
+   * 서버가 무엇을 넣었을지 모르는 label 이 들어 있고, 그걸 메모리에 두면
+   * 화면에 안 띄워도 '앱이 상품 ID 를 들고 있는' 상태가 된다.
+   */
+  const 실행단계 = new Map<string, { text: string; ok: boolean }[]>();
   // 후보 필터가 준 후보들. 이름·가격과 축별 값이 여기 있다.
   const 후보 = new Map<string, Map<string, KitCandidate>>();
   // 정규화를 거친 주문표·세션 맥락. 매핑과 승인이 같은 값을 쓴다.
@@ -931,6 +1084,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       실행결과.delete(sessionId);
       서버요약.delete(sessionId);
       검증문장.delete(sessionId);
+      실행단계.delete(sessionId);
       추천.clear();
       후보.clear();
       정규화됨.clear();
@@ -1094,6 +1248,23 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       } else {
         검증문장.delete(sessionId);
       }
+      /*
+       * 같은 이유로 여기도 덮거나 지운다 — 앞 승인의 단계가 남으면 안 된다.
+       *
+       * 담기 전에 문장으로 바꾼다. 아는 값(주문표에 고른 값 · 이번에 담기로 한
+       * 메뉴 이름)만 통과하므로, 서버가 무엇을 보냈든 여기 남는 것은 우리가 이미
+       * 알고 있던 값뿐이다.
+       */
+      // 사용자가 다른 후보를 골랐으면 그것, 아니면 서버 1순위. 그 하나만 아는 값이다.
+      const 담을후보 = input.candidateId ?? rec.recommendedCandidateId ?? undefined;
+      const 한일 = Array.isArray(r.runSteps)
+        ? 한일만들기(r.runSteps, 아는값모으기(profile, 담을후보 ? 후보.get(profile.id)?.get(담을후보) : undefined))
+        : undefined;
+      if (한일) {
+        실행단계.set(sessionId, 한일);
+      } else {
+        실행단계.delete(sessionId);
+      }
     },
 
     // 서버가 실제로 판단한 결과를 읽는다.
@@ -1181,6 +1352,8 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         e.result === "PASS" ? "cart_ready" : e.result === "FAIL" ? "aborted" : "running";
 
       const 요약 = 서버요약.get(sessionId);
+      // 이미 문장으로 바꿔 담아 뒀다. 여기서는 꺼내 쓰기만 한다.
+      const 한일 = 실행단계.get(sessionId);
       return {
         state,
         // 몇 번째 화면까지 갔는지. 실행한 동작 수가 그대로 진행도다.
@@ -1201,6 +1374,8 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
          * 조용히 사라지는데, 잘못된 말을 띄우는 것보다 안 띄우는 편이 낫다.
          */
         ...(요약?.status && 앱말투[요약.status] ? { serverStatus: 요약.status } : {}),
+        // 서버가 안 주면 이 줄 자체가 없다. 화면이 그때는 그리지 않는다.
+        ...(한일 ? { 한일 } : {}),
         ...(state === "cart_ready" ? { cart: 장바구니(e.reviewSnapshot) } : {}),
         ...(state === "aborted"
           ? {

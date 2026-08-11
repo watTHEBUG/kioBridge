@@ -492,12 +492,17 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
   };
 
   /** 승인 전에 매핑을 한 번 거친다. 실제 흐름과 같은 순서다. */
-  const 승인 = async (b: ReturnType<typeof createTeamBackend>, 실행응답: unknown) => {
+  const 승인 = async (
+    b: ReturnType<typeof createTeamBackend>,
+    실행응답: unknown,
+    /** 주문표를 바꿔 넣고 싶을 때. 실행 단계의 '아는 값' 이 여기서 나온다. */
+    주문표: OrderSheet = 목주문표,
+  ) => {
     const 답 = 경로별응답({ "orchestrator/approve": 실행응답 });
     globalThis.fetch = vi.fn(async (u: unknown, init?: RequestInit) =>
       응답(답(String(u), JSON.parse(String(init?.body ?? "{}"))))) as unknown as typeof fetch;
-    await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
-    await b.submit("s1", { pairingId: "s1", sheetId: "p1", mappingResult: "exact", profile: 목주문표 });
+    await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 주문표 });
+    await b.submit("s1", { pairingId: "s1", sheetId: "p1", mappingResult: "exact", profile: 주문표 });
   };
 
   it("submit-and-run 한 번으로 검증·실행·증거를 모두 채운다", async () => {
@@ -564,6 +569,180 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     const e = await b.getEvidence("s1");
     expect(e.state).toBe("running");
     expect(e.cart).toBeUndefined();
+  });
+
+  it("실행 단계를 사람이 읽는 줄로 옮긴다 (#71)", async () => {
+    // 서버가 준 순서 그대로, 고른 값은 값 그대로, 화면 코드는 동작으로 옮긴다.
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true,
+      raw: 실행성공,
+      runSteps: [
+        { actionIndex: 0, action: "select_service", label: "포장하기", success: true },
+        { actionIndex: 1, action: "select_option", label: "매운맛", success: true },
+        { actionIndex: 2, action: "select_option", label: "순살", success: true },
+        { actionIndex: 3, action: "confirm_option", label: "OPTION_CONFIRM", success: true },
+        { actionIndex: 4, action: "open_cart_review", label: "CART_REVIEW", success: true },
+        { actionIndex: 5, action: "verify_cart", label: "CART_REVIEW", success: true },
+      ],
+    });
+    const e = await b.getEvidence("s1");
+    expect(e.한일?.map((x) => x.text)).toEqual([
+      "포장하기 골랐어요",
+      "매운맛 골랐어요",
+      "순살 골랐어요",
+      "옵션을 확정했어요",
+      "장바구니를 열었어요",
+      "장바구니를 확인했어요",
+    ]);
+    // 화면 코드가 그대로 새면 안 된다. 사용자에게는 뜻 없는 대문자다.
+    expect(JSON.stringify(e.한일)).not.toContain("OPTION_CONFIRM");
+    expect(JSON.stringify(e.한일)).not.toContain("CART_REVIEW");
+  });
+
+  it("confirm_option 두 번을 같은 문장으로 두지 않는다", async () => {
+    // 옵션 확정과 장바구니로 넘기기가 같은 action 으로 온다. action 만 보면
+    // 같은 줄이 나란히 서서 앱이 헛돈 것처럼 읽힌다. 킷이 label 로 구분해 준다.
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [
+        { actionIndex: 0, action: "confirm_option", label: "OPTION_CONFIRM", success: true },
+        { actionIndex: 1, action: "confirm_option", label: "MENU_SELECTION_WITH_CART", success: true },
+      ],
+    });
+    expect((await b.getEvidence("s1")).한일?.map((x) => x.text)).toEqual([
+      "옵션을 확정했어요",
+      "메뉴를 장바구니로 넘겼어요",
+    ]);
+  });
+
+  it("순서가 뒤섞여 와도 actionIndex 대로 세운다", async () => {
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true,
+      raw: 실행성공,
+      runSteps: [
+        { actionIndex: 2, action: "verify_cart", label: "CART_REVIEW", success: false },
+        { actionIndex: 0, action: "select_option", label: "2개", success: true },
+        { actionIndex: 1, action: "confirm_option", label: "OPTION_CONFIRM", success: true },
+      ],
+    });
+    const e = await b.getEvidence("s1");
+    expect(e.한일).toEqual([
+      { text: "2개 골랐어요", ok: true },
+      { text: "옵션을 확정했어요", ok: true },
+      { text: "장바구니를 확인했어요", ok: false },
+    ]);
+  });
+
+  it("모르는 동작이면 지어내지 않는다", async () => {
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true,
+      raw: 실행성공,
+      runSteps: [
+        { actionIndex: 0, action: "scroll_menu", label: "SOME_SCREEN", success: true },
+        { actionIndex: 1, action: "scroll_menu", label: "매운맛", success: true },
+      ],
+    });
+    const e = await b.getEvidence("s1");
+    // 코드 label 이면 무슨 일이 있었는지 말하지 않는다. 사람 말이면 그것만 보여 준다.
+    expect(e.한일?.map((x) => x.text)).toEqual(["한 단계 진행했어요", "매운맛"]);
+  });
+
+  it("대문자여도 사용자가 고른 값이면 그대로 보여 준다", async () => {
+    /*
+     * 모양(대문자)으로 코드인지 가리면 ICE 같은 진짜 고른 값이 뭉개진다.
+     * 모양이 아니라 **주문표에 있는 값인지**로 가른다.
+     */
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [
+        { actionIndex: 0, action: "select_option", label: "매운맛", success: true },
+        { actionIndex: 1, action: "select_service", label: "포장하기", success: true },
+      ],
+    }, { ...목주문표, selections: { ...목주문표.selections, "온도": ["ICE"] } });
+    expect((await b.getEvidence("s1")).한일?.map((x) => x.text)).toEqual([
+      "매운맛 골랐어요",
+      "포장하기 골랐어요",
+    ]);
+  });
+
+  it("모르는 값은 담지도 보여 주지도 않는다", async () => {
+    /*
+     * label 은 검증되지 않은 서버 입력이다. 그대로 통과시키면 서버가 무엇을
+     * 넣든 결과 화면과 메모리에 남는다 - 상품 ID · 화면 좌표 · 결제 문구까지.
+     * 우리가 아는 값(주문표에 고른 값 · 후보 이름)이 아니면 값을 지운다.
+     */
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [
+        { actionIndex: 0, action: "select_menu", label: "CHICKEN-001", success: true },
+        { actionIndex: 1, action: "select_option", label: "x=120,y=340", success: true },
+        { actionIndex: 2, action: "select_option", label: "서버가 보낸 모르는 값", success: true },
+        { actionIndex: 3, action: "unexpected_action", label: "서버가 보낸 모르는 값", success: true },
+      ],
+    });
+    const e = await b.getEvidence("s1");
+    const 통째로 = JSON.stringify(e.한일);
+    for (const 새면안되는것 of ["CHICKEN-001", "x=120", "340", "모르는 값"]) {
+      expect(통째로).not.toContain(새면안되는것);
+    }
+    // 무슨 일이 있었는지는 동작으로만 말한다. 지어내지 않는다.
+    expect(e.한일?.map((x) => x.text)).toEqual([
+      "하나 골랐어요", "하나 골랐어요", "하나 골랐어요", "한 단계 진행했어요",
+    ]);
+  });
+
+  it("고르지 않은 대안 후보 이름은 '골랐어요' 가 되지 않는다", async () => {
+    /*
+     * 흰 목록에 후보 전체를 넣으면, 서버가 대안 후보 이름을 보낼 때 사용자가
+     * 고른 적 없는 메뉴를 골랐다고 말하게 된다. 담기로 한 하나만 넣는다.
+     */
+    const b = 붙이기({ "candidate-filters": {
+      eligibleCandidates: [
+        { candidateId: "CHICKEN-001", name: "매운 순살 닭강정", price: 6000, available: true },
+        { candidateId: "CHICKEN-003", name: "매운 뼈 닭강정", price: 5500, available: true },
+      ],
+      excludedCandidates: [],
+    } });
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [{ actionIndex: 0, action: "select_menu", label: "매운 뼈 닭강정", success: true }],
+    });
+    // 서버 1순위는 CHICKEN-001 이다. 대안(매운 뼈)의 이름은 통과하면 안 된다.
+    expect((await b.getEvidence("s1")).한일?.[0].text).toBe("하나 골랐어요");
+  });
+
+  it("고른 값 자리에는 아는화면 표를 끼워 넣지 않는다", async () => {
+    // 표에 있는 말이라도 고른 값 자리면 고른 값이 이긴다. 메뉴 이름이 우연히
+    // 표의 열쇠와 같아도 그 메뉴를 골랐다는 사실을 덮으면 안 된다.
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [{ actionIndex: 0, action: "select_option", label: "OPTION_CONFIRM", success: true }],
+    }, { ...목주문표, selections: { ...목주문표.selections, "확인": ["OPTION_CONFIRM"] } });
+    expect((await b.getEvidence("s1")).한일?.[0].text).toBe("OPTION_CONFIRM 골랐어요");
+  });
+
+  it("#71 이전 응답이면 이 줄을 아예 만들지 않는다", async () => {
+    const b = 붙이기();
+    await 승인(b, { valid: true, raw: 실행성공 });
+    expect((await b.getEvidence("s1")).한일).toBeUndefined();
+  });
+
+  it("두 번째 승인에 앞 승인의 단계가 남지 않는다", async () => {
+    const b = 붙이기();
+    await 승인(b, {
+      valid: true, raw: 실행성공,
+      runSteps: [{ actionIndex: 0, action: "select_option", label: "종이컵", success: true }],
+    });
+    expect((await b.getEvidence("s1")).한일).toHaveLength(1);
+    await 승인(b, { valid: true, raw: 실행성공 });
+    expect((await b.getEvidence("s1")).한일).toBeUndefined();
   });
 
   it("서버가 옮겨 준 문장이 있으면 그것만 쓴다 (#66)", async () => {
