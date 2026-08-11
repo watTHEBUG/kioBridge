@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -35,3 +37,48 @@ jobs:
       - name: Run tests
         working-directory: backend
         run: ./gradlew clean test
+
+  postgres-jsonb-test:
+    name: postgres-jsonb-test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kiobridge_test
+          POSTGRES_USER: kiobridge_test
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kiobridge_test -d kiobridge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Grant execute permission
+        working-directory: backend
+        run: chmod +x gradlew
+
+      - name: Run PostgreSQL JSONB persistence test
+        working-directory: backend
+        env:
+          SPRING_PROFILES_ACTIVE: prod
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/kiobridge_test
+          SPRING_DATASOURCE_USERNAME: kiobridge_test
+          SPRING_DATASOURCE_PASSWORD: test-password
+        run: ./gradlew test --tests "*MemberRepositoryTest"

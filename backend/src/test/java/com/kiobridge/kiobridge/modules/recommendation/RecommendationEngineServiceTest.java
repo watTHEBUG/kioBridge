@@ -3,6 +3,7 @@ package com.kiobridge.kiobridge.modules.recommendation;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
 import com.kiobridge.kiobridge.contracts.Recommendation;
+import com.kiobridge.kiobridge.contracts.input.context.BoneType;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreCapabilities;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreFacts;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreHardConstraints;
@@ -169,6 +170,76 @@ class RecommendationEngineServiceTest {
         assertThat(recommendation.excludedCandidates()).containsExactly(excluded);
     }
 
+    @Test
+    void 뼈타입_선호와_일치하면_점수_보너스와_일치_사유를_받는다() {
+        Candidate boneless = candidate("CHICKEN-BONELESS", 6000.0, List.of("HOT"), List.of("BONELESS"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(boneless), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            service.recommend(filterResult, sessionContext(null, BoneType.BONELESS), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.5);
+        assertThat(recommendation.recommendationReasons()).contains("선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.");
+    }
+
+    @Test
+    void 뼈타입_선호와_불일치하면_감점되고_불만족_조건에_반영된다() {
+        Candidate boneOnly = candidate("CHICKEN-BONE-ONLY", 6000.0, List.of("HOT"), List.of("BONE"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(boneOnly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            service.recommend(filterResult, sessionContext(null, BoneType.BONELESS), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(-0.15);
+        assertThat(recommendation.unmetConditions()).contains("선호하신 뼈/순살과 다릅니다.");
+    }
+
+    @Test
+    void 뼈타입_선호가_없으면_후보가_지원해도_중립_점수를_받는다() {
+        Candidate both = candidate("CHICKEN-BOTH", 6000.0, List.of("HOT"), List.of("BONE", "BONELESS"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(both), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            service.recommend(filterResult, sessionContext(null, BoneType.NO_PREFERENCE), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.0);
+    }
+
+    @Test
+    void 직원_도움을_선호하면_점수엔_영향_없이_안내_문구만_추가된다() {
+        Candidate onlyCandidate = candidate("CHICKEN-STAFF", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(onlyCandidate), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            service.recommend(filterResult, sessionContext(null), profile(true));
+
+        assertThat(recommendation.recommendationReasons())
+            .contains("직원 도움을 선호하시는 것으로 확인돼, 필요하시면 언제든 직원을 불러드릴게요.");
+        // 점수엔 영향 없어야 한다 — 선호 미표시(neutral) 케이스와 동일한 배점.
+        assertThat(recommendation.scoreBreakdown().get("serviceTypeMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("spicyLevelMatch")).isEqualTo(0.0);
+    }
+
+    @Test
+    void 적격_후보가_없어도_직원_도움_선호면_안내_문구가_추가된다() {
+        CandidateFilterResult filterResult = new CandidateFilterResult(List.of(), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile(true));
+
+        assertThat(recommendation.recommendationReasons()).containsExactly(
+            "조건에 맞는 메뉴를 찾지 못해 추천드릴 항목이 없습니다.",
+            "직원 도움을 선호하시는 것으로 확인돼, 필요하시면 언제든 직원을 불러드릴게요."
+        );
+    }
+
     // ------------------------------------------------------------------
     // fixtures
     // ------------------------------------------------------------------
@@ -207,11 +278,28 @@ class RecommendationEngineServiceTest {
         );
     }
 
+    private Candidate candidate(String candidateId, Double price, List<String> spicyLevels, List<String> boneTypes) {
+        return new Candidate(
+            candidateId, "테스트 후보", "chicken-store", true, "SYNTHETIC_MOCK",
+            price, null,
+            Map.of(
+                "SERVICE_TYPE", List.of("DINE_IN", "TAKE_OUT"),
+                "SPICY_LEVEL", spicyLevels,
+                "BONE_TYPE", boneTypes
+            ),
+            Map.of(), Map.of(), Map.of()
+        );
+    }
+
     private ChickenStoreSessionContext sessionContext(java.math.BigDecimal maxPriceKrw) {
+        return sessionContext(maxPriceKrw, null);
+    }
+
+    private ChickenStoreSessionContext sessionContext(java.math.BigDecimal maxPriceKrw, BoneType boneType) {
         return new ChickenStoreSessionContext(
             new SessionIntent(SessionTask.ORDER_FOOD),
             new ChickenStoreFacts(),
-            new ChickenStorePreferences(ServiceType.TAKE_OUT, SpicyLevel.HOT, null, null, null),
+            new ChickenStorePreferences(ServiceType.TAKE_OUT, SpicyLevel.HOT, boneType, null, null),
             new ChickenStoreHardConstraints(List.of(), maxPriceKrw),
             new ChickenStoreCapabilities(),
             Map.of()
@@ -219,12 +307,16 @@ class RecommendationEngineServiceTest {
     }
 
     private CanonicalProfile profile() {
+        return profile(false);
+    }
+
+    private CanonicalProfile profile(boolean staffAssistancePreferred) {
         return new CanonicalProfile(
             "user_test_001",
             "테스트 사용자",
             DataClassification.SYNTHETIC_PROFILE,
             new ProfileSource(CollectionChannel.WEB_FORM, "TEST", Instant.parse("2026-08-01T00:00:00Z")),
-            new Accessibility(false, false, false, false, false, false, false),
+            new Accessibility(false, false, false, false, false, false, staffAssistancePreferred),
             new Interaction(PreferredInput.TOUCH, "ko-KR", true),
             new Consent(false, RetentionPolicy.SESSION_ONLY)
         );

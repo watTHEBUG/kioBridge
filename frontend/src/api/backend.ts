@@ -8,6 +8,7 @@ import {
 import { KioBridgeError, clearSheets, type KioBridgeApi } from "@/api/client";
 import { STEPS } from "@/domain/catalog";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
+import { 접근성설정 } from "@/api/a11y";
 
 /**
  * 팀 API 명세서의 경로와 1:1 로 맞춘 계층.
@@ -97,6 +98,14 @@ export interface RecommendationResult {
   alternativeCandidateIds: string[];
   excludedCandidates: { candidateId: string; reasonCode: string; explanation: string }[];
   recommendationReasons: string[];
+  /**
+   * 서버가 맞추지 못한 조건.
+   *
+   * 제외 사유(excludedCandidates)와 다르다. 저건 "이 메뉴를 뺐다" 이고 이건
+   * "당신이 고른 조건 중 이건 못 맞췄다" 다. 담기는 담는데 한 축이 어긋난
+   * 경우가 여기 온다 - "선호하신 뼈/순살과 다릅니다".
+   */
+  unmetConditions: string[];
   confidence: number;
   requiresReconfirmation: boolean;
   /** 후보 표시 정보. 상품 ID 가 아니라 사람이 읽는 값이어야 한다. */
@@ -104,7 +113,7 @@ export interface RecommendationResult {
   /** 사용자가 고른 조건이 반영됐는지 항목별로. 1순위 추천 기준이다. */
   matchedOptions: { label: string; value: string; matched: boolean; note?: string }[];
   /**
-   * 후보별로 어긋나는 축의 이름. 예: { "CHICKEN-003": ["형태"] }
+   * 후보별로 어긋나는 축의 이름. 예: { "candidate-beta": ["형태"] }
    *
    * matchedOptions 는 1순위 하나에 대한 답이라, 대안 후보를 고른 사용자에게는
    * 쓸 수 없다. 그걸 그대로 쓰면 '매운 뼈' 를 고른 사람에게
@@ -127,6 +136,21 @@ export interface EvidenceSummary {
    * 없으면 화면이 그 줄을 아예 그리지 않는다 — 지어내지 않는다.
    */
   note?: string;
+  /**
+   * 서버가 매긴 상태 문장(#48 의 summary.status). 그대로 인용해서 보여 준다.
+   *
+   * 앱 문구로 옮기지 않는다. 이 줄의 쓸모가 "이 값이 서버에서 왔다" 를 보이는
+   * 것이라, 우리 말로 바꾸는 순간 서버가 준 것인지 앱이 지어낸 것인지 다시
+   * 구분할 수 없어진다. 문체가 다른 것은 인용이라고 밝혀서 푼다.
+   */
+  serverStatus?: string;
+  /**
+   * 키오스크가 실제로 한 일을 순서대로 (#71 의 runSteps).
+   *
+   * 위의 reachedStep 은 '몇 번째까지 갔나' 뿐이라 무엇을 했는지는 모른다.
+   * 서버가 안 주면 없다 — 화면이 지어내지 않는다.
+   */
+  한일?: { text: string; ok: boolean }[];
 }
 
 // ─── 확신도 경계 ─────────────────────────────────────────────────────────────
@@ -245,10 +269,37 @@ export function createApi(
         본후보.add(e.candidateId);
         제외.push(e);
       }
+      /*
+       * 세 종류를 한 목록에 담는다. 화면이 제목을 붙여 나눠 보여 준다.
+       *
+       *   used      이 조건을 써서 골랐다
+       *   unmet     이 조건은 못 맞췄다        <- 담기는 담는데 한 축이 어긋남
+       *   excluded  이 조건 때문에 메뉴를 뺐다
+       *
+       * unmet 을 버리고 있었다. 서버가 "선호하신 뼈/순살과 다릅니다" 라고 알려
+       * 주는데 타입에 선언만 해 두고 화면까지 오지 않았다. 못 맞춘 것을 감추면
+       * 사용자는 자기가 고른 조건이 다 반영된 줄 알고 승인한다.
+       */
+      /*
+       * 세 종류를 한 목록에 담는다. 화면이 제목을 붙여 나눠 보여 준다.
+       *
+       *   used      이 조건을 써서 골랐다
+       *   unmet     이 조건은 못 맞췄다        <- 담기는 담는데 한 축이 어긋남
+       *   excluded  이 조건 때문에 메뉴를 뺐다
+       *
+       * unmet 을 버리고 있었다. 서버가 "선호하신 뼈/순살과 다릅니다" 라고 알려
+       * 주는데 타입에 선언만 해 두고 화면까지 오지 않았다. 못 맞춘 것을 감추면
+       * 사용자는 자기가 고른 조건이 다 반영된 줄 알고 승인한다.
+       *
+       * 셋 다 서버가 준 문장이라 결제 표현 거르기를 여기서 한 번에 건다.
+       * 실서버 경로에만 걸면 목에서는 안 걸리는데, 화면으로 나가는 길은 여기
+       * 하나다. 막는 자리는 나가는 자리여야 한다.
+       */
       const reasons: MappingResponse["reasons"] = [
         ...rec.recommendationReasons.map((text) => ({ kind: "used" as const, text })),
+        ...rec.unmetConditions.map((text) => ({ kind: "unmet" as const, text })),
         ...제외.map((e) => ({ kind: "excluded" as const, text: e.explanation })),
-      ];
+      ].filter((r) => 보여도되나(r.text));
 
       // 서버가 display 를 빠뜨리면 이름 없는 후보가 화면에 뜬다.
       // 빈칸을 보여 주느니 그 후보를 빼는 게 낫다.
@@ -371,7 +422,14 @@ export function createApi(
         await backend.submit(input.pairingId, { ...input, candidateId, ...(profile ? { profile } : {}) });
         const v = await backend.validate(input.pairingId);
         if (!v.valid) {
-          throw new KioBridgeError("VALIDATION_FAILED", v.errors?.[0] ?? "계획을 검증하지 못했어요", false);
+          // 이유를 여러 줄 준 경우 전부 넘긴다. 하나만 보여 주면 그것을
+          // 고쳐도 또 막히고, 사용자는 왜 막히는지 끝까지 모른다.
+          throw new KioBridgeError(
+            "VALIDATION_FAILED",
+            v.errors?.[0] ?? "계획을 검증하지 못했어요",
+            false,
+            v.errors,
+          );
         }
         ({ planId } = await backend.execute(input.pairingId));
       } catch (e) {
@@ -426,6 +484,9 @@ export function createApi(
       // 화면이 주문에 쓰라고 등록해 둔 주문표 사본. 여기 남으면 '모두 지워요' 가
       // 사실이 아니다. 목(mockApi)은 이미 지우고 있었고 이 경로만 빠져 있었다.
       clearSheets();
+      // 오간 기록에는 요청.응답 본문이 통째로 들어 있다 — 고른 조건도 거기 있다.
+      // 화면에서 지웠다고 말해 놓고 구석 패널에 그대로 남으면 그 말이 거짓이 된다.
+      연동기록.비우기();
       if (backend.forgetSession) {
         await Promise.all((ids.length > 0 ? ids : [""]).map((id) => backend.forgetSession!(id)));
       }
@@ -441,16 +502,27 @@ export function createApi(
             ? STEPS.map(() => "done")
             : STEPS.map((_, i) => (i < e.reachedStep ? "done" : i === e.reachedStep ? "active" : "waiting"));
 
+      // 어디서 멈췄든 무엇까지 했는지는 알려 준다. 중단됐을 때가 오히려
+      // 더 알고 싶은 자리다 — 어디까지 갔는지 눈으로 봐야 다음을 정한다.
+      const 한일 = e.한일 ? { done: e.한일 } : {};
+
       if (e.state === "aborted") {
         return {
-          state: "aborted", steps,
+          state: "aborted", steps, ...한일,
           abort: { ...(e.abort ?? { code: "UNKNOWN", title: "안전을 위해 중단되었습니다", message: "예상하지 못한 화면이 감지되어 작동을 멈췄어요.", userAction: "직원 초기화를 기다려 주세요" }), recoverable: false },
+          // 중단됐을 때야말로 "이게 키오스크가 한 말이다" 를 보여 줄 자리다.
+          // 잘 된 경우에만 싣고 여기서 빠뜨리면, 정작 확인이 필요한 쪽이 비어 있다.
+          ...(e.serverStatus ? { serverStatus: e.serverStatus } : {}),
         };
       }
       if (e.state === "cart_ready") {
-        return { state: "cart_ready", steps, cart: e.cart, ...(e.note ? { note: e.note } : {}) };
+        return {
+          state: "cart_ready", steps, cart: e.cart, ...한일,
+          ...(e.note ? { note: e.note } : {}),
+          ...(e.serverStatus ? { serverStatus: e.serverStatus } : {}),
+        };
       }
-      return { state: "running", steps };
+      return { state: "running", steps, ...한일 };
     },
   };
 }
@@ -517,8 +589,152 @@ interface ApprovalResult {
   valid: boolean;
   /** 서버가 증거를 읽어 만든 한 줄 요약. 화면은 recommendation 만 쓴다. */
   summary?: { status?: string; recommendation?: string; stopReason?: string };
+  /**
+   * 검증에 걸린 이유를 사람이 읽는 문장으로 옮긴 것 (#66).
+   *
+   * 서버가 킷 오류 코드(REQUIRED_FIELD_MISSING 등)를 표에서 찾아 바꿔 준다.
+   * 성공하면 빈 배열로 온다 — 있고 없고로 실패를 판단하면 안 된다. valid 를 본다.
+   *
+   * 선택 필드로 둔다. #66 이전 백엔드에는 이 필드가 아예 없고, 그때는
+   * 예전처럼 raw.validation.errors 의 message 를 쓴다.
+   */
+  validationMessages?: string[];
+  /**
+   * 키오스크에서 실제로 한 동작을 순서대로 (#71).
+   *
+   * 지금까지 화면은 우리가 정해 둔 다섯 단계를 '실행한 동작 수' 로 채웠다.
+   * 개수만 보고 그린 것이라 몇 번째까지 갔는지만 맞고 무엇을 했는지는 몰랐다.
+   * 이건 서버가 실제로 한 일이다.
+   */
+  runSteps?: RunStep[];
   raw?: ExecuteResult;
 }
+
+/** ApprovalResult.runSteps 의 한 칸. 킷의 ExecutedAction 을 추린 것이다. */
+interface RunStep {
+  actionIndex: number;
+  /** select_option, confirm_option, open_cart_review ... */
+  action: string;
+  /**
+   * 킷의 resolvedLabel. 고른 값이면 사람 말이고("종이컵"),
+   * 화면 이동이면 코드다("CART_REVIEW"). 아래 한일한줄 참고.
+   */
+  label: string;
+  success: boolean;
+}
+
+/*
+ * 한 동작을 사람이 읽는 한 줄로 옮긴다.
+ *
+ * label 을 그대로 쓸 수 없다. 규칙이 이렇게 갈린다.
+ *
+ *   select_service   포장하기            <- 고른 값이라 사람 말
+ *   select_menu      매운 뼈 닭강정
+ *   select_option    매운맛 · 뼈 · 종이컵 · 1개
+ *   confirm_option   OPTION_CONFIRM      <- 화면 이름이라 코드
+ *   open_cart_review CART_REVIEW
+ *   verify_cart      CART_REVIEW
+ *
+ * 그래서 문장은 action 에서 만들고, label 은 사람 말일 때만 끼워 넣는다.
+ * 모르는 action 에 코드 label 만 있으면 무슨 일이 있었는지 지어내지 않는다.
+ */
+/*
+ * 고른 값을 담아 오는 동작들.
+ *
+ * 이 셋에서는 label 이 사용자가 실제로 고른 값이다. 대문자든 한글이든 그대로
+ * 보여 준다 - 모양으로 코드인지 아닌지 가리면 안 된다.
+ *
+ * 처음에는 모든 동작에 /^[A-Z][A-Z0-9_]*$/ 를 걸어 대문자면 코드로 봤다.
+ * 그러면 `ICE`·`HOT`·`Q1` 같은 **진짜 고른 값**이 코드로 몰려 "하나 골랐어요"
+ * 로 뭉개진다. 카페 주문표에는 이미 ICE 가 들어 있다.
+ *
+ * 사용자가 고른 것을 화면에서 지우는 셈이라, 대신 눌러 주는 앱에서 가장 하면
+ * 안 되는 쪽이다. 판별은 아래 아는화면 처럼 **자리를 아는 곳에서만** 한다.
+ */
+const 고른값을담는동작 = new Set(["select_service", "select_menu", "select_option"]);
+
+/*
+ * 서버가 준 label 을 화면에 올려도 되는지.
+ *
+ * label 은 검증되지 않은 서버 입력이다. 여기를 그대로 통과시키면 서버가 무엇을
+ * 담아 보내든 결과 화면에 뜬다 - 상품 ID(candidate-alpha) · 화면 좌표 · 결제 문구
+ * 전부. 우리 실격 요건 둘을 정면으로 건드린다.
+ *
+ * 그런데 우리는 **사용자가 무엇을 골랐는지 이미 안다.** 주문표의 선택값과
+ * 화면에 띄우고 있는 후보 이름이 그것이다. 그 목록에 있는 값만 통과시킨다.
+ *
+ * 흰 목록이라 새는 길이 없다. 모르는 값이면 값을 지우고 동작만 말한다 -
+ * 무엇을 골랐는지 한 줄 잃지만, 지어낸 값이나 새면 안 되는 값을 띄우는 것보다 낫다.
+ *
+ * 앞서 ICE 를 살리려고 모양 검사를 없앴는데, 그때 '고른 값 자리는 안전하다' 고
+ * 전제했다. 그 전제에 근거가 없었다. 모양이 아니라 **아는 값인지**로 가른다.
+ */
+const 아는값인가 = (label: string, 아는값: Set<string>): boolean =>
+  아는값.has(label) && 보여도되나(label);
+
+/*
+ * 주문표에 고른 값과 **이번에 담기로 한 메뉴 하나**의 이름.
+ *
+ * 후보 전체를 넣으면 안 된다. 대안 후보 이름까지 흰 목록에 들어가서, 서버가
+ * 사용자가 고르지 않은 후보 이름을 보내도 "OO 골랐어요" 로 뜬다. 고른 적 없는
+ * 메뉴를 골랐다고 말하는 셈이라, 대신 눌러 주는 앱에서 가장 나쁜 거짓말이다.
+ *
+ * 찾지 못하면 이름을 아예 넣지 않는다. 그때는 "하나 골랐어요" 로 물러난다.
+ */
+const 아는값모으기 = (
+  profile: OrderSheet | undefined,
+  고른후보: KitCandidate | undefined,
+): Set<string> => {
+  const s = new Set<string>();
+  for (const 값들 of Object.values(profile?.selections ?? {})) {
+    for (const v of 값들) if (v) s.add(v);
+  }
+  if (고른후보?.name) s.add(고른후보.name);
+  return s;
+};
+
+/*
+ * 아는 화면 코드만 갈라 준다.
+ *
+ * confirm_option 이 두 번 온다 — 옵션을 확정할 때와 메뉴를 장바구니로 넘길 때다.
+ * action 만 보면 같은 문장이 두 줄 나란히 서서 앱이 헛돈 것처럼 읽힌다.
+ * 킷은 label 로 둘을 구분하고 있으니 그것만 받아 쓴다.
+ *
+ * 모르는 코드는 여기 없다. 그때는 아래 action 문장으로 물러난다 — 코드 이름을
+ * 보고 무슨 화면인지 짐작해서 지어내지 않는다.
+ */
+const 아는화면: Record<string, string> = {
+  OPTION_CONFIRM: "옵션을 확정했어요",
+  MENU_SELECTION_WITH_CART: "메뉴를 장바구니로 넘겼어요",
+};
+const 동작말 = (action: string, label: string, 아는값: Set<string>): string => {
+  // 고른 값 자리라도 우리가 아는 값일 때만 그대로 쓴다. ICE 는 주문표에 있으니
+  // "ICE 골랐어요" 가 되고, candidate-alpha 은 없으니 "하나 골랐어요" 가 된다.
+  if (고른값을담는동작.has(action)) {
+    return 아는값인가(label, 아는값) ? `${label} 골랐어요` : "하나 골랐어요";
+  }
+  if (아는화면[label]) return 아는화면[label];
+  switch (action) {
+    case "confirm_option":
+      return "고른 것을 확정했어요";
+    case "open_cart_review":
+      return "장바구니를 열었어요";
+    case "verify_cart":
+      return "장바구니를 확인했어요";
+    default:
+      // 모르는 동작이다. 아는 값이 아니면 무슨 일이 있었는지 지어내지 않는다.
+      return 아는값인가(label, 아는값) ? label : "한 단계 진행했어요";
+  }
+};
+const 한일만들기 = (
+  단계: RunStep[] | undefined,
+  아는값: Set<string>,
+): { text: string; ok: boolean }[] | undefined => {
+  if (!단계 || 단계.length === 0) return undefined;
+  return [...단계]
+    .sort((a, b) => a.actionIndex - b.actionIndex)
+    .map((s) => ({ text: 동작말(s.action, (s.label ?? "").trim(), 아는값), ok: s.success }));
+};
 
 /** 킷 fixture 의 후보. candidate-filters 가 이 모양으로 돌려준다. */
 interface KitCandidate {
@@ -636,6 +852,20 @@ const 앱말투: Record<string, string> = {
   "처리 중 문제가 발생했습니다.": "끝까지 담지 못했어요",
 };
 
+/*
+ * 서버가 준 오류 문장을 화면에 올려도 되는지 본다.
+ *
+ * 결제 표현은 화면에 있기만 해도 실격이다. 성공 문구(status)는 아는 넷만
+ * 인용하는 흰 목록으로 막아 뒀는데, 오류 문장에는 같은 방법을 못 쓴다 —
+ * 서버 표(ValidationErrorMessageService)에 코드가 늘 때마다 흰 목록에서
+ * 빠져 사용자가 이유를 못 보게 된다. 막을 것만 막는다.
+ *
+ * 지금 서버 표 열여섯 문장에는 하나도 걸리지 않는다. 나중에 누가 표에
+ * 한 줄을 더할 때를 위한 것이다.
+ */
+const 금지표현 = /결제|결재|주문\s*완료/;
+const 보여도되나 = (문장: string) => 문장.length > 0 && !금지표현.test(문장);
+
 function 고른것반영(rec: RecommendationResponse, 고른: string | undefined): RecommendationResponse {
   if (!고른 || 고른 === rec.recommendedCandidateId) return rec;
   const 대안 = (rec.alternativeCandidateIds ?? []).filter((id) => id !== 고른);
@@ -655,9 +885,22 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
     const 방법 = body === undefined ? "GET" : "POST";
     // 개발 중에 어디로 무엇이 나갔는지 눈으로 보기 위해서만 잰다.
     const 시작 = 팀백엔드모드 ? performance.now() : 0;
-    const 적기 = (상태: number | "실패") => {
+    /*
+     * 본문까지 남긴다.
+     *
+     * 경로와 상태만 남기면 "요청이 나갔다" 는 알 수 있어도 "화면의 이 문장이
+     * 서버에서 온 것이다" 는 알 수 없다. ?log=1 화면이 그걸 보여 주려면 응답
+     * 본문이 있어야 한다. 여기 경로에는 비밀이 실리지 않는다 — 계정 계열은
+     * account.ts 가 따로 부르고 거기서는 본문을 안 남긴다(devlog 의 본문을남길까).
+     */
+    const 적기 = (상태: number | "실패", 응답본문?: string) => {
       if (!팀백엔드모드) return;
-      연동기록.남기기({ 방법, 경로: path, 상태, 걸린시간: Math.round(performance.now() - 시작), 시각: Date.now() });
+      연동기록.남기기({
+        방법, 경로: path, 상태,
+        걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
+        ...(body === undefined ? {} : { 요청: JSON.stringify(body) }),
+        ...(응답본문 === undefined ? {} : { 응답: 응답본문 }),
+      });
     };
 
     let res: Response;
@@ -672,13 +915,34 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       적기("실패");
       throw e;
     }
-    적기(res.status);
+
+    /*
+     * 본문은 한 번만 읽을 수 있다. 먼저 문자열로 받아 두고 성공.실패 양쪽에서 쓴다.
+     * 예전에는 실패 쪽에서 res.json() 을 따로 불러서, 기록에 남길 본문이 없었다.
+     *
+     * 읽는 것 자체도 실패할 수 있다(스트림이 중간에 끊기는 경우). 막아 두지 않으면
+     * !res.ok 분기에 닿기도 전에 TypeError 가 올라가서, 호출자는 HTTP 상태가 담긴
+     * KioBridgeError 대신 개발자 문장을 받는다. account.ts 는 이미 막아 두었는데
+     * 이쪽만 빠져 있었다.
+     */
+    const t = await res.text().catch(() => null);
+    적기(res.status, t ?? undefined);
+
     if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
+      // 본문을 못 읽었어도 상태 코드는 안다. 그것만으로도 할 말이 있다.
+      const b = (() => { try { return JSON.parse(t ?? "") as { code?: string; message?: string }; } catch { return {}; } })();
       throw new KioBridgeError(b.code ?? `HTTP_${res.status}`, b.message ?? "요청을 처리하지 못했어요", res.status >= 500);
     }
-    const t = await res.text();
-    return (t ? JSON.parse(t) : undefined) as T;
+    if (t === null) throw new KioBridgeError("BAD_RESPONSE", "서버 응답을 읽지 못했어요", true);
+    if (!t) return undefined as T;
+    try {
+      return JSON.parse(t) as T;
+    } catch {
+      // 200 인데 JSON 이 아닌 것(프록시가 끼워 넣은 HTML 같은 것)이 올 수 있다.
+      // 막아 두지 않으면 SyntaxError 가 그대로 올라가 "Unexpected token '<'" 가
+      // 어르신 화면에 뜬다. account.ts 는 이미 막아 두었고 여기만 빠져 있었다.
+      throw new KioBridgeError("BAD_RESPONSE", "서버 응답을 읽지 못했어요", true);
+    }
   };
 
   // 승인이 조립·제출·검증·실행을 한 번에 하므로 3단계로 나눌 수 없다. 응답을
@@ -688,6 +952,17 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 추천 = new Map<string, RecommendationResponse>();
   // 승인 응답에 실려 온 서버 요약(#48). 결과 화면의 한 줄로 쓴다.
   const 서버요약 = new Map<string, { status?: string; recommendation?: string; stopReason?: string }>();
+  // 승인 응답에 실려 온 검증 실패 문장(#66). 확인 화면이 그대로 보여 준다.
+  // 실행결과(raw)에는 없는 값이라 따로 들고 있어야 한다.
+  const 검증문장 = new Map<string, string[]>();
+  /*
+   * 승인 응답에 실려 온 실행 단계(#71).
+   *
+   * **원문을 담지 않는다.** 화면에 올릴 문장으로 바꾼 뒤에 담는다. 원문에는
+   * 서버가 무엇을 넣었을지 모르는 label 이 들어 있고, 그걸 메모리에 두면
+   * 화면에 안 띄워도 '앱이 상품 ID 를 들고 있는' 상태가 된다.
+   */
+  const 실행단계 = new Map<string, { text: string; ok: boolean }[]>();
   // 후보 필터가 준 후보들. 이름·가격과 축별 값이 여기 있다.
   const 후보 = new Map<string, Map<string, KitCandidate>>();
   // 정규화를 거친 주문표·세션 맥락. 매핑과 승인이 같은 값을 쓴다.
@@ -712,7 +987,8 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 캐시키 = (environmentId: string, p: OrderSheet) => {
     // collectedAt 은 부를 때마다 달라진다(현재 시각). 키에 넣으면 캐시가 한 번도
     // 안 맞는다. 결과를 바꾸는 건 고른 조건과 접근성 설정이라 그것만 넣는다.
-    const { collectedAt: _버림, ...주문표 } = toProfileNormalizationInput(p);
+    // 접근성 설정이 바뀌면 표준형도 달라진다. 키에 그대로 들어가므로 캐시가 자동으로 갈린다.
+    const { collectedAt: _버림, ...주문표 } = toProfileNormalizationInput(p, { 접근성: 접근성설정.읽기() });
     const 키 = `${environmentId}|${JSON.stringify(주문표)}|${JSON.stringify(toContextNormalizationInput(p).contextInput)}`;
     마지막키.set(p.id, 키);
     return 키;
@@ -738,7 +1014,12 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
     const pr = await 보내기<{
       status: string; profile: CanonicalProfile;
       contractValidation?: { valid: boolean; errors?: { message?: string }[] };
-    }>("/api/v1/profile-normalizations", { environmentId, profileInput: toProfileNormalizationInput(p) });
+    }>("/api/v1/profile-normalizations", {
+      environmentId,
+      // 큰 글씨를 켜 놓고 주문해도 서버가 몰랐다 — opts 를 안 넘겨서 일곱이 전부
+      // false 로 나가고 있었다. 화면이 묻는 값을 그대로 보낸다.
+      profileInput: toProfileNormalizationInput(p, { 접근성: 접근성설정.읽기() }),
+    });
 
     const sr = await 보내기<{
       status: string; sessionContext: ChickenStoreSessionContext;
@@ -837,6 +1118,8 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
     async forgetSession(sessionId) {
       실행결과.delete(sessionId);
       서버요약.delete(sessionId);
+      검증문장.delete(sessionId);
+      실행단계.delete(sessionId);
       추천.clear();
       후보.clear();
       정규화됨.clear();
@@ -932,6 +1215,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
           explanation: 사유문장(e),
         })).filter((e) => e.explanation),
         recommendationReasons: r.recommendationReasons ?? [],
+        unmetConditions: r.unmetConditions ?? [],
         confidence: r.confidence ?? 0,
         requiresReconfirmation: r.requiresReconfirmation ?? false,
         // 이름·가격은 candidate-filters 에서 온다. 추천 응답에는 없다.
@@ -985,6 +1269,38 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       // #48 이후에는 { valid, summary, raw } 로 감싸여 온다. 둘 다 받는다.
       실행결과.set(sessionId, r.raw ?? (r as unknown as ExecuteResult));
       if (r.summary) 서버요약.set(sessionId, r.summary);
+      /*
+       * 빈 배열도 그대로 담는다. 담지 않고 넘기면 앞 응답의 문장이 남는다.
+       *
+       * 검증에 막히면 approve() 가 s.executed 를 되돌려서 같은 세션으로 다시
+       * 승인할 수 있다. 그때 두 번째 응답이 빈 배열이면, 사용자는 이번에 막힌
+       * 이유가 아니라 **아까 막혔던 이유**를 읽는다.
+       *
+       * 필드가 아예 없으면(#66 이전 백엔드) 지운다 - 그래야 아래에서 있고 없고로
+       * 예전 경로를 쓸지 정할 수 있다. 길이로 정하면 빈 배열과 구분이 안 된다.
+       */
+      if (Array.isArray(r.validationMessages)) {
+        검증문장.set(sessionId, r.validationMessages);
+      } else {
+        검증문장.delete(sessionId);
+      }
+      /*
+       * 같은 이유로 여기도 덮거나 지운다 — 앞 승인의 단계가 남으면 안 된다.
+       *
+       * 담기 전에 문장으로 바꾼다. 아는 값(주문표에 고른 값 · 이번에 담기로 한
+       * 메뉴 이름)만 통과하므로, 서버가 무엇을 보냈든 여기 남는 것은 우리가 이미
+       * 알고 있던 값뿐이다.
+       */
+      // 사용자가 다른 후보를 골랐으면 그것, 아니면 서버 1순위. 그 하나만 아는 값이다.
+      const 담을후보 = input.candidateId ?? rec.recommendedCandidateId ?? undefined;
+      const 한일 = Array.isArray(r.runSteps)
+        ? 한일만들기(r.runSteps, 아는값모으기(profile, 담을후보 ? 후보.get(profile.id)?.get(담을후보) : undefined))
+        : undefined;
+      if (한일) {
+        실행단계.set(sessionId, 한일);
+      } else {
+        실행단계.delete(sessionId);
+      }
     },
 
     // 서버가 실제로 판단한 결과를 읽는다.
@@ -997,8 +1313,23 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       const r = 실행결과.get(sessionId);
       if (!r) throw new KioBridgeError("PLAN_NOT_FOUND", "실행 정보를 찾을 수 없어요", false);
       if (r.valid) return { valid: true };
-      // 서버가 준 문장을 그대로 올린다. 없으면 화면이 기본 문구를 쓴다.
-      const errors = (r.validation?.errors ?? []).map((e) => e.message).filter(Boolean);
+      /*
+       * 서버가 준 문장을 그대로 올린다. 없으면 화면이 기본 문구를 쓴다.
+       *
+       * #66 부터는 서버가 오류 코드를 사람 문장으로 옮겨 validationMessages 로
+       * 준다. 그게 있으면 그것만 쓴다 — 예전 경로(validation.errors[].message)는
+       * 킷이 개발자에게 하는 말이라("$.executionPlan[0].actionType must be ...")
+       * 사용자 화면에 올릴 문장이 아니었다. 둘을 합치면 옮긴 문장 옆에
+       * 원문이 그대로 붙어 버린다.
+       *
+       * #66 이전 백엔드에는 필드가 없으므로 그때는 예전 경로로 물러난다.
+       *
+       * 물러날지는 **길이가 아니라 있고 없고**로 정한다. 길이로 정하면 서버가
+       * 준 빈 배열("이번엔 옮길 문장이 없다")과 필드 자체가 없는 것("이 서버는
+       * 옮겨 주지 않는다")이 같아진다. 앞의 경우까지 개발자용 원문으로 물러난다.
+       */
+      const 원문 = (r.validation?.errors ?? []).map((e) => e.message);
+      const errors = (검증문장.has(sessionId) ? 검증문장.get(sessionId)! : 원문).filter(보여도되나);
       return { valid: false, ...(errors.length > 0 ? { errors } : {}) };
     },
 
@@ -1057,6 +1388,8 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         e.result === "PASS" ? "cart_ready" : e.result === "FAIL" ? "aborted" : "running";
 
       const 요약 = 서버요약.get(sessionId);
+      // 이미 문장으로 바꿔 담아 뒀다. 여기서는 꺼내 쓰기만 한다.
+      const 한일 = 실행단계.get(sessionId);
       return {
         state,
         // 몇 번째 화면까지 갔는지. 실행한 동작 수가 그대로 진행도다.
@@ -1065,6 +1398,20 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // 또 쓰면 같은 말이 두 번 나온다. 그래서 성공했을 때는 왜 이 메뉴였는지를
         // 말해 주는 recommendation 만 한 줄로 올린다.
         ...(state === "cart_ready" && 요약?.recommendation ? { note: 요약.recommendation } : {}),
+        /*
+         * 서버 문장을 그대로 싣되, 아는 문장만 싣는다.
+         *
+         * 화면은 이 값을 따옴표로 감싸 그대로 보여 준다. 서버가 언젠가 결제 완료
+         * 같은 문장을 담아 보내면 그게 곧바로 화면에 뜬다 — 결제 표현은 있기만 해도
+         * 실격이라, 서버를 믿고 통과시킬 수 있는 값이 아니다.
+         *
+         * 앱말투 표에 있는 넷만 인용한다. 모르는 문장은 아예 안 보여 준다 —
+         * 그 경우 화면은 원래 우리 문구로 말한다. 서버가 문구를 바꾸면 이 줄이
+         * 조용히 사라지는데, 잘못된 말을 띄우는 것보다 안 띄우는 편이 낫다.
+         */
+        ...(요약?.status && 앱말투[요약.status] ? { serverStatus: 요약.status } : {}),
+        // 서버가 안 주면 이 줄 자체가 없다. 화면이 그때는 그리지 않는다.
+        ...(한일 ? { 한일 } : {}),
         ...(state === "cart_ready" ? { cart: 장바구니(e.reviewSnapshot) } : {}),
         ...(state === "aborted"
           ? {

@@ -15,6 +15,16 @@ import com.kiobridge.kiobridge.contracts.input.context.ChickenStorePreferences;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.contracts.input.context.SessionIntent;
 import com.kiobridge.kiobridge.contracts.input.context.SessionTask;
+import com.kiobridge.kiobridge.contracts.input.profile.Accessibility;
+import com.kiobridge.kiobridge.contracts.input.profile.CanonicalProfile;
+import com.kiobridge.kiobridge.contracts.input.profile.CollectionChannel;
+import com.kiobridge.kiobridge.contracts.input.profile.Consent;
+import com.kiobridge.kiobridge.contracts.input.profile.DataClassification;
+import com.kiobridge.kiobridge.contracts.input.profile.Interaction;
+import com.kiobridge.kiobridge.contracts.input.profile.PreferredInput;
+import com.kiobridge.kiobridge.contracts.input.profile.ProfileSource;
+import com.kiobridge.kiobridge.contracts.input.profile.RetentionPolicy;
+import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanResult;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +32,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -64,13 +75,13 @@ class SubmissionOrchestratorTest {
         Recommendation recommendation = recommendation();
         UserDecision userDecision = UserDecision.approve();
         ChickenStoreSessionContext sessionContext = sessionContext();
-        Map<String, Object> profile = Map.of("profileId", "TEST-PROFILE-001");
+        CanonicalProfile profile = profile();
         ExecuteResult expectedResult = new ExecuteResult(true, null, null, new ValidationResult(true, List.of()));
 
+        // approved=true 경로에서는 buildExecutionPlan이 이미 environmentId를 조회해서 돌려주므로,
+        // runApprovalFlow는 simulationApiClient.getSession()을 다시 호출하지 않아야 한다(중복 제거 대상).
         when(executionPlanService.buildExecutionPlan(SESSION_ID, recommendation, userDecision, sessionContext))
-            .thenReturn(plan);
-        when(simulationApiClient.getSession(SESSION_ID))
-            .thenReturn(new SessionStatusResponse(SESSION_ID, ENVIRONMENT_ID, "SUBMITTED", "NOT_STARTED", "NOT_STARTED"));
+            .thenReturn(new ExecutionPlanResult(plan, ENVIRONMENT_ID));
         when(executionPlanService.submitAndRun(eq(SESSION_ID), any(ParticipantSubmission.class)))
             .thenReturn(expectedResult);
 
@@ -79,6 +90,7 @@ class SubmissionOrchestratorTest {
         );
 
         assertThat(result).isEqualTo(expectedResult);
+        verify(simulationApiClient, never()).getSession(any());
 
         ArgumentCaptor<ParticipantSubmission> captor = ArgumentCaptor.forClass(ParticipantSubmission.class);
         verify(executionPlanService).submitAndRun(eq(SESSION_ID), captor.capture());
@@ -97,17 +109,19 @@ class SubmissionOrchestratorTest {
 
     @Test
     void 세션의_environmentId를_못_찾으면_예외를_던지고_submitAndRun을_호출하지_않는다() {
+        // approved=false 경로: buildExecutionPlan이 environmentId 조회를 생략하므로(ExecutionPlanResult.environmentId()=null),
+        // runApprovalFlow가 직접 Simulation API에 조회해야 하는 fallback 분기를 검증한다.
         Recommendation recommendation = recommendation();
-        UserDecision userDecision = UserDecision.approve();
+        UserDecision userDecision = UserDecision.reject("사용자가 거절함");
         ChickenStoreSessionContext sessionContext = sessionContext();
 
         when(executionPlanService.buildExecutionPlan(SESSION_ID, recommendation, userDecision, sessionContext))
-            .thenReturn(ExecutionPlan.empty());
+            .thenReturn(new ExecutionPlanResult(ExecutionPlan.empty(), null));
         when(simulationApiClient.getSession(SESSION_ID))
             .thenReturn(new SessionStatusResponse(SESSION_ID, null, "WAITING", "NOT_STARTED", "NOT_STARTED"));
 
         assertThatThrownBy(() -> orchestrator.runApprovalFlow(
-            SESSION_ID, Map.of("profileId", "P-1"), sessionContext, recommendation, userDecision
+            SESSION_ID, profile(), sessionContext, recommendation, userDecision
         )).isInstanceOf(IllegalStateException.class);
 
         verify(executionPlanService, never()).submitAndRun(any(), any());
@@ -118,7 +132,7 @@ class SubmissionOrchestratorTest {
         Recommendation recommendation = recommendation();
         UserDecision userDecision = UserDecision.approve();
         ChickenStoreSessionContext sessionContext = sessionContext();
-        Map<String, Object> profile = Map.of("profileId", "P-1");
+        CanonicalProfile profile = profile();
 
         assertThatThrownBy(() -> orchestrator.runApprovalFlow(null, profile, sessionContext, recommendation, userDecision))
             .isInstanceOf(NullPointerException.class);
@@ -135,6 +149,18 @@ class SubmissionOrchestratorTest {
     private static Recommendation recommendation() {
         return new Recommendation(
             "CHICKEN-001", List.of(), List.of(), Map.of(), List.of("테스트 추천 사유"), List.of(), 0.9, false
+        );
+    }
+
+    private static CanonicalProfile profile() {
+        return new CanonicalProfile(
+            "user_test_001",
+            "테스트 사용자",
+            DataClassification.SYNTHETIC_PROFILE,
+            new ProfileSource(CollectionChannel.WEB_FORM, TEAM_ID, Instant.parse("2026-08-01T00:00:00Z")),
+            new Accessibility(false, false, false, false, false, false, false),
+            new Interaction(PreferredInput.TOUCH, "ko-KR", true),
+            new Consent(false, RetentionPolicy.SESSION_ONLY)
         );
     }
 

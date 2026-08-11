@@ -6,9 +6,22 @@ import { STEPS } from "@/domain/catalog";
 // backend.ts 도 이 파일의 KioBridgeError 를 가져간다(순환). 둘 다 함수 안에서만
 // 쓰므로 평가 시점에는 서로를 건드리지 않는다. 최상위에서 쓰면 그때 깨진다.
 import { createApi, createTeamBackend } from "@/api/backend";
+import { 연동기록 } from "@/api/devlog";
 
 export class KioBridgeError extends Error {
-  constructor(readonly code: string, message: string, readonly recoverable: boolean) {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly recoverable: boolean,
+    /**
+     * 서버가 이유를 여러 줄로 준 경우 전부. message 는 그중 첫 줄이다.
+     *
+     * Error 는 message 한 칸뿐이라, 검증이 두세 가지 이유로 막혀도
+     * 화면에는 첫 줄만 닿고 나머지는 조용히 사라졌다. 사용자는 하나를
+     * 고쳐도 또 막힌다.
+     */
+    readonly details?: string[],
+  ) {
     super(message);
     this.name = "KioBridgeError";
   }
@@ -304,6 +317,9 @@ export const mockApi: KioBridgeApi = {
   async forgetAll() {
     // clearSheets 가 profiles·sessions·plans 를 모두 비운다.
     clearSheets();
+    // 오간 기록도 함께 비운다. 목에서는 나가는 요청이 없어 보통 비어 있지만,
+    // 두 경로가 하는 일이 다르면 언젠가 한쪽만 고치게 된다.
+    연동기록.비우기();
   },
 
   async getPlanStatus(planId) {
@@ -336,7 +352,7 @@ export const mockApi: KioBridgeApi = {
 /**
  * 화면이 쓰는 API.
  *
- * 기본은 목이다. VITE_BACKEND=team 일 때만 팀 백엔드로 간다(npm run dev:team).
+ * 기본은 목이다. __TEAM_BACKEND__ 가 참일 때만 팀 백엔드로 간다(npm run dev:team · build:team).
  *
  * 기본값을 아직 목으로 두는 이유는 두 가지다.
  *   1. 추천 응답에 조건별 일치 여부(matchedOptions)가 없어서, 확인 카드가
@@ -348,7 +364,7 @@ export const mockApi: KioBridgeApi = {
  * docs/BACKEND_INTEGRATION.md 참고.
  */
 export const api: KioBridgeApi =
-  import.meta.env.VITE_BACKEND === "team"
+  __TEAM_BACKEND__
     ? createApi(createTeamBackend(), "chicken-store", getSheet)
     : mockApi;
 export const POLL_MS = 600;
