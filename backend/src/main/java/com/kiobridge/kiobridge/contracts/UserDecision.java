@@ -1,6 +1,7 @@
 package com.kiobridge.kiobridge.contracts;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.kiobridge.kiobridge.common.web.ApiException;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -29,19 +30,23 @@ public record UserDecision(
 
     public UserDecision {
         if (decision == null || !VALID_DECISIONS.contains(decision)) {
-            throw new IllegalArgumentException("decision은 APPROVE/REJECT/MODIFY 중 하나여야 합니다.");
+            // Kit ERROR_CATALOG.md 1.계약·형식: 공식 enum이 아닌 값
+            throw new ApiException("ENUM_VALUE_INVALID", "decision은 APPROVE/REJECT/MODIFY 중 하나여야 합니다.");
         }
         if (confirmedAt != null) {
             // schemas/core/iso-8601-utc.schema.json: 로컬시각·숫자 오프셋 금지, 반드시 대문자 Z로 끝나야 함
+            // Kit ERROR_CATALOG.md 1.계약·형식: 시각이 UTC ISO 8601이 아님
             if (!confirmedAt.endsWith("Z")) {
-                throw new IllegalArgumentException(
+                throw new ApiException(
+                    "INVALID_UTC_TIMESTAMP",
                     "confirmedAt은 UTC(Z로 끝나는 ISO-8601) 형식이어야 합니다: " + confirmedAt
                 );
             }
             try {
                 Instant.parse(confirmedAt);
             } catch (DateTimeParseException e) {
-                throw new IllegalArgumentException(
+                throw new ApiException(
+                    "INVALID_UTC_TIMESTAMP",
                     "confirmedAt이 유효한 ISO-8601 UTC 시각이 아닙니다: " + confirmedAt, e
                 );
             }

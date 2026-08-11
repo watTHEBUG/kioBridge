@@ -4,9 +4,9 @@ import { ChevronLeft, Check } from "lucide-react";
 import { Pictogram } from "@/design/Pictogram";
 import kioskHeroImg from "@/assets/images/kiosk-hero.jpg";
 import {
-  P, ACCENT, TEXT_1, TEXT_2, TEXT_3, BORDER, SURFACE, CANVAS, BACKDROP,
-  SUCCESS, SUCCESS_BG, WARN, WARN_BG, FAIL, FAIL_BG, TEXT_BTN, TEXT_CHIP,
-  FONT, SERIF, TYPE, NUM, GAP, RADIUS, FOCUS_STYLES,
+  P, TEXT_1, TEXT_2, TEXT_3, BORDER, SURFACE, CANVAS, BACKDROP,
+  SUCCESS, WARN, WARN_BG, FAIL, FAIL_BG, TEXT_BTN, TEXT_CHIP,
+  FONT, SERIF, TYPE, NUM, GAP, RADIUS, FOCUS_STYLES, PALETTE_STYLES, PAPER, RULE, KICKER, BTN_H, TOGGLE_OFF, ON_DARK,
 } from "@/design/tokens";
 import type {
   Screen, MainTab, PlaceType, PairingState, StepStatus, OrderSheet, PairingResult,
@@ -20,18 +20,21 @@ import {
   LOGIN_ID_MAX, PASSWORD_MIN, MENU_NAME_MAX, MEMO_MAX, type Account,
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
+import { 접근성설정, type 접근성 } from "@/api/a11y";
 import BackendLog from "@/app/BackendLog";
 
 // 휴대폰 틀 크기. 큰 글씨 모드가 이 값을 기준으로 안쪽 크기를 되계산한다.
-const FRAME_W = 384;
-const FRAME_H = 780;
+const FRAME_W = 390;
+const FRAME_H = 844;
 const LARGE_TEXT_SCALE = 1.18;
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 // 워드마크는 세리프로. 정체(kio)와 이탤릭(bridge)을 섞어 에디토리얼 인상을 만든다.
 function AppLogo({ light = false, size = 34 }: { light?: boolean; size?: number }) {
-  const color = light ? "white" : TEXT_1;
+  // light 는 사진.카메라처럼 늘 어두운 판 위에 얹을 때 쓴다. 팔레트를 따라가면
+  // 다크에서 검은 판에 검은 글자가 된다. 여기는 뒤집지 않는다.
+  const color = light ? ON_DARK : TEXT_1;
   return (
     <div
       aria-label="키오브릿지"
@@ -58,7 +61,7 @@ function ProgressBar({ step, total = 3 }: { step: number; total?: number }) {
       {Array.from({ length: total }).map((_, i) => (
         <div
           key={i}
-          style={{ width: i < step ? 16 : 5, height: 5, borderRadius: 100, backgroundColor: i < step ? P : BORDER, transition: "all 0.4s" }}
+          style={{ width: i < step ? 16 : 5, height: 5, borderRadius: 100, backgroundColor: i < step ? RULE : BORDER, transition: "all 0.4s" }}
         />
       ))}
     </div>
@@ -84,11 +87,16 @@ function BackButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-// 온보딩 화면의 가운데 정렬 헤드라인. 레퍼런스처럼 문장을 화면 중앙에 세운다.
-function CenterHeadline({ title, desc }: { title: React.ReactNode; desc?: React.ReactNode }) {
+// 화면 가운데에 세우는 헤드라인. 왼쪽 정렬 머리(SubScreenHeader)와 달리
+// 문장 하나가 화면의 주인공인 자리에 쓴다.
+function CenterHeadline({ title, desc, kicker, spot }: {
+  title: React.ReactNode; desc?: React.ReactNode; kicker?: string; spot?: React.ReactNode;
+}) {
   return (
     <div style={{ textAlign: "center" }}>
-      <h1 style={{ ...TYPE.title, color: TEXT_1 }}>{title}</h1>
+      {spot && <div aria-hidden="true" className="flex justify-center" style={{ marginBottom: 8 }}>{spot}</div>}
+      {kicker && <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, display: "block", marginBottom: 2 }}>{kicker}</span>}
+      <h1 style={{ ...TYPE.display, color: TEXT_1 }}>{title}</h1>
       {desc && <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>{desc}</p>}
     </div>
   );
@@ -108,14 +116,17 @@ function PrimaryBtn({
       onClick={onClick}
       disabled={disabled}
       style={{
-        width: "100%", height: 56, borderRadius: RADIUS.button,
-        fontSize: 17, fontWeight: 600, fontFamily: FONT, letterSpacing: "-0.02em",
-        backgroundColor: disabled ? SURFACE : P,
+        width: "100%", height: BTN_H, borderRadius: RADIUS.button,
+        fontSize: 17, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.02em",
+        // 종이색 바탕에서는 초록 알약이 색을 하나 더 늘린 것처럼 보인다. 검정은
+        // 글자와 같은 색이라 화면이 조용해지고, 누를 곳이 대비만으로 읽힌다.
+        // 초록은 성공.연결 표시 한 곳에만 남긴다.
+        backgroundColor: disabled ? SURFACE : RULE,
         // 비활성 컨트롤은 WCAG 대비 규정에서 빠져 있다. 그래도 여기서는 고친다.
         // 아직 못 누르는 버튼의 글자가 "다 채우면 무슨 일이 일어나는지"를 알려 주는 유일한 문장이라
         // 1.62:1(#C4C4C8)로 지워 놓으면 무엇을 기다리는지 알 수 없다.
         // 초록 알약이 회색 알약으로 바뀌는 것만으로 못 누른다는 신호는 충분하다.
-        color: disabled ? TEXT_2 : "white",
+        color: disabled ? TEXT_2 : PAPER,
         border: "none", cursor: disabled ? "not-allowed" : "pointer",
         transition: "background-color 0.15s",
         ...extraStyle,
@@ -132,8 +143,8 @@ function OutlineBtn({ children, onClick }: { children: React.ReactNode; onClick?
       type="button"
       onClick={onClick}
       style={{
-        width: "100%", height: 56, borderRadius: RADIUS.button,
-        fontSize: 17, fontWeight: 600, fontFamily: FONT, letterSpacing: "-0.02em",
+        width: "100%", height: BTN_H, borderRadius: RADIUS.button,
+        fontSize: 17, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.02em",
         backgroundColor: SURFACE,
         color: TEXT_BTN,
         border: "none",
@@ -150,7 +161,7 @@ function StickyFooter({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="shrink-0 flex flex-col gap-2"
-      style={{ backgroundColor: "white", padding: `12px ${GAP.screenX}px 24px` }}
+      style={{ backgroundColor: PAPER, padding: `12px ${GAP.screenX}px 24px` }}
     >
       {children}
     </div>
@@ -164,10 +175,11 @@ function Chip({ label, selected, onClick }: { label: string; selected: boolean; 
       aria-pressed={selected}
       onClick={onClick}
       style={{
-        minHeight: 44, padding: "10px 16px", borderRadius: RADIUS.pill,
-        fontSize: 15, fontWeight: 600, fontFamily: FONT, letterSpacing: "-0.01em",
-        backgroundColor: selected ? P : CANVAS,
-        color: selected ? "white" : TEXT_CHIP,
+        minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
+        fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+        // 고른 칩은 검은 알약. 초록은 화면당 한 곳(연결.성공)에만 남긴다.
+        backgroundColor: selected ? RULE : CANVAS,
+        color: selected ? PAPER : TEXT_CHIP,
         border: "none",
         cursor: "pointer",
         transition: "all 0.15s",
@@ -199,7 +211,7 @@ function SectionLabel({ text, required }: { text: string; required?: boolean }) 
  */
 function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       {/* 첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
           아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다. */}
       <div className="shrink-0 relative" style={{ height: "42%", minHeight: 0, overflow: "hidden" }}>
@@ -212,12 +224,21 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
         <div
           aria-hidden="true"
           className="absolute inset-x-0 bottom-0"
-          style={{ height: "58%", background: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 62%, #fff 100%)" }}
+          /*
+            그라데이션 끝색을 종이색으로 맞춘다.
+            사진 위에서 시작해 아래 배경으로 이어지는 띠라, 끝이 배경과 같아야
+            이음매가 안 보인다. #fff 로 박아 두면 다크에서 이 띠만 하얗게 남고
+            바로 아래 #0C0C0C 와 맞닿아 화면이 두 동강 난다.
+          */
+          style={{
+            height: "58%",
+            background: `linear-gradient(to bottom, rgba(0,0,0,0) 0%, color-mix(in srgb, ${PAPER} 85%, transparent) 62%, ${PAPER} 100%)`,
+          }}
         />
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center" style={{ minHeight: 0, padding: `0 ${GAP.screenX}px`, marginTop: -12 }}>
-        <Pictogram name="handPointing" size={54} color={P} />
+        <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
           <AppLogo size={40} />
         </div>
@@ -230,7 +251,9 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
         {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
         <PrimaryBtn onClick={onStart}>
           <span className="flex items-center justify-center gap-2">
-            <Pictogram name="handPointing" size={18} color="#fff" />
+            {/* 대표 버튼 안이라 버튼 면과 함께 뒤집혀야 한다. #fff 로 박으면 다크에서
+                흰 알약 위에 흰 아이콘이 된다. 코드래빗이 잡은 셋과 같은 종류다. */}
+            <Pictogram name="handPointing" size={18} color={PAPER} />
             바로 시작하기
           </span>
         </PrimaryBtn>
@@ -243,7 +266,7 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
           type="button"
           onClick={onLogin}
           style={{
-            marginTop: 4, minHeight: 56, borderRadius: RADIUS.button, background: "#fff",
+            marginTop: 4, minHeight: 56, borderRadius: RADIUS.button, background: SURFACE,
             border: `1px solid ${BORDER}`, color: TEXT_2, fontSize: 15, fontWeight: 600,
           }}
           className="flex items-center justify-center gap-2 w-full"
@@ -392,7 +415,7 @@ function LoginScreen({ onDone, onBack, onGoSignup }: {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
       </div>
@@ -494,7 +517,7 @@ function SignupScreen({ onDone, onBack, onGoLogin }: {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
         <div className="flex-1 flex justify-center" style={{ marginRight: 34 }}>
@@ -596,7 +619,7 @@ function SignupScreen({ onDone, onBack, onGoLogin }: {
 function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack: () => void }) {
   const [name, setName] = useState("");
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
         <div className="flex-1 flex justify-center" style={{ marginRight: 34 }}>
@@ -654,14 +677,14 @@ function GreetingScreen({ name, onNext }: { name: string; onNext: () => void }) 
 
   return (
     <div
-      className="flex flex-col h-full items-center justify-center text-center bg-white"
+      className="flex flex-col h-full items-center justify-center text-center kb-paper"
       style={{ padding: `0 ${GAP.screenX}px` }}
       role="status"
       aria-live="polite"
     >
-      <Pictogram name="handsClapping" size={72} color={P} />
+      <Pictogram name="handsClapping" size={72} color={TEXT_1} />
       <h1 style={{ ...TYPE.title, color: TEXT_1, marginTop: 32 }}>
-        반가워요, <span style={{ color: ACCENT }}>{name}</span>님!
+        반가워요, <span style={{ color: TEXT_1 }}>{name}</span>님!
       </h1>
       <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>
         자주 시키는 주문을 저장해 두면<br />키오스크 앞에서 바로 꺼내 쓸 수 있어요
@@ -705,7 +728,7 @@ function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }: {
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-body"
-        style={{ backgroundColor: "white", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: `28px ${GAP.screenX}px 24px`, outline: "none" }}
+        style={{ backgroundColor: PAPER, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: `28px ${GAP.screenX}px 24px`, outline: "none" }}
       >
         <h2 id="confirm-title" style={{ ...TYPE.title, color: TEXT_1, margin: 0 }}>{title}</h2>
         <p id="confirm-body" style={{ ...TYPE.body, color: TEXT_2, marginTop: 10 }}>{body}</p>
@@ -714,7 +737,7 @@ function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }: {
           <button
             type="button"
             onClick={onConfirm}
-            style={{ width: "100%", minHeight: 52, borderRadius: RADIUS.button, backgroundColor: FAIL, color: "white", border: "none", cursor: "pointer", ...TYPE.bodyBold, fontFamily: FONT }}
+            style={{ width: "100%", minHeight: 52, borderRadius: RADIUS.button, backgroundColor: FAIL, color: PAPER, border: "none", cursor: "pointer", ...TYPE.bodyBold, fontFamily: FONT }}
           >
             {confirmLabel}
           </button>
@@ -761,10 +784,10 @@ function CheckRow({ checked, onToggle, label }: { checked: boolean; onToggle: ()
       <div aria-hidden="true" style={{
         width: 22, height: 22, borderRadius: 6, flexShrink: 0,
         border: checked ? "none" : `1.5px solid ${TEXT_2}`,
-        backgroundColor: checked ? P : "transparent",
+        backgroundColor: checked ? RULE : "transparent",
         display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s",
       }}>
-        {checked && <Check size={12} strokeWidth={3} color="white" />}
+        {checked && <Check size={12} strokeWidth={3} color={PAPER} />}
       </div>
       <span style={{ ...TYPE.caption, fontWeight: 600, color: TEXT_1 }}>{label}</span>
     </button>
@@ -829,7 +852,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         {/*
          * 진행 표시를 두지 않는다.
@@ -880,12 +903,12 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
                   padding: "14px 16px", borderRadius: RADIUS.input, cursor: "pointer",
                   fontSize: 16, fontWeight: 500, fontFamily: FONT, letterSpacing: "-0.01em",
                   border: "none",
-                  backgroundColor: place === label ? P : CANVAS,
-                  color: place === label ? "white" : TEXT_CHIP,
+                  backgroundColor: place === label ? RULE : CANVAS,
+                  color: place === label ? PAPER : TEXT_CHIP,
                   transition: "background-color 0.15s",
                 }}
               >
-                <span aria-hidden="true" style={{ color: place === label ? "white" : P, display: "flex" }}>{icon}</span>
+                <span aria-hidden="true" style={{ color: place === label ? PAPER : TEXT_1, display: "flex" }}>{icon}</span>
                 {label}
               </button>
             ))}
@@ -1040,7 +1063,8 @@ function OrderSheetCard({
         position: "relative",
         borderRadius: RADIUS.card, marginBottom: 10,
         border: "none",
-        backgroundColor: selected ? P : SURFACE,
+        // 고른 주문표는 검은 면. 초록은 담기 성공 체크에만 남긴다.
+        backgroundColor: selected ? RULE : SURFACE,
         transition: "background-color 0.15s",
         outline: focused ? `3px solid ${TEXT_1}` : "none",
         outlineOffset: 2,
@@ -1068,26 +1092,26 @@ function OrderSheetCard({
               style={{
                 width: 40, height: 40, borderRadius: 12,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                backgroundColor: selected ? "rgba(255,255,255,0.16)" : "white",
-                color: selected ? "white" : P, flexShrink: 0,
+                backgroundColor: selected ? "rgba(127,127,127,0.22)" : PAPER,
+                color: selected ? PAPER : TEXT_1, flexShrink: 0,
               }}
             >
               {sheet.place ? PLACE_ICONS[sheet.place] : <Pictogram name="squaresFour" size={19} />}
             </div>
-            <span style={{ ...TYPE.bodyBold, color: selected ? "white" : TEXT_1 }}>{sheet.menuName}</span>
+            <span style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1 }}>{sheet.menuName}</span>
           </div>
           <div
             aria-hidden="true"
             style={{
               width: 24, height: 24, borderRadius: "50%", flexShrink: 0, marginTop: 5,
               display: "flex", alignItems: "center", justifyContent: "center",
-              backgroundColor: selected ? "white" : "transparent",
+              backgroundColor: selected ? PAPER : "transparent",
               // 안 고른 동그라미의 테두리는 "여기 고를 수 있는 게 있다"를 알리는 유일한 표시다.
               // TEXT_3 는 옅은 면 위에서 1.62:1 이라 컨트롤 경계 기준(3:1)에 못 미쳤다.
               border: selected ? "none" : `1.5px solid ${TEXT_2}`,
             }}
           >
-            {selected && <Check size={13} strokeWidth={3} color={P} />}
+            {selected && <Check size={13} strokeWidth={3} color={RULE} />}
           </div>
         </div>
 
@@ -1102,8 +1126,8 @@ function OrderSheetCard({
           {visibleTags.map((tag, i) => (
             <span key={i} style={{
               fontSize: 13, fontWeight: 500, padding: "4px 11px", borderRadius: RADIUS.pill,
-              backgroundColor: selected ? "rgba(0,0,0,0.18)" : "white",
-              color: selected ? "white" : TEXT_2,
+              backgroundColor: selected ? "rgba(127,127,127,0.22)" : PAPER,
+              color: selected ? PAPER : TEXT_2,
             }}>
               {tag}
             </span>
@@ -1111,8 +1135,8 @@ function OrderSheetCard({
           {overflow > 0 && (
             <span style={{
               fontSize: 13, fontWeight: 500, padding: "4px 11px", borderRadius: RADIUS.pill,
-              backgroundColor: selected ? "rgba(0,0,0,0.18)" : "white",
-              color: selected ? "white" : TEXT_2,
+              backgroundColor: selected ? "rgba(127,127,127,0.22)" : PAPER,
+              color: selected ? PAPER : TEXT_2,
             }}>
               +{overflow}
             </span>
@@ -1121,7 +1145,7 @@ function OrderSheetCard({
 
         {/* 반투명 흰색(70%)은 초록 위에서 3.31:1 이라 읽히지 않는다. 흰색은 5.08:1 이다. */}
         {sheet.memo && (
-          <p style={{ fontSize: 14, color: selected ? "white" : TEXT_2, lineHeight: 1.5, marginTop: 12 }}>{sheet.memo}</p>
+          <p style={{ fontSize: 14, color: selected ? PAPER : TEXT_2, lineHeight: 1.5, marginTop: 12 }}>{sheet.memo}</p>
         )}
       </label>
 
@@ -1138,7 +1162,7 @@ function OrderSheetCard({
             fontSize: 13, fontWeight: 500, minHeight: 44, minWidth: 44, padding: "6px 10px",
             background: "none", border: "none", cursor: "pointer",
             // 70% 흰색은 초록 위에서 3.31:1 이었다. 지우는 버튼은 흐릿하면 안 된다.
-            color: selected ? "white" : TEXT_2,
+            color: selected ? PAPER : TEXT_2,
             textDecoration: "underline", textUnderlineOffset: 3,
           }}
         >
@@ -1176,11 +1200,15 @@ function SavedSheetsScreen({
   }, [sheets]);
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `20px ${GAP.screenX}px 20px` }}>
         <AppLogo size={26} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 22 }}>저장된 주문표</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 6 }}>사용할 주문표를 선택하세요</p>
+        <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 20, display: "block" }}>saved orders</span>
+        <div className="flex items-end justify-between" style={{ gap: 12 }}>
+          <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 2, flex: 1 }}>어떤 주문표로<br />주문할까요?</h1>
+          <span aria-hidden="true" style={{ flexShrink: 0, marginBottom: 4 }}><ReceiptSpot /></span>
+        </div>
+        <Rule style={{ marginTop: 18 }} />
       </div>
 
       <div className="flex-1 overflow-y-auto pb-2" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
@@ -1245,8 +1273,8 @@ function BottomNav({ tab, onChange }: { tab: MainTab; onChange: (t: MainTab) => 
     { id: "account", icon: <Pictogram name="userCircle" size={25} />, label: "계정" },
   ];
   return (
-    <nav aria-label="주요 메뉴" className="shrink-0 flex" style={{ borderTop: `1px solid ${BORDER}`, backgroundColor: "white", paddingBottom: 12 }}>
-      {items.map(({ id, icon, label }) => {
+    <nav aria-label="주요 메뉴" className="shrink-0 flex" style={{ borderTop: `1px solid ${BORDER}`, backgroundColor: PAPER, paddingBottom: 12 }}>
+      {items.map(({ id, label }) => {
         const active = tab === id;
         return (
           <button
@@ -1254,12 +1282,23 @@ function BottomNav({ tab, onChange }: { tab: MainTab; onChange: (t: MainTab) => 
             type="button"
             aria-current={active ? "page" : undefined}
             onClick={() => onChange(id)}
-            className="flex-1 flex flex-col items-center gap-1.5"
-            style={{ border: "none", backgroundColor: "transparent", cursor: "pointer", minHeight: 56, padding: "12px 0 4px" }}
+            className="flex-1 flex flex-col items-center"
+            style={{ border: "none", backgroundColor: "transparent", cursor: "pointer", minHeight: 56, padding: "14px 0 6px" }}
           >
-            {/* 안 눌린 탭도 읽을 수 있어야 한다. TEXT_3 는 1.74:1 이라 사실상 안 보였다. */}
-            <span aria-hidden="true" style={{ color: active ? P : TEXT_2, display: "flex" }}>{icon}</span>
-            <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, letterSpacing: "-0.02em", color: active ? P : TEXT_2, fontFamily: FONT }}>
+            {/*
+              아이콘을 빼고 글자만 남겼다. 셋뿐인 탭이라 그림이 없어도 무엇인지
+              알 수 있고, 그림.글자.색 셋으로 알리던 것을 글자 하나로 줄이면
+              화면이 조용해진다. 대신 지금 탭에는 밑줄을 그어 색 말고도 표시가
+              남게 한다 - 색을 못 보는 경우에도 어디에 있는지 알아야 한다.
+
+              안 눌린 탭도 읽을 수 있어야 해서 TEXT_2 를 쓴다(TEXT_3 는 1.74:1).
+            */}
+            <span style={{
+              fontSize: 15, fontWeight: active ? 800 : 500, letterSpacing: "-0.02em",
+              color: active ? TEXT_1 : TEXT_2, fontFamily: FONT,
+              borderBottom: active ? `2px solid ${RULE}` : "2px solid transparent",
+              paddingBottom: 4,
+            }}>
               {label}
             </span>
           </button>
@@ -1285,20 +1324,92 @@ function SpinnerIcon() {
   return (
     <svg width="52" height="52" viewBox="0 0 64 64" fill="none" aria-hidden="true">
       <circle cx="32" cy="32" r="27" stroke={BORDER} strokeWidth="4" />
-      <path d="M32 5 A27 27 0 0 1 59 32" stroke={P} strokeWidth="4" strokeLinecap="round" style={SPIN(32, 32)} />
+      <path d="M32 5 A27 27 0 0 1 59 32" stroke={TEXT_1} strokeWidth="4" strokeLinecap="round" style={SPIN(32, 32)} />
     </svg>
   );
 }
 
 // 상태 화면 공통 골격 — 가운데 정렬 표식 + 제목 + 설명. 색이 아니라 배치로 위계를 만든다.
-function StatusHero({ mark, title, desc }: { mark: React.ReactNode; title: React.ReactNode; desc?: React.ReactNode }) {
+/**
+ * 상태 화면의 머리.
+ *
+ * kicker 는 이탤릭 영문 한 줄이다. 뜻은 담지 않는다 - 읽어야 할 말은 전부 아래
+ * 한글 제목에 있고, 영어를 못 읽어도 잃는 정보가 없다. aria-hidden 으로 두어
+ * 스크린리더가 읽지 않는다.
+ */
+function StatusHero({ mark, kicker, title, desc }: {
+  mark: React.ReactNode; kicker?: string; title: React.ReactNode; desc?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center text-center">
       <div aria-hidden="true" className="flex items-center justify-center" style={{ height: 72 }}>{mark}</div>
-      <h2 style={{ ...TYPE.title, color: TEXT_1, marginTop: 20 }}>{title}</h2>
-      {desc && <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8 }}>{desc}</p>}
+      {kicker && <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 18, display: "block" }}>{kicker}</span>}
+      <h2 style={{ ...TYPE.display, color: TEXT_1, marginTop: kicker ? 4 : 20 }}>{title}</h2>
+      {desc && <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>{desc}</p>}
     </div>
   );
+}
+
+/**
+ * 제목 오른쪽에 놓는 선 드로잉 한 점.
+ *
+ * 스트로크 5.5px, round cap, 배경 없음. 장식이라 aria-hidden 이고,
+ * 이 그림이 없어도 화면의 뜻은 그대로다 - 뜻은 제목이 지고 있다.
+ */
+function GlassesSpot({ size = 76 }: { size?: number }) {
+  return (
+    <svg width={size} height={size * 0.5} viewBox="0 0 152 76" fill="none" aria-hidden="true">
+      <g stroke={TEXT_1} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
+        <ellipse cx="40" cy="44" rx="27" ry="22" />
+        <ellipse cx="112" cy="44" rx="27" ry="22" />
+        <path d="M67 40c5-4 13-4 18 0" />
+        <path d="M13 40C13 20 24 12 34 12" />
+        <path d="M139 40c0-20-11-28-21-28" />
+      </g>
+    </svg>
+  );
+}
+
+/** 주문표 화면 — 영수증. */
+function ReceiptSpot({ size = 64 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+      <g stroke={TEXT_1} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M24 12h52v76l-10-7-9 7-9-7-9 7-9-7-6 4z" />
+        <path d="M38 36h24M38 52h24M38 66h14" />
+      </g>
+    </svg>
+  );
+}
+
+/** 개인정보 화면 — 자물쇠. */
+function LockSpot({ size = 64 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+      <g stroke={TEXT_1} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="22" y="44" width="56" height="44" rx="8" />
+        <path d="M34 44V32a16 16 0 0 1 32 0v12" />
+        <path d="M50 60v12" />
+      </g>
+    </svg>
+  );
+}
+
+/** 이유 화면 — 돋보기. */
+function LoupeSpot({ size = 64 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+      <g stroke={TEXT_1} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="44" cy="42" r="26" />
+        <path d="M63 61l22 24" />
+      </g>
+    </svg>
+  );
+}
+
+/** 섹션 머리의 굵은 줄. 이 디자인에서 화면을 자르는 유일한 선이다. */
+function Rule({ style }: { style?: React.CSSProperties }) {
+  return <div aria-hidden="true" style={{ height: 2, backgroundColor: RULE, ...style }} />;
 }
 
 function PairingConnecting() {
@@ -1340,17 +1451,19 @@ function PairingConnected({
     <div className="flex flex-col flex-1" style={{ padding: `32px ${GAP.screenX}px 24px` }}>
       <StatusHero
         mark={<Pictogram name="checkCircle" size={64} color={P} />}
+        kicker="connected"
         title="연결되었습니다"
         desc={<span style={{ fontWeight: 600, color: TEXT_1 }}>{kioskName}</span>}
       />
 
-      <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
-        <div className="flex items-center justify-between gap-4">
+      {/* 면 대신 줄로 가른다. 굵은 줄이 머리와 내용을 나누고, 아래 헤어라인이 끝을 맺는다. */}
+      <div style={{ marginTop: 32, borderTop: `2px solid ${RULE}`, borderBottom: `1px solid ${BORDER}` }}>
+        <div className="flex items-center justify-between gap-4" style={{ padding: "18px 0" }}>
           <div>
             <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 5 }}>세션 유효시간</p>
             <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.5 }}>만료되면 QR을 다시 스캔해 주세요</p>
           </div>
-          <span style={{ fontFamily: SERIF, fontSize: 38, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
+          <span style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
         </div>
       </div>
 
@@ -1508,9 +1621,15 @@ function QrScannerModal({ onClose, onDetected }: { onClose: () => void; onDetect
 
           {!scanning && (
             <div className="absolute inset-0 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.10)" }}>
-              <div style={{ width: 60, height: 60, borderRadius: "50%", backgroundColor: "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {/*
+                이 모달의 배경은 팔레트와 무관하게 늘 #000 이다. 여기에 PAPER.TEXT_1
+                을 쓰면 다크에서 검은 배경에 검은 원(1.07:1)이 되어 묻힌다.
+                고정 쌍(ON_DARK 면 + 검은 체크)을 쓴다. 로고는 고쳤는데 같은 모달
+                안의 이 아이콘을 빠뜨렸다.
+              */}
+              <div style={{ width: 60, height: 60, borderRadius: "50%", backgroundColor: ON_DARK, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-                  <path d="M7 17L13 23L25 11" stroke={P} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M7 17L13 23L25 11" stroke="#111111" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
             </div>
@@ -1603,7 +1722,7 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `20px ${GAP.screenX}px 0` }}>
         <AppLogo size={26} />
       </div>
@@ -1665,14 +1784,14 @@ function AccountScreen({
         { label: "로그아웃", sub: "", action: onLogout, danger: true },
       ];
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `20px ${GAP.screenX}px 24px` }}>
         <AppLogo size={26} />
         <div className="flex items-center gap-4" style={{ marginTop: 28 }}>
-          <div style={{ width: 54, height: 54, borderRadius: "50%", backgroundColor: guest ? SURFACE : P, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: 54, height: 54, borderRadius: "50%", backgroundColor: guest ? SURFACE : RULE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             {guest
               ? <Pictogram name="handPointing" size={24} color={TEXT_2} />
-              : <span style={{ fontFamily: SERIF, fontSize: 24, color: "white" }}>{name ? name[0] : "?"}</span>}
+              : <span style={{ fontFamily: SERIF, fontSize: 24, color: PAPER }}>{name ? name[0] : "?"}</span>}
           </div>
           <div>
             <p style={{ ...TYPE.title, color: TEXT_1 }}>{guest ? "게스트로 이용 중" : `${name || "사용자"}님`}</p>
@@ -1689,7 +1808,7 @@ function AccountScreen({
             onClick={onLogin}
             style={{
               marginTop: 20, width: "100%", minHeight: 52, borderRadius: RADIUS.button,
-              background: "#fff", border: `1px solid ${BORDER}`, color: TEXT_2,
+              background: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_2,
               fontSize: 15, fontWeight: 600, fontFamily: FONT, cursor: "pointer",
             }}
             className="flex items-center justify-center gap-2"
@@ -1730,11 +1849,19 @@ function AccountScreen({
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 /** 계정 화면에서 여는 하위 화면들의 공통 머리. */
-function SubScreenHeader({ title, onBack }: { title: string; onBack: () => void }) {
+function SubScreenHeader({ title, kicker, spot, onBack }: {
+  title: React.ReactNode; kicker?: string; spot?: React.ReactNode; onBack: () => void;
+}) {
   return (
-    <div className="shrink-0" style={{ padding: `14px ${GAP.screenX}px 8px` }}>
+    <div className="shrink-0" style={{ padding: `14px ${GAP.screenX}px 0` }}>
       <BackButton onClick={onBack} />
-      <h1 style={{ ...TYPE.title, color: TEXT_1, marginTop: 8 }}>{title}</h1>
+      {kicker && <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 22, display: "block" }}>{kicker}</span>}
+      <div className="flex items-end justify-between" style={{ gap: 12 }}>
+        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: kicker ? 2 : 12, flex: 1 }}>{title}</h1>
+        {/* 제목 오른쪽의 선 드로잉 한 점. 장식이라 스크린리더에서 뺀다. */}
+        {spot && <span aria-hidden="true" style={{ flexShrink: 0, marginBottom: 4 }}>{spot}</span>}
+      </div>
+      <Rule style={{ marginTop: 18 }} />
     </div>
   );
 }
@@ -1753,30 +1880,30 @@ function ToggleRow({
       onClick={onToggle}
       style={{
         width: "100%", minHeight: 44, display: "flex", alignItems: "center", justifyContent: "space-between",
-        gap: 16, padding: "18px 20px", textAlign: "left", cursor: "pointer", fontFamily: FONT,
+        gap: 16, padding: "18px 0", textAlign: "left", cursor: "pointer", fontFamily: FONT,
         backgroundColor: "transparent", border: "none",
       }}
     >
       <span>
-        <span style={{ display: "block", fontSize: 16, fontWeight: 500, color: TEXT_1, letterSpacing: "-0.01em" }}>{label}</span>
-        <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 3 }}>{sub}</span>
+        <span style={{ display: "block", fontSize: 17, fontWeight: 700, color: TEXT_1, letterSpacing: "-0.02em" }}>{label}</span>
+        <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4 }}>{sub}</span>
       </span>
       {/* 색만으로 상태를 알리지 않는다 — 켜짐일 때는 체크 표시도 함께 둔다. */}
       <span
         aria-hidden="true"
         style={{
-          width: 52, height: 31, borderRadius: 100, flexShrink: 0, position: "relative",
-          backgroundColor: on ? P : BORDER, transition: "background-color 0.2s",
+          width: 54, height: 32, borderRadius: 999, flexShrink: 0, position: "relative",
+          backgroundColor: on ? RULE : TOGGLE_OFF, transition: "background-color 0.2s",
         }}
       >
         <span
           style={{
-            position: "absolute", top: 3, left: on ? 24 : 3, width: 25, height: 25, borderRadius: "50%",
-            backgroundColor: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.2s",
+            position: "absolute", top: 3, left: on ? 25 : 3, width: 26, height: 26, borderRadius: "50%",
+            backgroundColor: PAPER, boxShadow: "0 1px 3px rgba(0,0,0,0.18)", transition: "left 0.2s",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
-          {on && <Check size={14} strokeWidth={3} style={{ color: P }} />}
+          {on && <Check size={14} strokeWidth={3} style={{ color: RULE }} />}
         </span>
       </span>
     </button>
@@ -1789,31 +1916,113 @@ function ToggleRow({
  * 여기 있는 항목은 전부 실제로 동작하는 것만 둔다. 준비 중인 기능을 목록에 올려 두면
  * 화면을 믿을 수 없게 된다. 큰 글씨는 앱 전체(휴대폰 틀 안)에 바로 적용된다.
  */
-function AccessibilityScreen({
-  largeText, onLargeText, onBack,
-}: {
-  largeText: boolean; onLargeText: (v: boolean) => void; onBack: () => void;
+/**
+ * 접근성 설정.
+ *
+ * 킷 계약이 요구하는 일곱 가지를 다 묻는다. 예전에는 '큰 글씨' 하나만 묻고
+ * 나머지 여섯을 false 로 박아 서버에 보냈다 — 백엔드는 받을 준비가 돼 있었는데
+ * 화면이 안 물어서 늘 "아무 도움도 필요 없음" 으로 나가고 있었다.
+ *
+ * 두 무리로 나눠 적는다.
+ *
+ *   이 앱이 바로 바꾸는 것   큰 글씨 · 고대비
+ *   키오스크에 전해 드릴 것   나머지 다섯
+ *
+ * 뒤의 다섯은 이 앱 화면을 바꾸지 않는다. 켰는데 아무 일도 안 일어나면 사용자는
+ * 앱이 고장 났다고 생각하므로, 무엇을 하는 값인지 제목으로 먼저 밝힌다.
+ * 바꾸지 않는 것을 바꾼다고 말하지 않는다.
+ */
+function AccessibilityScreen({ 설정, onChange, onBack }: {
+  설정: 접근성;
+  onChange: (한칸: Partial<접근성>) => void;
+  onBack: () => void;
 }) {
+  // 켜면 이 앱이 실제로 무언가를 한다. 무엇을 하는지 sub 에 그대로 적는다.
+  const 바로바꾸는것: { key: keyof 접근성; label: string; sub: string }[] = [
+    { key: "largeText", label: "큰 글씨", sub: "앱 전체의 글씨와 버튼을 크게 봐요" },
+    { key: "highContrast", label: "고대비", sub: "글씨와 배경의 차이를 더 뚜렷하게 해요" },
+    { key: "simpleSteps", label: "쉬운 단계", sub: "이유 화면을 건너뛰고 바로 확인 화면으로 가요" },
+    { key: "mobilitySupport", label: "시간 여유", sub: "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요" },
+    { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
+  ];
+  // 켜도 이 앱 화면은 그대로다. 키오스크로 전해지기만 한다.
+  const 전해드릴것: { key: keyof 접근성; label: string; sub: string }[] = [
+    { key: "visualGuidance", label: "그림 안내", sub: "글보다 그림으로 알려 달라고 전해요" },
+    { key: "hearingSupport", label: "소리 대신 화면", sub: "소리 안내를 못 들어요. 이 앱은 원래 소리를 쓰지 않아요" },
+  ];
+
   return (
-    <div className="flex flex-col h-full bg-white">
-      <SubScreenHeader title="접근성 설정" onBack={onBack} />
+    <div className="flex flex-col h-full kb-paper">
+      <SubScreenHeader
+        kicker="accessibility"
+        title={<>보기 편하게<br />바꿔드릴게요</>}
+        spot={<GlassesSpot />}
+        onBack={onBack}
+      />
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: `12px ${GAP.screenX}px 24px` }}>
-        <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, overflow: "hidden" }}>
-          <ToggleRow
-            label="큰 글씨"
-            sub="앱 전체의 글씨와 버튼을 크게 봐요"
-            on={largeText}
-            onToggle={() => onLargeText(!largeText)}
-          />
+        {/*
+          설명은 전부 맨 위에 모아 둔다.
+          예전에는 스위치 사이사이와 맨 아래에 문단이 흩어져 있었다. 스위치를 켜러
+          온 사람이 글에 걸려 넘어지고, 어디까지가 설명이고 어디부터 켤 것인지
+          한눈에 안 들어왔다. 읽을 것은 먼저 끝내고, 그다음부터는 켜기만 한다.
+
+          다섯 문단이던 것을 둘로 줄였다. 지운 것이 아니라 합쳤다 -
+          없어지면 안 되는 말들이다(저장 안 함 · 새로고침하면 초기화 · 직원 도움).
+        */}
+        <p style={{ fontSize: 13, color: TEXT_2, marginBottom: 10, lineHeight: 1.7 }}>
+          필요하신 것만 켜 주세요. 켠 것은 이 기기에만 남고, 새로고침하면 처음으로 돌아가요.
+        </p>
+        <p style={{ fontSize: 13, color: TEXT_2, marginBottom: 20, lineHeight: 1.7 }}>
+          이 앱은 원래 큰 버튼과 또렷한 대비로 만들었고, 소리로만 알리는 것은 하나도 없어요.
+          어려우면 이 화면을 직원에게 보여 주세요.
+        </p>
+
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
+        <div style={{ borderTop: `1px solid ${BORDER}` }}>
+          {바로바꾸는것.map((r, i) => (
+            <div key={r.key} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
+              <ToggleRow
+                label={r.label}
+                sub={r.sub}
+                on={설정[r.key]}
+                onToggle={() => onChange({ [r.key]: !설정[r.key] })}
+              />
+            </div>
+          ))}
         </div>
 
-        <p style={{ fontSize: 13, color: TEXT_2, marginTop: 20, lineHeight: 1.7 }}>
-          이 앱은 처음부터 큰 버튼과 또렷한 대비로 만들었어요.
-          단계마다 한 가지만 물어보고, 상태는 색뿐 아니라 그림과 글씨로도 함께 알려드려요.
+        {/*
+          이 한 줄은 문단이 아니라 제목의 일부다. 스위치와 제목 사이에 본문이
+          끼면 다시 '글 중간에 스위치' 가 된다. 그렇다고 지울 수는 없다 -
+          이 둘은 켜도 앱 화면이 안 바뀌는데, 그 말을 안 하면 화면이 거짓이 된다.
+          (ProfileMapper 는 값을 옮기기만 하고 RecommendationEngineService 는
+          profile 을 읽지 않는다. 지금은 정말로 전해 주기만 한다.)
+        */}
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24 }}>키오스크에 전해 드려요</h2>
+        {/*
+          TEXT_3 를 쓸 뻔했다. 제목보다 낮춰 보이려고 골랐는데 tokens.ts 에
+          "글자 금지" 라고 적어 둔 값이다 - 흰 배경에서 1.74:1 이라 읽으라고
+          둔 문장이 사실상 안 보인다. 하필 접근성 화면에서 그럴 뻔했다.
+
+          낮춰 보이는 것은 색이 아니라 자리와 크기로 만든다. 색은 본문용
+          TEXT_2(흰 배경 5.30:1)를 쓴다.
+        */}
+        <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
+          앱 화면은 그대로예요. 지금은 전해 주기만 해요.
         </p>
-        <p style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
-          화면이 어려우면 이 화면을 매장 직원에게 보여주세요. 직원이 이어서 도와드릴 수 있어요.
-        </p>
+        <div style={{ borderTop: `1px solid ${BORDER}` }}>
+          {전해드릴것.map((r, i) => (
+            <div key={r.key} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
+              <ToggleRow
+                label={r.label}
+                sub={r.sub}
+                on={설정[r.key]}
+                onToggle={() => onChange({ [r.key]: !설정[r.key] })}
+              />
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
@@ -1877,8 +2086,13 @@ function PrivacyRows({ guest }: { guest: boolean }) {
 
 function PrivacyScreen({ guest, onBack }: { guest: boolean; onBack: () => void }) {
   return (
-    <div className="flex flex-col h-full bg-white">
-      <SubScreenHeader title="개인정보 안내" onBack={onBack} />
+    <div className="flex flex-col h-full kb-paper">
+      <SubScreenHeader
+        kicker="privacy"
+        title={<>무엇을 남기고<br />무엇을 안 남기나요</>}
+        spot={<LockSpot />}
+        onBack={onBack}
+      />
       <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: `12px ${GAP.screenX}px 24px` }}>
         <PrivacyRows guest={guest} />
       </div>
@@ -1922,7 +2136,7 @@ function ConfirmCard({ children, badge, badgeTone = "success", photo }: {
   photo?: string | null;
 }) {
   const 배지색 = badgeTone === "success"
-    ? { bg: SUCCESS_BG, fg: SUCCESS, icon: "checkCircle" as const }
+    ? { bg: SURFACE, fg: TEXT_1, icon: "checkCircle" as const }
     : badgeTone === "caution"
       ? { bg: WARN_BG, fg: WARN, icon: "warning" as const }
       // neutral 의 바탕을 SURFACE 로 두면 카드 바탕과 같은 색이라 띠가 배경에 묻힌다.
@@ -1954,6 +2168,19 @@ function ConfirmCard({ children, badge, badgeTone = "success", photo }: {
  * "쓴 정보"와 "뺀 이유"를 같이 보여 준다 — 무엇이 빠졌는지 모르면 확인이 아니다.
  * 색만으로 구분하지 않도록 두 종류에 서로 다른 픽토그램을 붙인다.
  */
+/*
+ * 이유 한 줄의 겉모습.
+ *
+ * 종류가 셋이라 삼항으로 가르면 어느 가지가 무엇인지 안 보인다. 표로 모은다.
+ * 색만으로 알리지 않으므로 말머리 글자가 본체이고 그림은 거든다.
+ */
+const 이유표시 = {
+  // 초록을 여기 두면 이유 목록이 초록으로 늘어선다. 초록은 담기 성공 체크에만 남긴다.
+  used:     { 말머리: "반영: ", 그림: "checkCircle" as const, 색: TEXT_1 },
+  unmet:    { 말머리: "못 맞춤: ", 그림: "warning" as const, 색: WARN },
+  excluded: { 말머리: "제외: ", 그림: "warning" as const, 색: WARN },
+};
+
 function ReasonList({ reasons, 제목 = "이 메뉴를 고른 이유" }: { reasons?: RecommendationReason[]; 제목?: string }) {
   if (!reasons || reasons.length === 0) return null;
   return (
@@ -1969,14 +2196,14 @@ function ReasonList({ reasons, 제목 = "이 메뉴를 고른 이유" }: { reaso
           <li key={r.text} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
             <span style={{ flexShrink: 0, marginTop: 2, display: "flex" }}>
               <Pictogram
-                name={r.kind === "used" ? "checkCircle" : "warning"}
+                name={이유표시[r.kind].그림}
                 size={16}
-                color={r.kind === "used" ? SUCCESS : WARN}
+                color={이유표시[r.kind].색}
               />
             </span>
             <span style={{ fontSize: 14, lineHeight: 1.6, color: TEXT_1 }}>
               {/* 색을 못 보는 경우에도 종류를 알 수 있게 말머리를 글자로 붙인다. */}
-              <b style={{ fontWeight: 700 }}>{r.kind === "used" ? "반영: " : "제외: "}</b>
+              <b style={{ fontWeight: 700 }}>{이유표시[r.kind].말머리}</b>
               {r.text}
             </span>
           </li>
@@ -2004,15 +2231,21 @@ function ReasonStep({ reasons, onNext, 확인중 }: {
   확인중?: boolean;
 }) {
   const 쓴것 = reasons.filter((r) => r.kind === "used");
-  const 뺀것 = reasons.filter((r) => r.kind !== "used");
+  const 못맞춘것 = reasons.filter((r) => r.kind === "unmet");
+  const 뺀것 = reasons.filter((r) => r.kind === "excluded");
   return (
     <div className="flex flex-col gap-5">
       <CenterHeadline
+        spot={<LoupeSpot size={58} />}
+        kicker="why this"
         title={<>이렇게 찾았어요</>}
         desc="저장해 두신 조건으로 오늘 메뉴에서 찾은 결과예요."
       />
 
       {쓴것.length > 0 && <ReasonList reasons={쓴것} 제목="반영한 조건" />}
+      {/* 못 맞춘 것을 반영한 것 바로 아래 둔다. 이 둘을 나란히 읽어야 무엇이
+          되고 무엇이 안 됐는지가 한눈에 잡힌다. 빼 둔 메뉴는 그다음이다. */}
+      {못맞춘것.length > 0 && <ReasonList reasons={못맞춘것} 제목="맞추지 못한 조건" />}
       {뺀것.length > 0 && <ReasonList reasons={뺀것} 제목="빼 둔 메뉴와 그 이유" />}
 
       <PrimaryBtn onClick={onNext}>
@@ -2030,7 +2263,16 @@ function ReasonStep({ reasons, onNext, 확인중 }: {
  * 눌러서 앞 단계로 되돌아가면 전체를 다시 읽을 수 있다.
  */
 function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; onOpen: () => void }) {
-  const 첫줄 = reasons?.find((r) => r.kind === "used") ?? reasons?.[0];
+  /*
+   * 못 맞춘 조건이 있으면 그것을 먼저 보여 준다.
+   *
+   * 한 줄만 보이는 자리라 무엇을 올릴지가 중요하다. '반영했다' 는 안심시키는
+   * 말이고 '못 맞췄다' 는 확인이 필요한 말인데, 확인이 필요한 쪽을 접어 두면
+   * 사용자는 다 맞은 줄 알고 승인한다.
+   */
+  const 첫줄 = reasons?.find((r) => r.kind === "unmet")
+    ?? reasons?.find((r) => r.kind === "used")
+    ?? reasons?.[0];
   if (!첫줄) return null;
   const 남은 = (reasons?.length ?? 0) - 1;
   return (
@@ -2044,7 +2286,7 @@ function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; 
       }}
     >
       <span style={{ flexShrink: 0, marginTop: 2, display: "flex" }}>
-        <Pictogram name={첫줄.kind === "used" ? "checkCircle" : "warning"} size={16} color={첫줄.kind === "used" ? SUCCESS : WARN} />
+        <Pictogram name={이유표시[첫줄.kind].그림} size={16} color={이유표시[첫줄.kind].색} />
       </span>
       <span style={{ flex: 1, fontSize: 13, lineHeight: 1.6, color: TEXT_1 }}>
         {/*
@@ -2053,7 +2295,7 @@ function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; 
           쓴 것이 하나도 없으면 여기 뜨는 줄이 제외 사유인데, 표시가 없으면 그게
           이 메뉴를 고른 근거처럼 읽힌다. ReasonList 는 이미 이렇게 하고 있었다.
         */}
-        <b style={{ fontWeight: 700 }}>{첫줄.kind === "used" ? "반영: " : "제외: "}</b>
+        <b style={{ fontWeight: 700 }}>{이유표시[첫줄.kind].말머리}</b>
         {첫줄.text}
         {남은 > 0 && (
           <span style={{ color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3 }}>
@@ -2099,39 +2341,74 @@ function InfoBox({ children, variant = "warn" }: { children: React.ReactNode; va
  * 서로 다른 질문의 선택지가 조용히 한 그룹으로 묶인다.
  */
 function OptionCard({
-  name, price, selected, onClick, photo, groupName,
+  name, price, selected, onClick, photo, groupName, matched,
 }: {
   name: string; price: string; selected: boolean; onClick: () => void;
   photo?: string | null; groupName: string;
+  /**
+   * 저장해 두신 조건과 이 후보가 한 축도 어긋나지 않는가.
+   *
+   * 서버가 후보별로 알려 준 unmatchedLabels 가 **비어 있을 때만** 참이다.
+   * 안 알려 주면(undefined) 아무 말도 하지 않는다 - 이름을 뜯어보고 짐작하면
+   * '아이스 아메리카노' 처럼 이름에 ICE 가 없는 후보를 틀렸다고 말하게 된다.
+   */
+  matched?: boolean;
 }) {
   const [포커스, set포커스] = useState(false);
   const 속: React.ReactNode = (
     <>
-      <span className="flex items-center gap-3" style={{ minWidth: 0 }}>
+      <span className="flex items-center gap-3" style={{ minWidth: 0, flex: 1 }}>
         {photo && <img src={photo} alt="" aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />}
-        <span style={{ ...TYPE.bodyBold, color: selected ? "white" : TEXT_1, textAlign: "left" }}>{name}</span>
+        {/*
+          배지를 이름 옆에 두면 이름이 밀려 두 줄로 접힌다. 메뉴 이름은 이 줄에서
+          가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
+        */}
+        <span style={{ minWidth: 0, textAlign: "left" }}>
+        <span style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1, display: "block" }}>{name}</span>
+        {/*
+          위트 액센트 하나. 뜻은 옆의 '조건 일치' 라는 글자가 지고 있고 이 그림은
+          거들기만 한다 - 이모지는 기기마다 모양이 다르고 스크린리더가 이름을
+          읽어 주므로, 뜻을 이 자리에 맡기지 않는다.
+        */}
+        {matched && (
+          <span
+            className="flex items-center"
+            style={{ gap: 4, marginTop: 3, whiteSpace: "nowrap", fontSize: 12, fontWeight: 700, color: selected ? PAPER : P }}
+          >
+            <span aria-hidden="true">🌿</span>조건 일치
+          </span>
+        )}
+        </span>
       </span>
-      <div className="flex items-center gap-3">
-        <span style={{ ...TYPE.bodyBold, color: selected ? "white" : TEXT_1, ...NUM }}>{price}</span>
+      <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
+        <span style={{ fontFamily: SERIF, fontSize: 21, whiteSpace: "nowrap", color: selected ? PAPER : TEXT_1, ...NUM }}>{price}</span>
         <div aria-hidden="true" style={{
           width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
           display: "flex", alignItems: "center", justifyContent: "center",
-          backgroundColor: selected ? "white" : "transparent",
+          backgroundColor: selected ? PAPER : "transparent",
           // 안 고른 동그라미의 테두리는 "여기 고를 수 있는 게 있다"를 알리는 유일한 표시다.
           // TEXT_3 는 옅은 면 위에서 1.62:1 이라 컨트롤 경계 기준(3:1)에 못 미쳤다.
           border: selected ? "none" : `1.5px solid ${TEXT_2}`,
         }}>
-          {selected && <Check size={12} strokeWidth={3} color={P} />}
+          {selected && <Check size={12} strokeWidth={3} color={RULE} />}
         </div>
       </div>
     </>
   );
 
+  /*
+   * 카드에서 헤어라인 행으로 바꿨다.
+   *
+   * 후보가 셋이면 카드 셋이 각각 면을 갖는데, 종이색 바탕에서는 면이 겹겹이
+   * 쌓여 보여 무엇을 고르는 자리인지가 흐려진다. 줄로 나누면 목록이 하나로
+   * 읽히고, 고른 줄만 검게 반전돼서 어디를 골랐는지가 한눈에 들어온다.
+   */
   const 겉모양 = {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-    padding: "17px 20px", borderRadius: RADIUS.card, cursor: "pointer", fontFamily: FONT,
+    padding: "18px 16px", borderRadius: selected ? RADIUS.card : 0, cursor: "pointer", fontFamily: FONT,
     border: "none", width: "100%",
-    backgroundColor: selected ? P : SURFACE,
+    // 고른 것은 검은 면. 초록은 '조건 일치' 한 곳에만 남긴다.
+    backgroundColor: selected ? RULE : "transparent",
     transition: "background-color 0.15s",
   } as const;
 
@@ -2140,7 +2417,7 @@ function OptionCard({
       ...겉모양, position: "relative", margin: 0,
       // 포커스는 숨은 input 이 받지만 표시는 이 라벨이 한다.
       // 화살표 키를 살리려다 포커스 표시를 잃으면 안 된다.
-      outline: 포커스 ? `3px solid ${P}` : "none",
+      outline: 포커스 ? `3px solid ${RULE}` : "none",
       outlineOffset: 2,
     }}>
       {/* 눈에는 안 보이지만 지우지 않는다. 화살표 이동과 그룹 의미는 이 요소가 만든다. */}
@@ -2227,8 +2504,9 @@ function OrderClarification({
           })}
         </ConfirmCard>
       )}
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label="비슷한 메뉴 후보">
+      <div role="radiogroup" aria-label="비슷한 메뉴 후보" style={{ borderTop: `2px solid ${RULE}` }}>
         {candidates.map((c, i) => (
+          <div key={`row-${c.candidateId}`} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
           <OptionCard
             key={c.candidateId}
             groupName="후보"
@@ -2236,8 +2514,10 @@ function OrderClarification({
             name={c.displayName}
             price={c.priceText}
             photo={c.imageUrl}
+            matched={c.unmatchedLabels?.length === 0}
             onClick={() => setSelected(i)}
           />
+          </div>
         ))}
       </div>
       <ReasonSummary reasons={reasons} onOpen={onReasons} />
@@ -2309,7 +2589,7 @@ function OrderChanged({
            * 표시를 받는 칸이라 흐리면 안 된다. WARN 으로 그리면 5.5:1 이다.
            */}
           <div aria-hidden="true" style={{ width: 22, height: 22, borderRadius: 6, border: checked ? "none" : `1.5px solid ${WARN}`, backgroundColor: checked ? WARN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
-            {checked && <Check size={12} strokeWidth={3} color="white" />}
+            {checked && <Check size={12} strokeWidth={3} color={PAPER} />}
           </div>
           <span style={{ fontSize: 14, fontWeight: 600, color: WARN }}>달라진 내용을 확인했어요</span>
         </button>
@@ -2389,7 +2669,8 @@ function OrderConfirmScreen({
   onApproved: (planId: string) => void;
 }) {
   const [mapping, setMapping] = useState<MappingResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // 서버가 이유를 여러 줄 줄 수 있어 문장 하나가 아니라 목록으로 들고 있는다.
+  const [error, setError] = useState<{ message: string; details?: string[] } | null>(null);
   // 승인은 한 번만. 연타로 실행 계획이 두 번 만들어지면 안 된다.
   const approving = useRef(false);
 
@@ -2397,7 +2678,7 @@ function OrderConfirmScreen({
     let alive = true;
     api.requestMapping(pairingId, sheet.id)
       .then((res) => { if (alive) setMapping(res); })
-      .catch((e: KioBridgeError) => { if (alive) setError(e.message); });
+      .catch((e: KioBridgeError) => { if (alive) setError({ message: e.message }); });
     return () => { alive = false; };
   }, [pairingId, sheet.id]);
 
@@ -2427,7 +2708,17 @@ function OrderConfirmScreen({
    *
    * 이유가 없으면 이 단계를 건너뛴다 - 빈 화면을 하나 더 지나가게 하지 않는다.
    */
-  const [이유먼저, set이유먼저] = useState(true);
+  /*
+   * '쉬운 단계' 를 켜면 이유 단계를 건너뛴다.
+   *
+   * 이 단계는 원래 스크롤을 줄이려고 만든 것인데, 단계를 하나 늘린 것도 사실이다.
+   * 단계를 줄여 달라고 한 사람에게는 그 맞바꿈이 반대로 작용한다.
+   *
+   * 건너뛰어도 확인 화면의 한 줄 요약과 '이유 N개 더 보기' 는 그대로 남는다 -
+   * 킷 가이드가 [필수] 로 정한 "왜 그런지 함께 보여준다" 는 지켜진다.
+   * 읽고 싶으면 한 번 눌러서 전체를 볼 수 있다.
+   */
+  const [이유먼저, set이유먼저] = useState(!접근성설정.읽기().simpleSteps);
   const 이유있나 = (mapping?.reasons?.length ?? 0) > 0;
   const 이유단계 = 이유먼저 && 이유있나 && mapping?.result !== "not_found";
 
@@ -2437,15 +2728,18 @@ function OrderConfirmScreen({
     setError(null);
     api.approve({ pairingId, sheetId: sheet.id, mappingResult: mapping.result, ...extra })
       .then((res) => onApproved(res.planId))
-      .catch((e: KioBridgeError) => { approving.current = false; setError(e.message); });
+      .catch((e: KioBridgeError) => {
+        approving.current = false;
+        setError({ message: e.message, ...(e.details && e.details.length > 1 ? { details: e.details } : {}) });
+      });
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
         <div className="flex items-center gap-2" style={{ marginTop: 20, paddingBottom: 16 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "white", backgroundColor: P, padding: "4px 11px", borderRadius: RADIUS.pill }}>내 주문표</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: PAPER, backgroundColor: RULE, padding: "4px 11px", borderRadius: RADIUS.pill }}>내 주문표</span>
           <span style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>
         </div>
         <div style={{ height: 1, backgroundColor: BORDER, marginLeft: -GAP.screenX, marginRight: -GAP.screenX }} />
@@ -2454,13 +2748,45 @@ function OrderConfirmScreen({
       <div className="flex-1 overflow-y-auto pb-6" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX, paddingTop: 24 }} aria-busy={!mapping && !error}>
         {!mapping && !error && <OrderMappingLoading />}
 
+        {/*
+          이유가 여러 줄이면 줄줄이 잇지 않고 하나씩 세운다. 붙여 놓으면
+          두 가지 문제가 한 문장으로 읽혀서 몇 개인지조차 안 보인다.
+          InfoBox 안은 <p> 라 <ul> 을 넣을 수 없어 블록 <span> 으로 세운다.
+        */}
         {error && (
           <div className="mb-4" role="alert">
-            <InfoBox>{error}</InfoBox>
+            <InfoBox>
+              {error.details
+                ? <>
+                    이런 점 때문에 담지 못했어요.
+                    {/* 서버는 distinct 로 주지만 옛 경로는 같은 문장이 겹칠 수 있다. */}
+                    {error.details.map((줄, i) => (
+                      <span key={`${i}-${줄}`} style={{ display: "block", marginTop: 6 }}>· {줄}</span>
+                    ))}
+                  </>
+                : error.message}
+            </InfoBox>
           </div>
         )}
 
         {!mapping && error && <OutlineBtn onClick={onBack}>주문표 다시 보기</OutlineBtn>}
+
+        {/*
+          '직원 도움' 을 켠 사람에게는 승인 화면에서도 이 줄을 띄운다.
+
+          지금까지 이 안내는 실패.중단 화면에만 있었다. 그런데 막히는 곳은
+          대개 실패 화면이 아니라 "이게 맞나" 싶은 확인 화면이고, 거기서
+          도움을 청할 길이 없으면 사람은 그냥 앱을 닫는다.
+          켠 사람에게만 띄운다 - 안 켠 사람에게는 화면에 줄 하나가 더 늘 뿐이다.
+        */}
+        {mapping && 접근성설정.읽기().staffAssistancePreferred && (
+          <div style={{ display: "flex", gap: 9, alignItems: "flex-start", marginBottom: 16 }}>
+            <Pictogram name="warning" size={17} color={TEXT_2} />
+            <p style={{ ...TYPE.caption, color: TEXT_2, flex: 1 }}>
+              막히시면 이 화면을 매장 직원에게 보여 주세요. 직원이 이어서 도와드릴 수 있어요.
+            </p>
+          </div>
+        )}
 
         {/*
           이유 단계. 확인 카드 앞에 온다 — 스크롤을 내려야 읽히던 것을 앞으로 옮겼다.
@@ -2555,17 +2881,18 @@ function StepRow({ label, status }: { label: string; status: StepStatus }) {
       <div style={{
         width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
         display: "flex", alignItems: "center", justifyContent: "center",
-        backgroundColor: isDone ? P : isActive ? "white" : isFailed ? FAIL_BG : "white",
+        // 끝난 단계는 검은 동그라미. 다섯 개가 초록으로 늘어서면 화면이 초록 목록이 된다.
+        backgroundColor: isDone ? RULE : isActive ? PAPER : isFailed ? FAIL_BG : PAPER,
       }}>
         {isDone && (
           <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <path d="M4 9.5L7.5 13L14 6" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 9.5L7.5 13L14 6" stroke={PAPER} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}
         {isActive && (
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <circle cx="10" cy="10" r="7" stroke={BORDER} strokeWidth="2.5" />
-            <path d="M10 3 A7 7 0 0 1 17 10" stroke={P} strokeWidth="2.5" strokeLinecap="round" style={SPIN(10, 10)} />
+            <path d="M10 3 A7 7 0 0 1 17 10" stroke={TEXT_1} strokeWidth="2.5" strokeLinecap="round" style={SPIN(10, 10)} />
           </svg>
         )}
         {isFailed && (
@@ -2583,12 +2910,12 @@ function StepRow({ label, status }: { label: string; status: StepStatus }) {
       </span>
 
       {isActive && (
-        <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: RADIUS.pill, backgroundColor: P, color: "white" }}>
+        <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: RADIUS.pill, backgroundColor: RULE, color: PAPER }}>
           진행 중
         </span>
       )}
       {isFailed && (
-        <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: RADIUS.pill, backgroundColor: FAIL, color: "white" }}>
+        <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: RADIUS.pill, backgroundColor: FAIL, color: PAPER }}>
           중단
         </span>
       )}
@@ -2608,6 +2935,80 @@ function StepCard({ statuses }: { statuses: StepStatus[] }) {
   );
 }
 
+/**
+ * 키오스크가 실제로 한 일을 순서대로 보여 준다.
+ *
+ * 위의 StepCard 는 우리가 정해 둔 다섯 단계이고, 이건 서버가 정말 한 동작이다.
+ * 둘은 개수가 다르다 - 다섯 칸에 열 동작이 들어간다. 그래서 다섯 단계를
+ * 이걸로 바꾸지 않고 아래에 접어 둔다. 열 줄을 펼쳐 두면 화면이 길어지고,
+ * 대개 사람이 알고 싶은 건 '담겼나' 한 가지다.
+ *
+ * 접어 두되 없애지는 않는다. 결과가 미심쩍을 때 무엇을 골랐는지 한 줄씩
+ * 확인할 수 있어야 하고, 그게 대신 눌러 주는 앱이 갚아야 할 몫이다.
+ *
+ * 서버가 안 주면(#71 이전 백엔드, 목) 이 부품을 아예 그리지 않는다.
+ */
+function DoneSteps({ done }: { done: { text: string; ok: boolean }[] }) {
+  const [펼침, set펼침] = useState(false);
+  const 실패 = done.filter((d) => !d.ok).length;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => set펼침((v) => !v)}
+        aria-expanded={펼침}
+        style={{
+          width: "100%", minHeight: 44, textAlign: "left", background: "none", border: "none",
+          padding: "6px 2px", display: "flex", alignItems: "center", gap: 8,
+        }}
+      >
+        {/* 키오스크가 대신 눌러 준 일이라 handPointing 을 쓴다. 새 아이콘은 두지 않는다. */}
+        <Pictogram name="handPointing" size={17} color={TEXT_2} />
+        <span style={{ ...TYPE.caption, color: TEXT_2 }}>
+          키오스크가 한 일 {done.length}가지
+          {실패 > 0 && <b style={{ fontWeight: 700, color: WARN }}> · {실패}가지 실패</b>}
+          <span style={{ textDecoration: "underline", textUnderlineOffset: 3 }}>{" "}{펼침 ? "접기" : "보기"}</span>
+        </span>
+      </button>
+
+      {펼침 && (
+        <ol style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: "10px 16px", marginTop: 4 }}>
+          {done.map((d, i) => (
+            <li
+              key={`${i}-${d.text}`}
+              style={{
+                display: "flex", alignItems: "flex-start", gap: 9, padding: "8px 0",
+                borderBottom: i < done.length - 1 ? `1px solid ${BORDER}` : "none",
+              }}
+            >
+              {/*
+                번호에 TEXT_3 를 썼었다. tokens.ts 에 "글자 금지" 라고 적어 둔
+                값이라 흰 배경 1.74:1 이고, 이 목록의 면(SURFACE) 위에서는 더
+                낮다. 몇 번째 줄인지 세라고 붙여 둔 숫자가 안 보이면 없느니만
+                못하다. 낮춰 보이는 것은 색이 아니라 크기로 만든다.
+              */}
+              <span style={{ ...TYPE.caption, color: TEXT_2, ...NUM, minWidth: 18 }}>{i + 1}</span>
+              <Pictogram name={d.ok ? "checkCircle" : "xCircle"} size={16} color={d.ok ? TEXT_1 : FAIL} style={{ marginTop: 2 }} />
+              {/*
+                Pictogram 은 aria-hidden 이라 이 줄이 됐는지 안 됐는지가 색과
+                모양으로만 남아 있었다. 스크린리더에는 "종이컵 골랐어요" 만
+                들리고 성공.실패가 통째로 빠진다. 이 앱이 화면에 "상태는 색뿐
+                아니라 그림과 글씨로도 알린다" 고 적어 두고 여기서 어긴 셈이다.
+                실패한 줄은 눈으로도 바로 읽히도록 글씨색까지 바꾼다.
+              */}
+              <span style={{ ...TYPE.caption, color: d.ok ? TEXT_1 : FAIL, flex: 1 }}>
+                <b style={{ fontWeight: 700 }}>{d.ok ? "됨" : "실패"}</b>
+                {" · "}{d.text}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function ExecInProgress({ statuses }: { statuses: StepStatus[] }) {
   return (
     <div className="flex flex-col gap-6">
@@ -2620,8 +3021,10 @@ function ExecInProgress({ statuses }: { statuses: StepStatus[] }) {
   );
 }
 
-function ExecSuccess({ cart, steps, note, serverStatus, onHome }: {
+function ExecSuccess({ cart, steps, done, note, serverStatus, onHome }: {
   cart: CartResult; steps: StepStatus[];
+  /** 키오스크가 실제로 한 일. 서버가 안 주면 없다. */
+  done?: { text: string; ok: boolean }[];
   /** 서버가 증거를 읽어 만든 한 문장. 없으면 이 줄을 그리지 않는다. */
   note?: string;
   /** 서버가 매긴 상태 문장. 그대로 인용한다. */
@@ -2632,6 +3035,7 @@ function ExecSuccess({ cart, steps, note, serverStatus, onHome }: {
     <div className="flex flex-col gap-6">
       <StatusHero
         mark={<Pictogram name="checkCircle" size={64} color={P} />}
+        kicker="in the cart"
         title="장바구니에 담았어요"
       />
 
@@ -2641,11 +3045,11 @@ function ExecSuccess({ cart, steps, note, serverStatus, onHome }: {
             <Pictogram name="receipt" size={17} color={TEXT_2} />
             담긴 내역
           </p>
-          <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: RADIUS.pill, backgroundColor: "white", color: TEXT_2 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: RADIUS.pill, backgroundColor: PAPER, color: TEXT_2 }}>
             {cart.evidenceLabel}
           </span>
         </div>
-        <span style={{ fontFamily: SERIF, fontSize: 30, lineHeight: 1.15, color: TEXT_1, ...NUM }}>
+        <span style={{ fontFamily: SERIF, fontSize: 38, lineHeight: 1.15, color: TEXT_1, ...NUM }}>
           {cart.itemCountText} · {cart.totalText}
         </span>
       </div>
@@ -2678,6 +3082,8 @@ function ExecSuccess({ cart, steps, note, serverStatus, onHome }: {
 
       <StepCard statuses={steps} />
 
+      {done && <DoneSteps done={done} />}
+
       <div style={{ display: "flex", gap: 11, alignItems: "flex-start", paddingLeft: 2 }}>
         <Pictogram name="shoppingCartSimple" size={20} color={TEXT_2} style={{ marginTop: 1 }} />
         <p style={{ fontSize: 14, color: TEXT_2, lineHeight: 1.6 }}>{cart.handoff}</p>
@@ -2688,8 +3094,10 @@ function ExecSuccess({ cart, steps, note, serverStatus, onHome }: {
   );
 }
 
-function ExecFailed({ abort, steps, serverStatus, onHome }: {
+function ExecFailed({ abort, steps, done, serverStatus, onHome }: {
   abort: AbortInfo; steps: StepStatus[];
+  /** 키오스크가 실제로 한 일. 어디까지 갔는지가 중단됐을 때 더 궁금하다. */
+  done?: { text: string; ok: boolean }[];
   /** 서버가 매긴 상태 문장. 성공 화면과 같은 방식으로 인용한다. */
   serverStatus?: string;
   onHome: () => void;
@@ -2720,6 +3128,8 @@ function ExecFailed({ abort, steps, serverStatus, onHome }: {
       )}
 
       <StepCard statuses={steps} />
+
+      {done && <DoneSteps done={done} />}
 
       <OutlineBtn onClick={onHome}>처음으로</OutlineBtn>
       <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>이 화면을 직원에게 보여주시면 빨라요</p>
@@ -2781,7 +3191,7 @@ function ExecutionScreen({ planId, onHome }: { planId: string; onHome: () => voi
   }, [status.state, pollError]);
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `20px ${GAP.screenX}px 20px` }}>
         <AppLogo size={26} />
       </div>
@@ -2818,7 +3228,7 @@ function ExecutionScreen({ planId, onHome }: { planId: string; onHome: () => voi
         )}
         {status.state === "running" && !pollError && <ExecInProgress statuses={status.steps} />}
         {status.state === "cart_ready" && status.cart && (
-          <ExecSuccess cart={status.cart} steps={status.steps} note={status.note} serverStatus={status.serverStatus} onHome={onHome} />
+          <ExecSuccess cart={status.cart} steps={status.steps} done={status.done} note={status.note} serverStatus={status.serverStatus} onHome={onHome} />
         )}
         {/*
          * 담기는 끝났는데 내역이 안 온 경우. cart 는 옵셔널이라 서버가 빠뜨릴 수 있다.
@@ -2838,6 +3248,12 @@ function ExecutionScreen({ planId, onHome }: { planId: string; onHome: () => voi
                 결제는 키오스크에서 직접 하시면 돼요.
               </p>
             </div>
+            {/*
+              내역이 없다고 실행 내역까지 버리면 안 된다. done 은 cart 와 다른
+              데서 온 값이라 cart 가 비어도 살아 있다. 오히려 여기가 - 무엇이
+              담겼는지 못 보여 주는 자리가 - "무엇을 했는지" 가 가장 필요한 곳이다.
+            */}
+            {status.done && <div style={{ marginTop: 16 }}><DoneSteps done={status.done} /></div>}
             <div className="mt-auto" style={{ paddingTop: 24 }}>
               <PrimaryBtn onClick={onHome}>처음으로</PrimaryBtn>
             </div>
@@ -2856,13 +3272,15 @@ function ExecutionScreen({ planId, onHome }: { planId: string; onHome: () => voi
                 직원에게 이 화면을 보여 주세요.
               </p>
             </div>
+            {/* 중단 사유를 못 받았어도 어디까지 갔는지는 알려 준다. */}
+            {status.done && <div style={{ marginTop: 16 }}><DoneSteps done={status.done} /></div>}
             <div className="mt-auto" style={{ paddingTop: 24 }}>
               <PrimaryBtn onClick={onHome}>처음으로</PrimaryBtn>
             </div>
           </div>
         )}
         {status.state === "aborted" && status.abort && (
-          <ExecFailed abort={status.abort} steps={status.steps} serverStatus={status.serverStatus} onHome={onHome} />
+          <ExecFailed abort={status.abort} steps={status.steps} done={status.done} serverStatus={status.serverStatus} onHome={onHome} />
         )}
       </div>
     </div>
@@ -3120,7 +3538,15 @@ export default function App() {
    */
   const 계정세대 = useRef(0);
   /** 큰 글씨 모드. 휴대폰 틀 안 전체에 적용된다. */
-  const [largeText, setLargeText] = useState(false);
+  /*
+   * 접근성 설정. 저장소는 api/a11y.ts 에 있고 화면은 그걸 비춘다.
+   *
+   * 상태를 여기 두지 않는 이유는 연동 계층(backend.ts)도 이 값을 읽어야 해서다 —
+   * 서버로 보내는 표준형에 그대로 실린다. React 상태로만 두면 그쪽에서 못 읽는다.
+   */
+  const [접근성값, set접근성값] = useState<접근성>(() => 접근성설정.읽기());
+  useEffect(() => 접근성설정.구독(() => set접근성값({ ...접근성설정.읽기() })), []);
+  const largeText = 접근성값.largeText;
   const [sheets, setSheets] = useState<OrderSheet[]>(MOCK_SHEETS);
   const [fromQr, setFromQr] = useState(false);
   const [qrKey, setQrKey] = useState(0);
@@ -3302,6 +3728,15 @@ export default function App() {
   // 폴링으로 따로 관리한다.
   useEffect(() => {
     if (!pairingExpiresAt || screen === "execution") return;
+    /*
+     * '시간 여유' 를 켜면 만료돼도 화면을 멋대로 되돌리지 않는다.
+     *
+     * 서버 세션은 어차피 끊긴다 — 그건 앱이 늘릴 수 없다. 앱이 할 수 있는 것은
+     * 보고 있던 화면을 갑자기 걷어내지 않는 것이다. 천천히 읽는 사람에게는
+     * 읽던 화면이 통째로 바뀌는 일이 가장 곤란하다. 다음에 승인을 누를 때
+     * 서버가 만료를 알려 주고, 그때 사용자가 스스로 다시 찍으면 된다.
+     */
+    if (접근성값.mobilitySupport) return;
     const 남은 = pairingExpiresAt - Date.now();
     const 되돌리기 = () => {
       setPairingId(null);
@@ -3317,7 +3752,7 @@ export default function App() {
     if (남은 <= 0) { 되돌리기(); return; }
     const t = setTimeout(되돌리기, 남은);
     return () => clearTimeout(t);
-  }, [pairingExpiresAt, screen]);
+  }, [pairingExpiresAt, screen, 접근성값.mobilitySupport]);
 
   // 화면이 바뀌면 포커스가 <body> 로 떨어진다. 누르던 버튼이 사라지기 때문이다.
   // 스크린리더 사용자는 자기가 어디로 갔는지 듣지 못하고, 키보드 사용자는
@@ -3367,7 +3802,7 @@ export default function App() {
       className="min-h-screen flex items-center justify-center gap-8 p-6"
       style={{ backgroundColor: BACKDROP, fontFamily: FONT }}
     >
-      <style>{FOCUS_STYLES}</style>
+      <style>{PALETTE_STYLES}{FOCUS_STYLES}</style>
       {시연패널보임 && <ScenarioPanel />}
       {/* 나란히 보는 중에는 구석 패널을 감춘다. 같은 것을 두 번 띄울 이유가 없다. */}
       {팀백엔드모드 && 로그모드 !== "나란히" && (
@@ -3392,16 +3827,25 @@ export default function App() {
       <div style={{ width: "100%", maxWidth: FRAME_W, height: FRAME_H }}>
         <div
           ref={화면영역}
-          className="bg-white overflow-hidden flex flex-col"
+          /*
+           * 고대비는 색 토큰을 갈아 끼워서 만든다. tokens.ts 의 PALETTE_STYLES 가
+           * 이 표시를 보고 CSS 변수를 다른 값으로 채운다.
+           *
+           * 예전에는 filter: contrast(1.3) 이었는데 그게 화면을 더 나쁘게 만들었다 -
+           * 흰색에 가까운 값이 전부 순백으로 뭉개져서 카드 경계가 사라졌다.
+           */
+          data-contrast={접근성값.highContrast ? "high" : undefined}
+          className="kb-paper overflow-hidden flex flex-col"
           style={{
             zoom: largeText ? LARGE_TEXT_SCALE : 1,
             width: largeText ? FRAME_W / LARGE_TEXT_SCALE : "100%",
             height: largeText ? FRAME_H / LARGE_TEXT_SCALE : FRAME_H,
+
             // absolute 로 띄우는 것들(확인 시트·QR 스캐너)이 이 안에 갇히려면
             // 여기가 컨테이닝 블록이어야 한다. overflow-hidden 만으로는
             // 자기가 기준이 아니면 클리핑도 못 해서 화면 전체를 덮어 버린다.
             position: "relative",
-            borderRadius: 44, boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
+            borderRadius: 54, boxShadow: "0 24px 80px rgba(0,0,0,0.16)",
           }}
         >
         <div className="flex-1 overflow-hidden relative" style={{ minHeight: 0 }}>
@@ -3513,6 +3957,10 @@ export default function App() {
                 run: () => {
                   // 목 전용 함수가 아니라 계약의 삭제 메서드를 부른다.
                   // 실제 client 로 바꿔도 서버에 남은 것까지 함께 지워진다.
+                  // 접근성 설정도 함께 비운다. 안 그러면 다음 사람이 앞사람의 도움
+                  // 설정을 그대로 보게 되고, 그 값이 서버로도 계속 나간다.
+                  // 화면이 '모두 지워요' 라고 말한 것에 이것도 들어간다.
+                  접근성설정.비우기();
                   서버까지지우기();
                   setSheets([]); setName("");
                   // 계정도 함께 푼다. 안 풀면 주문표를 다 지운 화면에 회원으로 남아
@@ -3537,8 +3985,8 @@ export default function App() {
           )}
           {screen === "a11y" && (
             <AccessibilityScreen
-              largeText={largeText}
-              onLargeText={setLargeText}
+              설정={접근성값}
+              onChange={(한칸) => 접근성설정.바꾸기(한칸)}
               onBack={() => { setScreen("saved"); setTab("account"); }}
             />
           )}

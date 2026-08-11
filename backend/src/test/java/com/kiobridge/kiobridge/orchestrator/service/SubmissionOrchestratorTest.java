@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.orchestrator.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
 import com.kiobridge.kiobridge.contracts.Recommendation;
@@ -15,6 +16,15 @@ import com.kiobridge.kiobridge.contracts.input.context.ChickenStorePreferences;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreSessionContext;
 import com.kiobridge.kiobridge.contracts.input.context.SessionIntent;
 import com.kiobridge.kiobridge.contracts.input.context.SessionTask;
+import com.kiobridge.kiobridge.contracts.input.profile.Accessibility;
+import com.kiobridge.kiobridge.contracts.input.profile.CanonicalProfile;
+import com.kiobridge.kiobridge.contracts.input.profile.CollectionChannel;
+import com.kiobridge.kiobridge.contracts.input.profile.Consent;
+import com.kiobridge.kiobridge.contracts.input.profile.DataClassification;
+import com.kiobridge.kiobridge.contracts.input.profile.Interaction;
+import com.kiobridge.kiobridge.contracts.input.profile.PreferredInput;
+import com.kiobridge.kiobridge.contracts.input.profile.ProfileSource;
+import com.kiobridge.kiobridge.contracts.input.profile.RetentionPolicy;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanResult;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanService;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +33,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -65,7 +76,7 @@ class SubmissionOrchestratorTest {
         Recommendation recommendation = recommendation();
         UserDecision userDecision = UserDecision.approve();
         ChickenStoreSessionContext sessionContext = sessionContext();
-        Map<String, Object> profile = Map.of("profileId", "TEST-PROFILE-001");
+        CanonicalProfile profile = profile();
         ExecuteResult expectedResult = new ExecuteResult(true, null, null, new ValidationResult(true, List.of()));
 
         // approved=true 경로에서는 buildExecutionPlan이 이미 environmentId를 조회해서 돌려주므로,
@@ -111,8 +122,13 @@ class SubmissionOrchestratorTest {
             .thenReturn(new SessionStatusResponse(SESSION_ID, null, "WAITING", "NOT_STARTED", "NOT_STARTED"));
 
         assertThatThrownBy(() -> orchestrator.runApprovalFlow(
-            SESSION_ID, Map.of("profileId", "P-1"), sessionContext, recommendation, userDecision
-        )).isInstanceOf(IllegalStateException.class);
+            SESSION_ID, profile(), sessionContext, recommendation, userDecision
+        )).isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("SESSION_ENVIRONMENT_UNRESOLVED");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
 
         verify(executionPlanService, never()).submitAndRun(any(), any());
     }
@@ -122,7 +138,7 @@ class SubmissionOrchestratorTest {
         Recommendation recommendation = recommendation();
         UserDecision userDecision = UserDecision.approve();
         ChickenStoreSessionContext sessionContext = sessionContext();
-        Map<String, Object> profile = Map.of("profileId", "P-1");
+        CanonicalProfile profile = profile();
 
         assertThatThrownBy(() -> orchestrator.runApprovalFlow(null, profile, sessionContext, recommendation, userDecision))
             .isInstanceOf(NullPointerException.class);
@@ -139,6 +155,18 @@ class SubmissionOrchestratorTest {
     private static Recommendation recommendation() {
         return new Recommendation(
             "CHICKEN-001", List.of(), List.of(), Map.of(), List.of("테스트 추천 사유"), List.of(), 0.9, false
+        );
+    }
+
+    private static CanonicalProfile profile() {
+        return new CanonicalProfile(
+            "user_test_001",
+            "테스트 사용자",
+            DataClassification.SYNTHETIC_PROFILE,
+            new ProfileSource(CollectionChannel.WEB_FORM, TEAM_ID, Instant.parse("2026-08-01T00:00:00Z")),
+            new Accessibility(false, false, false, false, false, false, false),
+            new Interaction(PreferredInput.TOUCH, "ko-KR", true),
+            new Consent(false, RetentionPolicy.SESSION_ONLY)
         );
     }
 

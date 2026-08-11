@@ -85,6 +85,7 @@ export interface MappingCandidate {
 // 어떤 사용자 정보를 썼는지, 무엇을 왜 뺐는지가 드러나야 한다.
 export type RecommendationReason =
   | { kind: "used"; text: string }      // 이 정보를 써서 골랐다
+  | { kind: "unmet"; text: string }     // 이 조건은 못 맞췄다 (담기는 담지만 한 축이 어긋남)
   | { kind: "excluded"; text: string }; // 이 조건 때문에 뺐다
 
 export interface MappingResponse {
@@ -167,6 +168,13 @@ export interface PlanStatus {
   steps: StepStatus[];
   cart?: CartResult;
   abort?: AbortInfo;
+  /**
+   * 키오스크가 실제로 한 일을 순서대로.
+   *
+   * 위의 steps 는 우리가 정해 둔 다섯 단계이고, 이건 서버가 정말 한 동작이다.
+   * 둘은 개수도 다르다(다섯 vs 열). 서버가 안 주면 없다 — 화면이 지어내지 않는다.
+   */
+  done?: { text: string; ok: boolean }[];
   /**
    * 서버가 증거를 읽어 만든 한 문장. "왜 이걸 담았는지" 를 결과 화면에서 다시 말해 준다.
    * 없으면 화면이 그 줄을 그리지 않는다 — 지어내지 않는다.
