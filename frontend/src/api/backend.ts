@@ -1316,7 +1316,12 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       }
       후보.set(profile.id, new Map(담을수있는.map((c) => [c.candidateId, c])));
       규칙판정들.set(profile.id, {
-        서버판정있음: Boolean(r.warningsByCandidateId || r.passesByCandidateId),
+        // 셋 중 하나라도 오면 '서버가 판정했다' 로 본다. 예전에는 앞의 둘만 봐서,
+        // 재확인 판정만 온 응답에서 우리가 다시 맞춰 보는 쪽으로 물러났다.
+        // 서버가 '비교하지 못했다' 고 한 축을 우리가 맞다고 말하게 되는 자리다.
+        서버판정있음: Boolean(
+          r.warningsByCandidateId || r.passesByCandidateId || r.reconfirmationsByCandidateId,
+        ),
         warn: r.warningsByCandidateId ?? {},
         pass: r.passesByCandidateId ?? {},
       });
