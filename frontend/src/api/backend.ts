@@ -802,6 +802,22 @@ interface CandidateFilterResponse {
    * passes 를 함께 봐야 '맞음' 과 '비교 안 함' 이 갈린다.
    */
   warningsByCandidateId?: Record<string, 규칙판정[]>;
+  /*
+   * 재확인이 필요한 판정. **이 흐름에서는 여기까지 오지 않는다.**
+   *
+   * 서버에 직접 쏴 보면 이건 allergenIds 에 UNKNOWN 이 섞였을 때만 채워진다
+   * (CHICKEN_ALLERGEN_HARD_CONSTRAINT). 그런데 그 경우는 그보다 앞인 정규화에서
+   * 이미 막힌다 — session-context-normalizations 가 status: RECONFIRMATION_REQUIRED
+   * 를 돌려주고, 정규화() 가 거기서 RECONFIRM_REQUIRED 를 던진다. filterCandidates
+   * 는 정규화() 를 먼저 부르므로 후보 필터까지 도달하지 못한다.
+   *
+   * 그래도 서버판정있음 검사에는 넣는다. 안 넣으면 이것만 실려 오는 응답에서
+   * 우리가 다시 맞춰 보는 쪽으로 물러나고, 서버가 "비교하지 못했다" 고 한 축을
+   * 맞다고 말하게 된다.
+   *
+   * 안 읽는 이유를 적어 두는 까닭 — 선언만 보고 "안 쓰네" 하면 닿지도 않는 길을
+   * 화면에 이으려다 아무도 지나가지 않는 코드를 만들게 된다. (팀 #94 리뷰)
+   */
   reconfirmationsByCandidateId?: Record<string, 규칙판정[]>;
   passesByCandidateId?: Record<string, 규칙판정[]>;
 }
