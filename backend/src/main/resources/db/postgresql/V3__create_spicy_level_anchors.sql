@@ -12,4 +12,4 @@ CREATE TABLE spicy_level_anchors (
 );
 
 CREATE INDEX idx_spicy_level_anchors_embedding
-    ON spicy_level_anchors USING ivfflat (embedding vector_cosine_ops);
+    ON spicy_level_anchors USING hnsw (embedding vector_cosine_ops);
