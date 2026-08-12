@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
@@ -21,12 +21,14 @@ import {
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
-import { 소리를낼수있나, 읽어주기, 그만읽기 } from "@/api/speech";
-import { 가격한도, 한도후보 } from "@/api/budget";
+import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
+import { 가격한도 } from "@/api/budget";
 import { 개인정보동의 } from "@/api/consent";
 import { 알레르기설정, 알레르기목록 } from "@/api/allergy";
 import type { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
+import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
+import { tf } from "@/i18n/t";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -67,7 +69,7 @@ function AppLogo({ light = false, size = 34 }: { light?: boolean; size?: number 
 // 값이 남으므로 부르는 쪽에서 전부 명시한다.
 function ProgressBar({ step, total = 3 }: { step: number; total?: number }) {
   return (
-    <div className="flex justify-center gap-1.5" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={total} aria-label={`전체 ${total}단계 중 ${step}단계`}>
+    <div className="flex justify-center gap-1.5" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={total} aria-label={tf("전체 {전체}단계 중 {지금}단계", { 전체: total, 지금: step })}>
       {Array.from({ length: total }).map((_, i) => (
         <div
           key={i}
@@ -280,13 +282,30 @@ function Chip({ label, selected, onClick }: { label: string; selected: boolean; 
   );
 }
 
-function SectionLabel({ text, required }: { text: string; required?: boolean }) {
-  return (
-    <div className="flex items-baseline gap-2 mb-3">
+/**
+ * 칸 위의 제목.
+ *
+ * `칸id` 를 주면 `<label>` 이 되어 그 칸에 묶인다. **글자를 눌러도 커서가 칸으로
+ * 간다** — 손이 떨리는 분에게는 누를 수 있는 자리가 두 배가 되는 일이다.
+ *
+ * 묶기 전에는 보이는 글자("메뉴 이름")와 읽히는 글자(`aria-label="메뉴 이름 (필수)"`)를
+ * 따로 적어 두었다. 한쪽만 고치는 날이 오면 눈으로 보는 사람과 귀로 듣는 사람이
+ * 다른 말을 받는다. 묶으면 하나가 되어 그 위험이 사라진다.
+ *
+ * 옆의 '필수/선택' 도 label 안에 둔다. 읽으면 "메뉴 이름 필수" 가 되어, 눈으로
+ * 보는 것과 같은 것을 듣는다.
+ */
+function SectionLabel({ text, required, 칸id }: { text: string; required?: boolean; 칸id?: string }) {
+  const 속 = (
+    <>
       <span style={{ ...TYPE.label, color: TEXT_1 }}>{text}</span>
       <span style={{ fontSize: 12, fontWeight: 400, color: TEXT_2 }}>{required ? "필수" : "선택"}</span>
-    </div>
+    </>
   );
+  const 꾸밈 = "flex items-baseline gap-2 mb-3";
+  return 칸id
+    ? <label htmlFor={칸id} className={꾸밈} style={{ cursor: "pointer" }}>{속}</label>
+    : <div className={꾸밈}>{속}</div>;
 }
 
 // ─── Welcome ──────────────────────────────────────────────────────────────────
@@ -308,10 +327,26 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
   onPrivacy: () => void;
 }) {
   return (
-    <div className="flex flex-col h-full kb-paper">
-      {/* 첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
-          아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다. */}
-      <div className="shrink-0 relative" style={{ height: "42%", minHeight: 0, overflow: "hidden" }}>
+    <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
+      {/*
+        첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
+        아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다.
+
+        자리가 모자라면 **사진이 먼저 양보한다.** 예전에는 사진을 42% 로 박아 두고
+        (shrink-0) 가운데 칸을 flex-1 로 뒀는데, flex-1 은 바탕 크기가 0 이라
+        가운데 칸이 '남은 만큼' 만 받았다. 동의 문구가 한 줄 늘어 아래 칸이 커지면
+        남는 자리가 글보다 작아지고, 그러면 글이 칸 밖으로 나가 아래 칸을 덮었다.
+        동의를 안 한 첫 화면에서 안내 문구가 소개 문장 위에 겹쳐 보였다.
+
+        사진은 없어도 뜻이 통하는 그림이고 글은 아니다. 그래서 줄어드는 쪽을
+        사진으로 정한다. 160 아래로는 안 줄인다 — 그보다 작으면 무슨 장면인지
+        알아볼 수 없어서 있으나 마나다.
+
+        더 짧은 화면(작은 폰 세로 667 같은)에서는 사진을 다 줄여도 모자란다.
+        그때는 겹치거나 잘리는 대신 **화면이 스크롤된다**(위 kb-paper 칸의
+        overflowY). 로그인 단추가 화면 밖에 남아 못 누르는 것이 제일 나쁘다.
+      */}
+      <div className="relative" style={{ height: "42%", minHeight: 160, flexShrink: 1, overflow: "hidden" }}>
         <img
           src={kioskHeroImg}
           alt=""
@@ -334,7 +369,11 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
         />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center" style={{ minHeight: 0, padding: `0 ${GAP.screenX}px`, marginTop: -12 }}>
+      {/*
+        flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
+        실제 높이(auto)다. 이 셋이 다 있어야 이 칸의 글이 자리 계산에 들어간다.
+      */}
+      <div className="flex flex-col items-center justify-center" style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px`, marginTop: -12 }}>
         <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
           <AppLogo size={40} />
@@ -344,7 +383,8 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
         </p>
       </div>
 
-      <div style={{ padding: `0 ${GAP.screenX}px 32px` }} className="flex flex-col gap-3">
+      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 사진이 양보한다. */}
+      <div style={{ padding: `0 ${GAP.screenX}px 32px`, flexShrink: 0 }} className="flex flex-col gap-3">
         {/*
           동의를 먼저 받는다. 게스트로 시작하는 것도 정보를 쓰는 일이라 같이 막는다 —
           로그인한 사람에게만 물으면, 정작 가장 많이 쓰일 길에서는 안 묻는 셈이 된다.
@@ -813,7 +853,7 @@ function GreetingScreen({ name, onNext }: { name: string; onNext: () => void }) 
     >
       <Pictogram name="handsClapping" size={72} color={TEXT_1} />
       <h1 style={{ ...TYPE.title, color: TEXT_1, marginTop: 32 }}>
-        반가워요, <span style={{ color: TEXT_1 }}>{name}</span>님!
+        반가워요, <span data-원문 style={{ color: TEXT_1 }}>{name}</span>님!
       </h1>
       <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>
         자주 시키는 주문을 저장해 두면<br />키오스크 앞에서 바로 꺼내 쓸 수 있어요
@@ -930,19 +970,40 @@ function CheckRow({ checked, onToggle, label }: { checked: boolean; onToggle: ()
 let 주문표일련번호 = 0;
 const newSheetId = () => `p${Date.now()}_${++주문표일련번호}`;
 
-function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
+function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null }: {
   onNext: (p: OrderSheet) => void;
   onBack: () => void;
+  /**
+   * 고치러 들어온 주문표. null 이면 새로 만드는 것이다.
+   *
+   * 예전에는 한 번 만든 주문표를 여는 길이 없었다. 조건 하나가 틀리면 지우고
+   * 처음부터 다시 적어야 했다 — 맵기만 바꾸려 해도 이름·장소·메모를 전부 다시
+   * 적는 일이다. 저장해 둔 것을 다시 쓰자고 만든 앱에서 그건 앞뒤가 안 맞는다.
+   */
+  고칠것?: OrderSheet | null;
+  /** 이번 이용의 가격 한도. 주문표에는 안 담긴다 — 한도고르기 의 주석을 보라. */
+  예산: number | null;
+  on예산: (원: number | null) => void;
+  /** 금액 표기가 언어마다 다르다. 한도고르기 까지 내려간다. */
+  영어인가: boolean;
   /**
    * 로그인한 사람인가. 저장한 주문표가 서버에도 올라가는지가 달라지므로 화면이 말해 준다.
    * 로그인하지 않았으면 서버 이야기를 꺼내지 않는다 — 하지 않는 일을 설명할 이유가 없다.
    */
   로그인함?: boolean;
 }) {
-  const [menuName, setMenuName] = useState("");
-  const [place, setPlace] = useState<PlaceType>(null);
-  const [selections, setSelections] = useState<Record<string, string[]>>({});
-  const [memo, setMemo] = useState("");
+  const [menuName, setMenuName] = useState(고칠것?.menuName ?? "");
+  const [place, setPlace] = useState<PlaceType>(고칠것?.place ?? null);
+  // 고른 값을 그대로 물려받되 **새 객체로** 담는다. 저장된 주문표의 selections 를
+  // 그대로 쥐고 고치면, 저장을 안 누르고 나가도 목록의 주문표가 이미 바뀌어 있다.
+  const [selections, setSelections] = useState<Record<string, string[]>>(
+    () => Object.fromEntries(Object.entries(고칠것?.selections ?? {}).map(([축, 값]) => [축, [...값]])),
+  );
+  const [memo, setMemo] = useState(고칠것?.memo ?? "");
+
+  // 이름·메모 칸의 id. 라벨을 칸에 묶는 데 쓴다(SectionLabel 주석).
+  const 이름칸id = useId();
+  const 메모칸id = useId();
 
   const options = place ? DETAIL_OPTIONS[place] : [];
 
@@ -1010,16 +1071,18 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
          * 가입 흐름은 가입(1) → 호칭(2) 둘로 끝난다.
          */}
         <BackButton onClick={onBack} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>메뉴 주문표</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>자주 주문하는 메뉴를 저장해두세요</p>
+        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>{고칠것 ? "주문표 고치기" : "메뉴 주문표"}</h1>
+        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+          {고칠것 ? "고치고 저장하면 이 주문표가 바뀌어요" : "자주 주문하는 메뉴를 저장해두세요"}
+        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
         <div style={{ marginBottom: 28 }}>
-          <SectionLabel text="메뉴 이름" required />
+          <SectionLabel text="메뉴 이름" required 칸id={이름칸id} />
           <input
+            id={이름칸id}
             type="text"
-            aria-label="메뉴 이름 (필수)"
             value={menuName}
             onChange={(e) => setMenuName(e.target.value)}
             // 서버의 menuName 이 @Size(max = 100) 이다. 넘으면 저장은 되는데 서버에만
@@ -1087,8 +1150,17 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
           </div>
         )}
 
+        {/*
+          조건을 고르는 자리에서 얼마까지 쓸지도 같이 정한다. 맵기·형태와 함께
+          '이 주문의 조건' 이라 여기가 맞다. 다만 값은 주문표가 아니라 이번
+          이용에 담긴다(한도고르기 주석).
+        */}
+        <div style={{ marginBottom: 24 }}>
+          <한도적기 예산={예산} on바꾸기={on예산} 영어인가={영어인가} />
+        </div>
+
         <div style={{ marginBottom: 8 }}>
-          <SectionLabel text="메모" />
+          <SectionLabel text="메모" 칸id={메모칸id} />
           {/*
            * 메모는 자유 입력이라 사용자가 무엇이든 적을 수 있다.
            * "이 칸을 없애라" 는 지적도 있었지만, '얼음 적게 부탁드려요' 처럼
@@ -1097,7 +1169,9 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
            * placeholder 는 입력하면 사라지므로 안내는 밖에 따로 둔다.
            */}
           <textarea
-            aria-label="메모 (선택). 이름·전화번호·주민등록번호 같은 개인정보는 적지 마세요"
+            id={메모칸id}
+            /* 무엇을 적지 말아야 하는지는 아래 memo-notice 가 읽어 준다. 라벨에
+               또 적으면 칸에 들어갈 때마다 그 긴 문장을 한 번 더 듣는다. */
             aria-describedby="memo-notice"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
@@ -1151,12 +1225,17 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
           </p>
         )}
         <PrimaryBtn
-          // Date.now() 만 쓰면 같은 밀리초에 두 개를 만들 때 id 가 겹친다.
-          // 겹치면 주문표 하나를 지울 때 다른 하나도 같이 사라진다.
-          onClick={() => onNext({ id: newSheetId(), menuName, place, selections, memo })}
+          /*
+           * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
+           * 하나가 더 생기고, 서버에 올라간 주문표는 옛것이 그대로 남는다.
+           *
+           * 새로 만들 때만 id 를 짓는다. Date.now() 만 쓰면 같은 밀리초에 두 개를
+           * 만들 때 겹치고, 겹치면 하나를 지울 때 다른 하나도 같이 사라진다.
+           */
+          onClick={() => onNext({ id: 고칠것?.id ?? newSheetId(), menuName, place, selections, memo })}
           disabled={!menuName.trim() || 개인정보같은메모(memo)}
         >
-          저장하고 시작하기
+          {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
         </PrimaryBtn>
       </StickyFooter>
     </div>
@@ -1179,9 +1258,9 @@ const SR_ONLY: React.CSSProperties = {
 };
 
 function OrderSheetCard({
-  sheet, selected, onSelect, onDelete,
+  sheet, selected, onSelect, onDelete, onEdit,
 }: {
-  sheet: OrderSheet; selected: boolean; onSelect: () => void; onDelete: () => void;
+  sheet: OrderSheet; selected: boolean; onSelect: () => void; onDelete: () => void; onEdit: () => void;
 }) {
   const allTags = [...(sheet.place ? [sheet.place] : []), ...Object.values(sheet.selections).flat()];
   const visibleTags = allTags.slice(0, 4);
@@ -1244,7 +1323,7 @@ function OrderSheetCard({
             >
               {sheet.place ? PLACE_ICONS[sheet.place] : <Pictogram name="squaresFour" size={19} />}
             </div>
-            <span style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1 }}>{sheet.menuName}</span>
+            <span data-원문 style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1 }}>{sheet.menuName}</span>
           </div>
           <div
             aria-hidden="true"
@@ -1291,16 +1370,34 @@ function OrderSheetCard({
 
         {/* 반투명 흰색(70%)은 초록 위에서 3.31:1 이라 읽히지 않는다. 흰색은 5.08:1 이다. */}
         {sheet.memo && (
-          <p style={{ fontSize: 14, color: selected ? PAPER : TEXT_2, lineHeight: 1.5, marginTop: 12 }}>{sheet.memo}</p>
+          <p style={{ fontSize: 14, color: selected ? PAPER : TEXT_2, lineHeight: 1.5, marginTop: 12 }} data-원문>{sheet.memo}</p>
         )}
       </label>
 
-      {/* 삭제는 라벨 바깥에 둔다. 안에 있으면 label 이 클릭을 가로채 선택으로 바꿔 버린다. */}
-      <div className="flex justify-end" style={{ padding: "0 20px 20px", marginTop: 4 }}>
+      {/* 고치기·삭제는 라벨 바깥에 둔다. 안에 있으면 label 이 클릭을 가로채 선택으로 바꿔 버린다. */}
+      <div className="flex justify-end" style={{ gap: 4, padding: "0 20px 20px", marginTop: 4 }}>
+        {/*
+          고치기를 삭제 왼쪽에 둔다. 손이 가는 순서가 그렇고, 되돌릴 수 없는 쪽이
+          끝에 있어야 잘못 눌러도 덜 위험하다.
+        */}
+        <button
+          type="button"
+          aria-label={`${듣는이름(sheet)}, 주문표 고치기`}
+          onClick={onEdit}
+          style={{
+            fontSize: 13, fontWeight: 500, minHeight: 44, minWidth: 44, padding: "6px 10px",
+            background: "none", border: "none", cursor: "pointer",
+            color: selected ? PAPER : TEXT_2,
+            textDecoration: "underline", textUnderlineOffset: 3,
+          }}
+        >
+          고치기
+        </button>
         <button
           type="button"
           // 삭제는 되돌릴 수 없다. 고르는 쪽보다 더 정확히 말해 줘야 한다.
-          aria-label={`${듣는이름(sheet)} 주문표 삭제`}
+          /* 쉼표로 띄운다. 스크린리더가 한 박자 쉬어 읽고, 옮길 때도 토막마다 걸린다. */
+          aria-label={`${듣는이름(sheet)}, 주문표 삭제`}
           onClick={onDelete}
           style={{
             // 높이만 44 였고 폭이 30 이었다. 밑줄은 글자에만 걸리므로
@@ -1327,43 +1424,108 @@ function OrderSheetCard({
  * reasonCode 는 PRICE_LIMIT_EXCEEDED 다. 그래서 "비싼 건 빼고 찾아요" 라고
  * 먼저 말한다 — 순위만 밀리는 줄 알고 낮게 잡으면 담을 게 없다는 답을 받는다.
  *
- * 주문표가 아니라 이번 이용에 딸린 값이라 여기(주문 직전)에 둔다. 주문표에 넣으면
- * 예산은 그날그날 다른데 저장해 둔 조건에 굳어 버린다.
+ * **묻는 자리는 주문표를 만들 때다.** 맵기·형태를 고르는 그 자리에서 얼마까지
+ * 쓸지도 같이 정한다. 예전에는 주문 직전에 물었는데, 그때는 이미 어느 키오스크
+ * 앞에 서 있는 참이라 조건을 되짚는 자리가 아니다.
+ *
+ * **담기는 곳은 주문표가 아니라 이번 이용이다.** 예산은 그날그날 다르다. 주문표에
+ * 넣으면 지난주에 정한 한도가 저장된 조건으로 굳어, 오늘 주문에서 말없이 후보를
+ * 자른다. 그래서 값은 budget.ts 의 이용 저장소에 담고 창을 닫으면 사라진다 —
+ * 묻는 자리와 담는 자리가 다른 것은 일부러 그렇게 한 것이다.
+ *
+ * 만들어 둔 주문표만 있는 사람도 바꿀 수 있어야 해서 도움 설정 화면에도 둔다.
+ * 알레르기가 가입 때 묻고 설정에서 고치는 것과 같은 모양이다.
  */
-function 한도고르기({ 예산, on바꾸기 }: { 예산: number | null; on바꾸기: (원: number | null) => void }) {
+function 한도적기({ 예산, on바꾸기, 영어인가 }: {
+  예산: number | null;
+  on바꾸기: (원: number | null) => void;
+  /** 금액 표기가 언어마다 달라서 여기까지 내려온다("6,000원" vs "KRW 6,000"). */
+  영어인가: boolean;
+}) {
+  // 이 칸은 만들기 화면과 도움 설정 두 곳에 뜬다. id 를 손으로 적어 두면 언젠가
+  // 둘이 같이 떠서 라벨이 엉뚱한 칸을 가리킨다. React 가 겹치지 않게 지어 준다.
+  const 칸id = useId();
+  const [적은것, set적은것] = useState(예산 === null ? "" : String(예산));
+
+  /*
+   * 밖에서 값이 바뀌면 따라간다 — 로그아웃으로 비워지거나, 다른 화면에서 고친
+   * 경우다. 적는 중에는 안 건드린다: 지금 칸의 값이 이미 그 숫자면 그대로 둔다.
+   * (안 그러면 "8000" 을 적는 동안 매 글자마다 칸이 다시 쓰여 커서가 튄다.)
+   */
+  useEffect(() => {
+    set적은것((지금) => (숫자만읽기(지금) === 예산 ? 지금 : 예산 === null ? "" : String(예산)));
+  }, [예산]);
+
+  const 고치기 = (글: string) => {
+    /*
+     * 숫자만 남긴다. 사람은 "8,000" 이나 "8000원" 이라고 적는다. 그걸 틀렸다고
+     * 돌려보내는 대신 우리가 읽어 낸다. 앞의 0 은 버리고(0 8000 → 8000),
+     * 일곱 자리에서 끊는다 — 키오스크 한 끼에 천만 원은 오타다.
+     */
+    const 숫자 = 글.replace(/[^0-9]/g, "").replace(/^0+/, "").slice(0, 7);
+    set적은것(숫자);
+    on바꾸기(숫자 === "" ? null : Number(숫자));
+  };
+
   return (
     <div>
-      <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 6 }}>가격 한도 (선택)</h2>
-      <div className="flex flex-wrap" style={{ gap: 6 }}>
-        <Chip label="안 정함" selected={예산 === null} onClick={() => on바꾸기(null)} />
-        {한도후보.map((원) => (
-          <Chip
-            key={원}
-            label={`${원.toLocaleString("ko-KR")}원`}
-            selected={예산 === 원}
-            onClick={() => on바꾸기(예산 === 원 ? null : 원)}
-          />
-        ))}
+      <label htmlFor={칸id} style={{ ...TYPE.label, color: TEXT_2, display: "block", marginBottom: 6 }}>
+        가격 한도 (선택)
+        {/*
+          눈으로는 칸 오른쪽의 "원" 이 단위를 알려 주지만, 그건 장식이라
+          aria-hidden 이다. 소리로만 듣는 사람은 이 칸이 원 단위인지 만 원
+          단위인지 알 수 없다. 잘못 적으면 후보가 통째로 걸러지는 값이라
+          라벨에서 한 번 말해 준다(#98 리뷰).
+        */}
+        <span className="sr-only">{영어인가 ? " in won" : " 원 단위"}</span>
+      </label>
+      <div className="flex items-center" style={{ gap: 8, backgroundColor: CANVAS, borderRadius: RADIUS.input, padding: "0 16px" }}>
+        <input
+          id={칸id}
+          /*
+           * type="number" 를 안 쓴다. 칸에 손을 얹고 휠을 굴리면 값이 말없이
+           * 바뀌고, 위아래 화살표는 손이 떨리는 사람에게 누르기 어려운 크기다.
+           * 숫자판은 inputMode 로 띄운다.
+           */
+          type="text"
+          inputMode="numeric"
+          value={적은것}
+          onChange={(e) => 고치기(e.target.value)}
+          placeholder="예: 8000"
+          aria-describedby={`${칸id}-help`}
+          style={{
+            flex: 1, minWidth: 0, ...TYPE.body, color: TEXT_1, fontFamily: FONT, ...NUM,
+            padding: "15px 0", border: "none", outline: "none", backgroundColor: "transparent",
+          }}
+        />
+        {/* 단위는 표에 넣지 않고 여기서 언어를 보고 적는다 — 돈() 과 같은 이유다. */}
+        <span aria-hidden="true" style={{ ...TYPE.body, color: TEXT_2 }}>{영어인가 ? "KRW" : "원"}</span>
       </div>
-      {예산 !== null && (
-        <p style={{ fontSize: 12, color: TEXT_2, marginTop: 6, lineHeight: 1.6 }}>
-          {예산.toLocaleString("ko-KR")}원보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.
-        </p>
-      )}
+      {/* 적는 동안 글자마다 바뀐다. 바뀔 때마다 읽으면 한 글자에 한 문장씩 듣는다. */}
+      <p id={`${칸id}-help`} data-소리조용 style={{ fontSize: 12, color: TEXT_2, marginTop: 6, lineHeight: 1.6 }}>
+        {예산 === null
+          ? "비워 두면 한도 없이 찾아요"
+          : tf("{금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.", { 금액: 돈(예산, 영어인가) })}
+      </p>
     </div>
   );
 }
 
+/** 적힌 글에서 우리가 값으로 읽는 숫자. 못 읽으면 null 이다. */
+const 숫자만읽기 = (글: string): number | null => {
+  const 숫자 = 글.replace(/[^0-9]/g, "").replace(/^0+/, "");
+  return 숫자 === "" ? null : Number(숫자);
+};
+
 function SavedSheetsScreen({
-  sheets, onAddSheet, onDeleteSheet, onOrder, showOrder = false, 예산, on예산,
+  sheets, onAddSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
 }: {
   sheets: OrderSheet[];
   onAddSheet: () => void;
   onDeleteSheet: (id: string) => void;
+  onEditSheet: (sheet: OrderSheet) => void;
   onOrder: (sheet: OrderSheet) => void;
   showOrder?: boolean;
-  예산: number | null;
-  on예산: (원: number | null) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(sheets[0]?.id ?? null);
 
@@ -1424,6 +1586,7 @@ function SavedSheetsScreen({
                 // 움직이고 '그대로 두기' 를 눌러도 돌아오지 않는다.
                 // 실제로 지워진 뒤의 선택 이동은 아래 useEffect 가 맡는다.
                 onDelete={() => onDeleteSheet(sheet.id)}
+                onEdit={() => onEditSheet(sheet)}
               />
             ))}
           </fieldset>
@@ -1431,10 +1594,10 @@ function SavedSheetsScreen({
       </div>
 
       <StickyFooter>
-        {/* 주문 버튼이 보일 때만 묻는다. 연결도 안 된 화면에서 예산부터 물으면 뜬금없다. */}
-        {showOrder && 고른것 && 백엔드가아는장소(고른것) && (
-          <한도고르기 예산={예산} on바꾸기={on예산} />
-        )}
+        {/*
+          가격 한도는 여기서 안 묻는다. 주문표를 만들 때 조건과 같이 정하고,
+          만들어 둔 주문표만 있는 사람은 도움 설정에서 고친다.
+        */}
         {/*
           아직 연결되지 않은 장소는 주문으로 보내지 않는다.
           
@@ -1683,7 +1846,8 @@ function PairingConnected({
             <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 5 }}>세션 유효시간</p>
             <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.5 }}>만료되면 QR을 다시 스캔해 주세요</p>
           </div>
-          <span style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
+          {/* 1초마다 바뀐다. 바뀔 때마다 읽으면 1초에 한 번씩 남은 시간을 듣는다. */}
+          <span data-소리조용 style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
         </div>
       </div>
 
@@ -1716,7 +1880,7 @@ function PairingFailed({ reason = "유효하지 않은 QR입니다", onScan }: {
 
       <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
         <p style={{ ...TYPE.caption, color: TEXT_1 }}>
-          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔</strong>해 주세요
+          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔해 주세요</strong>
         </p>
       </div>
 
@@ -1739,7 +1903,7 @@ function PairingExpired({ onScan }: { onScan: () => void }) {
 
       <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
         <p style={{ ...TYPE.caption, color: TEXT_1 }}>
-          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔</strong>해 주세요
+          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔해 주세요</strong>
         </p>
       </div>
 
@@ -2365,12 +2529,15 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
  * 앱이 고장 났다고 생각하므로, 무엇을 하는 값인지 제목으로 먼저 밝힌다.
  * 바꾸지 않는 것을 바꾼다고 말하지 않는다.
  */
-function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, onBack }: {
+function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, 예산, on예산, onBack }: {
   설정: 도움설정;
   onChange: (한칸: Partial<도움설정>) => void;
   /** 가입 직후에 한 번 묻지만 여기서도 고칠 수 있어야 한다 — 한 번 묻고 끝나면 못 고친다. */
   알레르기: AllergenId[];
   on알레르기: (id: AllergenId) => void;
+  /** 주문표를 만들 때 묻지만 여기서도 고칠 수 있어야 한다 — 알레르기와 같은 이유다. */
+  예산: number | null;
+  on예산: (원: number | null) => void;
   onBack: () => void;
 }) {
   return (
@@ -2431,6 +2598,14 @@ function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, o
 
         <div style={{ marginTop: 28, paddingTop: 24, borderTop: `2px solid ${RULE}` }}>
           <알레르기고르기 고른것={알레르기} on뒤집기={on알레르기} />
+          {/*
+            한도는 주문표를 만들 때 묻는다. 여기는 고치는 자리다 — 만들어 둔
+            주문표만 쓰는 사람은 만들기 화면에 갈 일이 없어서, 여기가 없으면
+            한 번 정한 한도를 바꿀 길이 없다.
+          */}
+          <div style={{ marginTop: 24 }}>
+            <한도적기 예산={예산} on바꾸기={on예산} 영어인가={설정.language === "en-US"} />
+          </div>
         </div>
       </div>
     </div>
@@ -2748,7 +2923,11 @@ function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; 
         {첫줄.text}
         {남은 > 0 && (
           <span style={{ color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3 }}>
-            {" "}이유 {남은}개 더 보기
+            {/*
+              조각으로 나눠 옮기면 어순이 깨진다("reason 2more"). 자리표시자를 둔
+              한 문장으로 만들어 언어마다 제 어순을 갖게 한다.
+            */}
+            {" "}{tf("이유 {n}개 더 보기", { n: 남은 })}
           </span>
         )}
       </span>
@@ -2813,7 +2992,7 @@ function OptionCard({
           가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
         */}
         <span style={{ minWidth: 0, textAlign: "left" }}>
-        <span style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1, display: "block" }}>{name}</span>
+        <span data-원문 style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1, display: "block" }}>{name}</span>
         {/*
           위트 액센트 하나. 뜻은 옆의 '조건 일치' 라는 글자가 지고 있고 이 그림은
           거들기만 한다 - 이모지는 기기마다 모양이 다르고 스크린리더가 이름을
@@ -3189,7 +3368,7 @@ function OrderConfirmScreen({
         <BackButton onClick={onBack} />
         <div className="flex items-center gap-2" style={{ marginTop: 20, paddingBottom: 16 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: PAPER, backgroundColor: RULE, padding: "4px 11px", borderRadius: RADIUS.pill }}>내 주문표</span>
-          <span style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>
+          <span data-원문 style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>
         </div>
         <div style={{ height: 1, backgroundColor: BORDER, marginLeft: -GAP.screenX, marginRight: -GAP.screenX }} />
       </div>
@@ -3416,8 +3595,10 @@ function DoneSteps({ done }: { done: { text: string; ok: boolean }[] }) {
         {/* 키오스크가 대신 눌러 준 일이라 handPointing 을 쓴다. 새 아이콘은 두지 않는다. */}
         <Pictogram name="handPointing" size={17} color={TEXT_2} />
         <span style={{ ...TYPE.caption, color: TEXT_2 }}>
-          키오스크가 한 일 {done.length}가지
-          {실패 > 0 && <b style={{ fontWeight: 700, color: WARN }}> · {실패}가지 실패</b>}
+          {/* 조각으로 나누면 어순이 깨진다("What the kiosk did 10steps"). 한 문장으로 만든다. */}
+          {tf("키오스크가 한 일 {n}가지", { n: done.length })}
+          {/* 숫자가 끼는 문장이라 조각으로 쪼개진다. tf() 로 통째로 옮긴다(#98 리뷰). */}
+          {실패 > 0 && <b style={{ fontWeight: 700, color: WARN }}> · {tf("{n}가지 실패", { n: 실패 })}</b>}
           <span style={{ textDecoration: "underline", textUnderlineOffset: 3 }}>{" "}{펼침 ? "접기" : "보기"}</span>
         </span>
       </button>
@@ -4084,6 +4265,13 @@ export default function App() {
   // 만료 때문에 QR 화면으로 되돌아왔는지. 되돌아왔으면 안내부터 띄운다.
   const [qrExpired, setQrExpired] = useState(false);
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
+  /**
+   * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
+   *
+   * 적어 두지 않는다(session.ts). 새로고침하면 만들기 화면 자체가 안 살아나므로
+   * 여기에만 있으면 된다. 저장을 안 누르고 나가면 목록의 주문표는 그대로다.
+   */
+  const [고칠주문표, set고칠주문표] = useState<OrderSheet | null>(null);
   /*
    * 연결(pairingId)은 안 이어 받는데 이것만 이어 받는다. 되살린 값으로 하는 일이
    * 읽기뿐이라서다 — 진행 상황을 물어보는 GET 하나다. 계획을 새로 만들거나 실행하는
@@ -4112,7 +4300,6 @@ export default function App() {
     });
   }, [screen, tab, name, 계정, sheets, 접근성값, 동의, 알레르기, 예산, planId]);
 
-  const addSheet = (p: OrderSheet) => setSheets((prev) => [...prev, p]);
   // 화면에서만 지우면 목에 등록해 둔 사본이 남는다. 둘을 같이 지운다.
   const deleteSheet = (id: string) => {
     const 이름 = sheets.find((p) => p.id === id)?.menuName ?? "이 주문표";
@@ -4266,7 +4453,20 @@ export default function App() {
    * 대신 주문표 화면이 저장하기 전에 미리 알려 준다(아래 OrderSheetScreen 의 안내 한 줄).
    */
   const 주문표저장 = (p: OrderSheet): void => {
-    addSheet(p);
+    /*
+     * 고친 것이면 그 자리에 덮고, 새것이면 뒤에 붙인다.
+     *
+     * 자리를 지키는 게 중요하다. 고쳤다고 목록 맨 뒤로 가면, 방금 고친 주문표를
+     * 다시 찾아야 한다. 세 개쯤 되면 그때부터 헷갈린다.
+     *
+     * 목에 등록해 둔 사본도 새 내용으로 갈아 준다. 안 갈면 조건은 고쳐졌는데
+     * 추천은 옛 조건으로 돌아, 화면이 말하는 것과 실제로 담기는 것이 달라진다.
+     */
+    setSheets((prev) => prev.some((있던) => 있던.id === p.id)
+      ? prev.map((있던) => (있던.id === p.id ? p : 있던))
+      : [...prev, p]);
+    registerSheet(p);
+    set고칠주문표(null);
     setScreen("saved");
     setTab("menu");
     // 못올리는이유() 는 이유 문자열이거나 null 이다. null 일 때만 올린다.
@@ -4434,6 +4634,53 @@ export default function App() {
   //
   // 적을 게 없는 화면에서는 첫 제목으로 보내 "여기가 어디인지" 부터 들려준다.
   const 화면영역 = useRef<HTMLDivElement>(null);
+  /**
+   * 고른 언어로 화면 글자를 바꾼다.
+   *
+   * useLayoutEffect 다 — 그린 뒤 눈에 보이기 전에 끝내야 우리말이 한 번 번쩍이지
+   * 않는다. 화면이 다시 그려질 때마다 다시 부른다. 이미 바뀐 글자는 표에 없어서
+   * 그대로 있으므로 되풀이해도 안전하다.
+   *
+   * 글자만 만진다. 주문표에 저장되는 값도, 서버로 나가는 값도 계속 우리말이다 —
+   * canonical.ts 가 그 우리말을 enum 으로 옮기고 있어서 저장값을 건드리면
+   * 매핑이 통째로 깨진다(i18n/apply.ts 주석).
+   */
+  useLayoutEffect(() => {
+    /*
+     * 한국어로 돌아오면 우리가 바꾼 자리를 우리 손으로 되돌린다.
+     *
+     * 여기서 그냥 나가면 화면은 영어로 남는다. React 는 자기가 그린 한국어가
+     * 아직 화면에 있다고 여기기 때문에 다시 쓰지 않는다 — 설정만 ko-KR 이고
+     * 글자는 영어인 채로, 새로고침 전에는 돌아올 길이 없었다(#34 리뷰).
+     */
+    if (접근성값.language !== "en-US") { 되돌리기(); return; }
+    const 틀 = 화면영역.current?.closest<HTMLElement>("[data-frame]") ?? document.body;
+    영어로바꾸기(틀);
+
+    /*
+     * 화면 안쪽에서 일어난 변화도 잡는다.
+     *
+     * 이 효과는 App 이 다시 그려질 때만 돈다. 그런데 장소를 고르면 세부 옵션이
+     * 나타나는 것처럼, **자식 화면이 제 상태만 바꾸는 경우에는 App 이 안 그려진다.**
+     * 그러면 새로 뜬 부분만 우리말로 남는다 — 실제로 그랬다.
+     *
+     * 그래서 틀 안을 지켜보다가 무언가 붙으면 다시 옮긴다. 우리가 바꾼 글자는
+     * 표에 없으므로 두 번째 바퀴에서는 아무것도 안 바뀌고 멈춘다. 그래도 우리
+     * 손질이 다시 자기를 깨우지 않도록 옮기는 동안에는 잠깐 떼어 둔다.
+     */
+    const 지켜보기 = new MutationObserver(() => {
+      지켜보기.disconnect();
+      영어로바꾸기(틀);
+      지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
+    });
+    지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
+    return () => 지켜보기.disconnect();
+  });
+  // 무엇이 아직 우리말로 남았는지 콘솔에서 확인하는 손잡이. 화면은 안 건드린다.
+  useEffect(() => {
+    (globalThis as unknown as { __안바뀐것?: () => string[] }).__안바뀐것 = () =>
+      안바뀐것(화면영역.current?.closest<HTMLElement>("[data-frame]") ?? document.body);
+  }, []);
   useEffect(() => {
     // 겹이 떠 있으면 겹 안에서 찾는다. 아래 화면이 DOM 앞쪽이라 그냥 찾으면
     // 덮인 화면의 제목으로 포커스가 가고, 읽는 사람은 겹이 열린 줄도 모른다.
@@ -4452,18 +4699,101 @@ export default function App() {
     }
     대상.focus({ preventScroll: true });
 
+    // 소리는 아래 '화면을 읽어 준다' 효과가 맡는다. 여기는 포커스만 옮긴다.
+  }, [screen, tab, 개인정보겹]);
+
+  /*
+   * ── 화면을 읽어 준다 ─────────────────────────────────────────────────────
+   *
+   * 예전에는 제목 한 줄만 읽었다. 어디에 왔는지는 알려 주지만, **정작 알아야 할
+   * 것은 안 읽었다** — 왜 이 메뉴를 골랐는지(선호 이유), 무엇이 왜 빠졌는지
+   * (제외 이유), 지금 연결이 어디까지 갔는지. 눈으로 못 읽는 사람에게 그 셋은
+   * 화면에 있으나 없으나 같았다.
+   *
+   * 그래서 화면에 보이는 것을 다 읽는다.
+   *
+   * 읽는 자리가 둘이다.
+   *
+   *   ① 화면이 바뀌면  — 앞의 말을 끊고 처음부터 다 읽는다.
+   *   ② 같은 화면에서 무언가 새로 뜨면 — 새로 뜬 줄만 뒤에 붙여 읽는다.
+   *
+   * ② 가 이 기능의 핵심이다. 제외 이유나 연결 상태는 화면을 바꾸지 않고 나중에
+   * 도착한다. 그때 화면 전체를 다시 읽으면 방금 들은 말을 또 듣고, 앞의 말을
+   * 끊으면 문장 하나를 통째로 잃는다. 새로 뜬 줄만, 읽던 말 뒤에 붙인다.
+   */
+  const 읽은줄 = useRef<string[]>([]);
+  /*
+   * 읽을 자리. 겹이 떠 있으면 겹 안만 읽는다.
+   *
+   * 위 포커스 효과와 같은 규칙이다. 겹 아래 화면은 `inert` 로 막아 스크린리더가
+   * 못 읽게 해 두었는데, 소리 안내만 틀 전체를 읽으면 그 약속이 깨진다 — 겹의
+   * 안내문 앞에 덮인 화면이 통째로 읽힌다(#36 리뷰).
+   */
+  const 읽을틀 = () =>
+    (개인정보겹 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]"))
+    || 화면영역.current?.closest<HTMLElement>("[data-frame]")
+    || null;
+
+  /**
+   * 앞서 읽은 줄에 견줘 **새로 붙은 줄**만 골라 낸다.
+   *
+   * 개수까지 센다. 내용만으로 Set 을 만들면 같은 문구가 두 번 뜰 때 두 번째가
+   * 사라진다. 이 화면에는 같은 문구가 여럿이다 — 세부 옵션마다 붙는 "1개 선택",
+   * 두 메뉴에 똑같이 붙는 제외 사유 같은 것들이다. 제외 사유가 사라지면 눈으로
+   * 못 읽는 사람은 그 후보가 왜 빠졌는지 알 길이 없다(#36 리뷰).
+   */
+  const 새로붙은줄 = (전: string[], 지금: string[]): string[] => {
+    const 남은 = new Map<string, number>();
+    for (const 줄 of 전) 남은.set(줄, (남은.get(줄) ?? 0) + 1);
+    const 새것: string[] = [];
+    for (const 줄 of 지금) {
+      const 몇 = 남은.get(줄) ?? 0;
+      if (몇 > 0) 남은.set(줄, 몇 - 1);
+      else 새것.push(줄);
+    }
+    return 새것;
+  };
+
+  useEffect(() => {
+    if (!접근성값.voiceGuide) { 읽은줄.current = []; return; }
+    const 틀 = 읽을틀();
+    if (!틀) return;
     /*
-     * 소리 안내를 켠 분에게는 같은 것을 소리로도 한 번 읽어 준다.
-     *
-     * 포커스가 가는 그 요소를 읽는다 - 스크린리더가 읽는 것과 같은 자리다.
-     * 따로 고르면 화면이 바뀔 때 눈으로 보는 것과 귀로 듣는 것이 갈린다.
-     *
-     * 제목만 읽고 본문은 안 읽는다. 화면 전체를 읽으면 다음 화면으로 넘어갈 때까지
-     * 계속 말하게 되고, 급한 사람은 말이 끝나기를 기다려야 한다. 어디에 왔는지만
-     * 알려 주고 나머지는 화면에 그대로 있다.
+     * 한 박자 뒤에 읽는다. 화면이 막 바뀐 순간에는 영어 옮기기(useLayoutEffect)와
+     * 첫 그리기가 아직 안 끝나 있을 수 있다. 그때 읽으면 영어 화면을 한국어로
+     * 읽거나, 반쯤 그려진 화면을 읽는다.
      */
-    if (접근성값.voiceGuide) 읽어주기(대상.innerText || 대상.textContent || "");
-  }, [screen, tab, 개인정보겹, 접근성값.voiceGuide]);
+    const 표 = setTimeout(() => {
+      const 줄 = 화면글(틀);
+      읽은줄.current = 줄;
+      읽어주기(줄.join(". "), { 언어: 접근성값.language });
+    }, 120);
+    return () => clearTimeout(표);
+  }, [screen, tab, 개인정보겹, 접근성값.voiceGuide, 접근성값.language]);
+
+  useEffect(() => {
+    if (!접근성값.voiceGuide) return;
+    const 틀 = 읽을틀();
+    if (!틀) return;
+    /*
+     * 잠깐 기다렸다가 본다. 한 번 바뀔 때 DOM 은 여러 번 움직이고, 움직일 때마다
+     * 읽으면 한 문장이 조각조각 끊겨 나온다. 조용해진 다음에 한 번만 읽는다.
+     */
+    let 표: ReturnType<typeof setTimeout> | undefined;
+    const 지켜보기 = new MutationObserver(() => {
+      clearTimeout(표);
+      표 = setTimeout(() => {
+        const 틀지금 = 읽을틀();
+        if (!틀지금) return;
+        const 지금 = 화면글(틀지금, { 바뀌는것빼고: true });
+        const 새것 = 새로붙은줄(읽은줄.current, 지금);
+        읽은줄.current = 지금;
+        if (새것.length > 0) 읽어주기(새것.join(". "), { 언어: 접근성값.language, 이어서: true });
+      }, 350);
+    });
+    지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
+    return () => { clearTimeout(표); 지켜보기.disconnect(); };
+  }, [접근성값.voiceGuide, 접근성값.language]);
 
   /*
    * 스위치를 끄거나 화면을 떠나면 읽던 것을 멈춘다.
@@ -4536,6 +4866,8 @@ export default function App() {
       */}
       <div style={{ width: "100%", maxWidth: FRAME_W, height: FRAME_H }}>
         <div
+          data-frame
+
           ref={화면영역}
           /*
            * 고대비는 색 토큰을 갈아 끼워서 만든다. tokens.ts 의 PALETTE_STYLES 가
@@ -4633,9 +4965,16 @@ export default function App() {
           )}
           {screen === "sheet" && (
             <OrderSheetScreen
+              // 고치던 것이 바뀌면 화면을 새로 만든다. 안 그러면 첫 useState 값이
+              // 남아 다른 주문표를 눌러도 앞엣것이 그대로 떠 있다.
+              key={고칠주문표?.id ?? "new"}
               로그인함={!guest}
+              고칠것={고칠주문표}
               onNext={주문표저장}
-              onBack={() => setScreen("saved")}
+              onBack={() => { set고칠주문표(null); setScreen("saved"); }}
+              예산={예산}
+              on예산={(원) => 가격한도.바꾸기(원)}
+              영어인가={접근성값.language === "en-US"}
             />
           )}
           {inMain && tab === "qr" && (
@@ -4656,14 +4995,13 @@ export default function App() {
           {inMain && tab === "menu" && (
             <SavedSheetsScreen
               sheets={sheets}
-              onAddSheet={() => { setScreen("sheet"); }}
+              onAddSheet={() => { set고칠주문표(null); setScreen("sheet"); }}
               onDeleteSheet={deleteSheet}
+              onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
               onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}
               showOrder={fromQr}
-              예산={예산}
-              on예산={(원) => 가격한도.바꾸기(원)}
             />
           )}
           {screen === "order-confirm" && pairingId && orderSheet && (
@@ -4759,6 +5097,8 @@ export default function App() {
               설정={접근성값}
               알레르기={알레르기}
               on알레르기={(id) => 알레르기설정.뒤집기(id)}
+              예산={예산}
+              on예산={(원) => 가격한도.바꾸기(원)}
               onChange={(한칸) => 접근성설정.바꾸기(한칸)}
               onBack={() => { setScreen("saved"); setTab("account"); }}
             />
