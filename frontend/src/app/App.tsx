@@ -327,10 +327,26 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
   onPrivacy: () => void;
 }) {
   return (
-    <div className="flex flex-col h-full kb-paper">
-      {/* 첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
-          아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다. */}
-      <div className="shrink-0 relative" style={{ height: "42%", minHeight: 0, overflow: "hidden" }}>
+    <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
+      {/*
+        첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
+        아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다.
+
+        자리가 모자라면 **사진이 먼저 양보한다.** 예전에는 사진을 42% 로 박아 두고
+        (shrink-0) 가운데 칸을 flex-1 로 뒀는데, flex-1 은 바탕 크기가 0 이라
+        가운데 칸이 '남은 만큼' 만 받았다. 동의 문구가 한 줄 늘어 아래 칸이 커지면
+        남는 자리가 글보다 작아지고, 그러면 글이 칸 밖으로 나가 아래 칸을 덮었다.
+        동의를 안 한 첫 화면에서 안내 문구가 소개 문장 위에 겹쳐 보였다.
+
+        사진은 없어도 뜻이 통하는 그림이고 글은 아니다. 그래서 줄어드는 쪽을
+        사진으로 정한다. 160 아래로는 안 줄인다 — 그보다 작으면 무슨 장면인지
+        알아볼 수 없어서 있으나 마나다.
+
+        더 짧은 화면(작은 폰 세로 667 같은)에서는 사진을 다 줄여도 모자란다.
+        그때는 겹치거나 잘리는 대신 **화면이 스크롤된다**(위 kb-paper 칸의
+        overflowY). 로그인 단추가 화면 밖에 남아 못 누르는 것이 제일 나쁘다.
+      */}
+      <div className="relative" style={{ height: "42%", minHeight: 160, flexShrink: 1, overflow: "hidden" }}>
         <img
           src={kioskHeroImg}
           alt=""
@@ -353,7 +369,11 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
         />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center" style={{ minHeight: 0, padding: `0 ${GAP.screenX}px`, marginTop: -12 }}>
+      {/*
+        flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
+        실제 높이(auto)다. 이 셋이 다 있어야 이 칸의 글이 자리 계산에 들어간다.
+      */}
+      <div className="flex flex-col items-center justify-center" style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px`, marginTop: -12 }}>
         <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
           <AppLogo size={40} />
@@ -363,7 +383,8 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
         </p>
       </div>
 
-      <div style={{ padding: `0 ${GAP.screenX}px 32px` }} className="flex flex-col gap-3">
+      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 사진이 양보한다. */}
+      <div style={{ padding: `0 ${GAP.screenX}px 32px`, flexShrink: 0 }} className="flex flex-col gap-3">
         {/*
           동의를 먼저 받는다. 게스트로 시작하는 것도 정보를 쓰는 일이라 같이 막는다 —
           로그인한 사람에게만 물으면, 정작 가장 많이 쓰일 길에서는 안 묻는 셈이 된다.
@@ -776,7 +797,7 @@ function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack
          */}
         <CenterHeadline
           title={<>반갑습니다!<br />어떻게 불러드릴까요?</>}
-          desc="부르는 말만 쓰여요. 실제 이름이 아니어도 괜찮아요"
+          desc="실제 이름 말고, 불리고 싶은 말을 적어 주세요"
         />
 
         <label htmlFor="name-input" className="sr-only">부를 호칭</label>
@@ -787,6 +808,15 @@ function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="예: 할머니, 김씨"
+          /*
+           * 호칭 길이로 잘라 둔다(#96 리뷰).
+           *
+           * 실제 이름인지 아닌지는 코드가 가려낼 수 없다 — '김씨' 도 호칭이고
+           * 성씨이기도 하다. 대신 이 칸이 **호칭 말고 다른 것을 담을 수 없게**
+           * 만든다. 열두 자면 부르는 말은 다 들어가지만 주소나 전화번호,
+           * 주민등록번호는 들어가지 않는다.
+           */
+          maxLength={12}
           data-autofocus
           style={{
             width: "100%", marginTop: 36, textAlign: "center",
@@ -4111,8 +4141,15 @@ export default function App() {
    */
   const [이어받은] = useState(() => {
     const v = 이어쓰기.읽기();
-    if (v) { 접근성설정.되살리기(v.a11y); 가격한도.되살리기(v.budget); 개인정보동의.되살리기(v.consent); }
-    if (v) { 접근성설정.되살리기(v.a11y); 가격한도.되살리기(v.budget); 알레르기설정.되살리기(v.allergies); }
+    // 되살릴 곳이 한 자리뿐이어야 한다. 두 줄로 갈라 두면 새 값이 생겼을 때
+    // 한쪽에만 넣는 날이 오고, 그날 빠지는 것이 알레르기면 걸러졌어야 할 후보가
+    // 새로고침 뒤에 그냥 올라온다(#96 리뷰).
+    if (v) {
+      접근성설정.되살리기(v.a11y);
+      가격한도.되살리기(v.budget);
+      개인정보동의.되살리기(v.consent);
+      알레르기설정.되살리기(v.allergies);
+    }
     return v;
   });
   const [screen, setScreen] = useState<Screen>(이어받은?.screen ?? "welcome");
@@ -4528,6 +4565,17 @@ export default function App() {
      * 어느 쪽이 나쁜지는 분명하다.
      */
     알레르기설정.비우기();
+    /*
+     * 가격 한도도 같은 이유로 비운다(#96 리뷰).
+     *
+     * 한도는 화면에 늘 보이는 값이 아니라 후보를 조용히 잘라 내는 값이다.
+     * 남겨 두면 다음 사람은 앞사람의 지갑 사정으로 걸러진 목록을 보고, 왜
+     * 어떤 메뉴가 안 나오는지 알 방법이 없다.
+     *
+     * 도움 설정(큰 글씨·고대비 등)은 그대로 둔다. 그건 화면을 보면 켜져 있는 게
+     * 바로 보이는 값이라, 다음 사람이 모르고 쓰게 되는 종류가 아니다.
+     */
+    가격한도.비우기();
     // 적어 둔 것도 같이 지운다. 안 지우면 새로고침 한 번에 로그아웃이 되돌아간다.
     // 위의 setState 들이 끝나면 저장 효과가 한 번 더 도는데, 그때는 담을 것이
     // 남아 있지 않아서 다시 쓰이지 않는다(session.ts 의 남길것이있나).
