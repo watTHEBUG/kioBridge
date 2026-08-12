@@ -3,13 +3,14 @@ import type {
 } from "@/domain/types";
 import {
   toChickenStoreContext, toContextNormalizationInput, toProfileNormalizationInput, 우리말들,
-  type ContextNormalizationInput, type ProfileNormalizationInput,
+  type ContextNormalizationInput,
   type CanonicalProfile, type ChickenStoreSessionContext,
 } from "@/api/canonical";
 import { KioBridgeError, clearSheets, type KioBridgeApi } from "@/api/client";
 import { STEPS } from "@/domain/catalog";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정 } from "@/api/a11y";
+import { 돈 } from "@/i18n/apply";
 import { 가격한도 } from "@/api/budget";
 import { 개인정보동의 } from "@/api/consent";
 import { 알레르기설정 } from "@/api/allergy";
@@ -969,7 +970,14 @@ function 확인표(c: KitCandidate | undefined, p: OrderSheet): MappedOption[] {
   return 행;
 }
 
-const 원 = (n: number | undefined) => (typeof n === "number" ? `${n.toLocaleString("ko-KR")}원` : "");
+/*
+ * 값 표기. 우리가 만드는 글자라 화면 언어를 따라간다("6,000원" vs "KRW 6,000").
+ *
+ * 통화는 원 그대로다 — 이 앱은 한국 키오스크 앞에서 쓰는 것이고, 환산해서 적으면
+ * 화면의 값과 키오스크 화면의 값이 달라진다.
+ */
+const 원 = (n: number | undefined) =>
+  typeof n === "number" ? 돈(n, 접근성설정.읽기().language === "en-US") : "";
 
 /**
  * 받침이 있으면 '은', 없으면 '는'.
@@ -1227,13 +1235,12 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 캐시키 = (
     environmentId: string,
     p: OrderSheet,
-    profileInput: ProfileNormalizationInput,
     contextInput: ContextNormalizationInput["contextInput"],
   ) => {
     // collectedAt 은 부를 때마다 달라진다(현재 시각). 키에 넣으면 캐시가 한 번도
     // 안 맞는다. 결과를 바꾸는 건 고른 조건과 접근성 설정이라 그것만 넣는다.
     // 접근성 설정이 바뀌면 표준형도 달라진다. 키에 그대로 들어가므로 캐시가 자동으로 갈린다.
-    const { collectedAt: _버림, ...주문표 } = profileInput;
+    const { collectedAt: _버림, ...주문표 } = toProfileNormalizationInput(p, { 접근성: 접근성설정.읽기(), personalization: 개인정보동의.읽기() });
     // 가격 한도.알레르기가 바뀌면 후보 자체가 달라진다. 키에 들어가므로 고치면
     // 캐시가 자동으로 갈라진다 — 접근성 설정과 같은 방식이다.
     const 키 = `${environmentId}|${JSON.stringify(주문표)}|${JSON.stringify(contextInput)}`;
@@ -1257,19 +1264,12 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
     /*
      * 정규화에 넣을 값을 여기서 **한 번만** 만든다. 아래 요청과 위 캐시키가 같은
      * 객체를 봐야 한다 — 두 번 만들면 그 사이의 설정 변경이 둘을 갈라놓는다.
-     *
-     * 프로필 쪽도 같은 규칙이다. 지금은 두 자리 사이에 await 이 없어서 갈라질
-     * 일이 없지만, 나중에 하나라도 끼면 캐시키와 보내는 값이 어긋난다(#96 리뷰).
      */
-    const 프로필입력 = toProfileNormalizationInput(p, {
-      접근성: 접근성설정.읽기(),
-      personalization: 개인정보동의.읽기(),
-    });
     const 정규화입력 = toContextNormalizationInput(p, {
       예산: 가격한도.읽기(),
       알레르기: 알레르기설정.읽기(),
     });
-    const 키 = 캐시키(environmentId, p, 프로필입력, 정규화입력.contextInput);
+    const 키 = 캐시키(environmentId, p, 정규화입력.contextInput);
     const 있음 = 정규화됨.get(키);
     if (있음) return 있음;
 
@@ -1280,7 +1280,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       environmentId,
       // 큰 글씨를 켜 놓고 주문해도 서버가 몰랐다 — opts 를 안 넘겨서 일곱이 전부
       // false 로 나가고 있었다. 화면이 묻는 값을 그대로 보낸다.
-      profileInput: 프로필입력,
+      profileInput: toProfileNormalizationInput(p, { 접근성: 접근성설정.읽기(), personalization: 개인정보동의.읽기() }),
     });
 
     const sr = await 보내기<{
@@ -1382,9 +1382,18 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
     const 합계 = typeof r.total === "number"
       ? r.total
       : items.reduce((s, i) => s + (Number(i?.price) || 0) * (Number(i?.quantity) || 0), 0);
+    /*
+     * 값 표기만 언어를 따라간다. 나머지 세 문장은 우리말 그대로 두고 화면 쪽에서
+     * 옮긴다(i18n/en.ts) — 여기서 옮기면 같은 문장을 두 곳에서 관리하게 된다.
+     */
+    const 영어 = 접근성설정.읽기().language === "en-US";
+    /*
+     * 개수도 여기서 만든다. "1개" 를 표에 넣으면 수량 칩의 "1개" 까지 같이 바뀐다 —
+     * 같은 우리말이 자리마다 다른 영어가 되는 곳은 표로 풀 수 없다.
+     */
     return {
-      itemCountText: `${개수}개`,
-      totalText: `${합계.toLocaleString("ko-KR")}원`,
+      itemCountText: 영어 ? `${개수} item${개수 === 1 ? "" : "s"}` : `${개수}개`,
+      totalText: 돈(합계, 영어),
       evidenceLabel: "화면 인식으로 확인됨",
       handoff: "키오스크 화면에서 장바구니를 확인해 주세요",
     };
