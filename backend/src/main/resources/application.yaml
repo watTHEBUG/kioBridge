@@ -12,6 +12,9 @@ kiobridge:
   input-contract-version: ${KIOBRIDGE_INPUT_CONTRACT_VERSION:1.0.0}
   submission-version: ${KIOBRIDGE_SUBMISSION_VERSION:1.0.0}
 
+  auth:
+    session-ttl-seconds: ${AUTH_SESSION_TTL_SECONDS:28800}
+
   cors:
     allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:5173}
 

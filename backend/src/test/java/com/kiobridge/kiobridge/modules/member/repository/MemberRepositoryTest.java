@@ -9,6 +9,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -262,6 +263,62 @@ class MemberRepositoryTest {
                 userProfileRepository
                         .findAllByUser_IdOrderByIdAsc(
                                 userId
+                        )
+        ).isEmpty();
+    }
+
+    @Test
+    void 유효한_세션_해시로_회원을_조회한다() {
+        AppUser user =
+                new AppUser(
+                        "session-user",
+                        "encoded-password"
+                );
+
+        String tokenHash = "a".repeat(64);
+        Instant expiresAt =
+                Instant.now().plusSeconds(3600);
+
+        user.startSession(tokenHash, expiresAt);
+
+        AppUser saved =
+                appUserRepository.saveAndFlush(user);
+
+        entityManager.clear();
+
+        AppUser found = appUserRepository
+                .findBySessionTokenHashAndSessionExpiresAtAfter(
+                        tokenHash,
+                        Instant.now()
+                )
+                .orElseThrow();
+
+        assertThat(found.getId()).isEqualTo(saved.getId());
+        assertThat(found.getSessionTokenHash())
+                .isEqualTo(tokenHash);
+    }
+
+    @Test
+    void 만료된_세션은_조회되지_않는다() {
+        AppUser user =
+                new AppUser(
+                        "expired-session-user",
+                        "encoded-password"
+                );
+
+        String tokenHash = "b".repeat(64);
+        Instant expiresAt =
+                Instant.now().minusSeconds(1);
+
+        user.startSession(tokenHash, expiresAt);
+        appUserRepository.saveAndFlush(user);
+        entityManager.clear();
+
+        assertThat(
+                appUserRepository
+                        .findBySessionTokenHashAndSessionExpiresAtAfter(
+                                tokenHash,
+                                Instant.now()
                         )
         ).isEmpty();
     }
