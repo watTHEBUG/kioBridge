@@ -81,6 +81,24 @@ describe("못올리는이유 — 서버가 받아 주지 않을 주문표를 미
     expect(못올리는이유(주문표())).toBeNull();
   });
 
+  /*
+   * 팀 #79 가 selections 값에 @NotEmpty 를 걸었다. 빈 배열이 섞이면 저장이
+   * 400 으로 막히는데, 그 400 은 code 도 message 도 없는 스프링 기본 응답이라
+   * 화면이 무엇이 문제인지 말해 줄 수 없다. 여기서 먼저 가른다.
+   */
+  it("값이 빈 축이 있으면 이유를 돌려준다", () => {
+    expect(못올리는이유(주문표({ selections: { 맵기: [] } }))).toContain("비어 있는");
+  });
+
+  it("값이 다 차 있으면 통과한다", () => {
+    expect(못올리는이유(주문표({ selections: { 맵기: ["매운맛"] } }))).toBeNull();
+  });
+
+  it("축이 아예 없는 것은 문제가 아니다", () => {
+    // 안 고른 것과 빈 배열은 뜻이 같다. 서버가 받아 주는 것은 앞의 것뿐이다.
+    expect(못올리는이유(주문표({ selections: {} }))).toBeNull();
+  });
+
   // 상한은 양쪽을 본다. 넘는 쪽만 보면 `>` 가 `>=` 로 바뀌어도 이 테스트는 통과하고,
   // 그러면 딱 100자인 메뉴 이름이 조용히 저장되지 않는데 아무도 모른다.
   it(`메뉴 이름은 ${MENU_NAME_MAX}자까지 올라가고 그 다음부터 막힌다`, () => {
@@ -491,5 +509,37 @@ describe("팀 백엔드 — 서버가 준 값을 화면 타입으로 좁힌다",
 
     expect((e as KioBridgeError).code).toBe("TIMEOUT");
     expect((e as KioBridgeError).recoverable).toBe(true);
+  });
+});
+
+describe("주문표 삭제 (팀 #79)", () => {
+  it("서버에 저장된 주문표를 지운다", async () => {
+    const a = await mockAccount.signup("지우미", "비밀번호12");
+    await mockAccount.saveSheet(a.userId, 주문표());
+    expect(await mockAccount.listSheets(a.userId)).toHaveLength(1);
+
+    await mockAccount.deleteSheet(a.userId, 주문표().id);
+    expect(await mockAccount.listSheets(a.userId)).toHaveLength(0);
+  });
+
+  it("없는 것을 지워도 오류로 두지 않는다", async () => {
+    /*
+     * '이 기기에서 정보 지우기' 는 화면에 있는 것을 전부 지우려 드는데,
+     * 그중 서버에 안 올라간 것도 섞여 있다. 거기서 오류가 나면 지우는
+     * 도중에 멈춘다. 서버가 204 라 목도 같게 둔다.
+     */
+    const a = await mockAccount.signup("없는거", "비밀번호12");
+    await expect(mockAccount.deleteSheet(a.userId, "없는-주문표")).resolves.toBeUndefined();
+  });
+
+  it("남의 주문표는 건드리지 않는다", async () => {
+    const 갑 = await mockAccount.signup("갑", "비밀번호12");
+    const 을 = await mockAccount.signup("을", "비밀번호12");
+    await mockAccount.saveSheet(갑.userId, 주문표());
+    await mockAccount.saveSheet(을.userId, 주문표());
+
+    await mockAccount.deleteSheet(갑.userId, 주문표().id);
+    expect(await mockAccount.listSheets(갑.userId)).toHaveLength(0);
+    expect(await mockAccount.listSheets(을.userId)).toHaveLength(1);
   });
 });
