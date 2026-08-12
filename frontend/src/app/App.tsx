@@ -22,13 +22,15 @@ import {
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
+import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
+import { 말에서고르기, 말로채울수있나, type 들은결과 } from "@/api/voice";
 import { 가격한도 } from "@/api/budget";
 import { 개인정보동의 } from "@/api/consent";
 import { 알레르기설정, 알레르기목록 } from "@/api/allergy";
 import type { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
-import { tf } from "@/i18n/t";
+import { t, tf } from "@/i18n/t";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -46,6 +48,9 @@ function AppLogo({ light = false, size = 34 }: { light?: boolean; size?: number 
   const color = light ? ON_DARK : TEXT_1;
   return (
     <div
+      /* 화면마다 "kio bridge" 를 다시 듣지 않는다. 눈으로는 어디에 왔는지 알려
+         주는 표시지만, 귀로는 매번 같은 말이라 알려 주는 것이 없다. */
+      data-소리생략
       aria-label="키오브릿지"
       style={{
         fontFamily: SERIF, fontSize: size, lineHeight: 1, color,
@@ -138,11 +143,13 @@ function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
             style={{ width: 24, height: 24, accentColor: RULE, cursor: "pointer" }}
           />
         </span>
+        {/*
+          한 줄로 줄였다. 무엇을 모으는지는 옆의 '자세히' 가 여는 개인정보 화면이
+          말한다 — 체크 옆에 두 줄을 붙여 두면 읽지 않고 넘기게 되고, 정작 자세한
+          설명은 그 화면에 또 있다.
+        */}
         <span style={{ fontSize: 14, color: TEXT_1, lineHeight: 1.6, flex: 1 }}>
-          주문에 쓸 정보를 모으고 쓰는 데 동의합니다.
-          <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 2 }}>
-            메뉴 조건과 도움 설정이에요. 이름·전화번호는 받지 않아요.
-          </span>
+          개인정보 수집 동의서
         </span>
       </label>
       <button
@@ -970,6 +977,205 @@ function CheckRow({ checked, onToggle, label }: { checked: boolean; onToggle: ()
 let 주문표일련번호 = 0;
 const newSheetId = () => `p${Date.now()}_${++주문표일련번호}`;
 
+/**
+ * 말로 주문표를 채운다.
+ *
+ * ── 안내를 먼저 보여 준다 ───────────────────────────────────────────────────
+ *
+ * '말하세요' 만 띄우면 사람은 무엇을 어떻게 말해야 할지 모른다. 특히 처음 쓰는
+ * 사람은 기계에게 말하는 법을 따로 배웠다고 여겨서, 틀릴까 봐 아예 안 쓴다.
+ * 그래서 **예문을 먼저 보여 주고, 다 말하지 않아도 된다고 알려 준다.**
+ *
+ * ── 들은 것을 보여 주고 나서 채운다 ─────────────────────────────────────────
+ *
+ * 바로 채우지 않는다. 무엇을 어떻게 알아들었는지 보여 주고, 사용자가 확인한
+ * 뒤에 채운다. 잘못 들었을 때 사용자가 그 사실을 알 수 있어야 한다 — 값만
+ * 슬쩍 바뀌면 왜 그렇게 됐는지 알 길이 없다.
+ *
+ * ── 못 알아들은 축은 비워 둔다 ──────────────────────────────────────────────
+ *
+ * 말 안 한 것을 우리가 고르지 않는다(api/voice.ts). 화면도 그대로 말한다 —
+ * "이건 못 들었어요" 라고 적고, 손으로 고르라고 남겨 둔다.
+ */
+function 말로채우기({ place, 언어, on받기 }: {
+  place: PlaceType;
+  언어: string;
+  on받기: (들은것: 들은결과) => void;
+}) {
+  const [상태, set상태] = useState<"쉬는중" | "듣는중" | "보여주는중">("쉬는중");
+  // 결과와 **그때의 장소**를 같이 들고 있는다. 확인을 누르는 순간에 장소가
+  // 달라져 있으면, 그 장소에 있지도 않은 축을 넣게 된다(#39 리뷰).
+  const [결과, set결과] = useState<{ 값: 들은결과; 장소: PlaceType } | null>(null);
+  const [못들음, set못들음] = useState<못들은이유 | null>(null);
+  const 듣던것 = useRef<{ 그만두기: () => void } | null>(null);
+  // 몇 번째 듣기인지. 늦게 온 앞의 결과를 버리는 데 쓴다.
+  const 회차 = useRef(0);
+  // 지금 장소. 콜백은 시작할 때의 place 를 붙들고 있어서, 지금 값은 따로 본다.
+  const 지금장소 = useRef(place);
+  지금장소.current = place;
+
+  // 화면을 떠나면 듣던 것을 멈춘다. 안 멈추면 마이크가 계속 켜져 있다.
+  useEffect(() => () => 듣던것.current?.그만두기(), []);
+
+  // 이 기기에서 안 되면 아예 안 내민다. 눌렀는데 아무 일도 안 일어나는 단추가
+  // 제일 나쁘다 — 소리 안내 스위치를 숨기는 것과 같은 판단이다.
+  if (!들을수있나()) return null;
+  // 이 장소를 이 언어로 못 알아들으면 안 내민다. 눌렀는데 아무것도 안 채워지면
+  // 사용자는 자기가 잘못 말한 줄 안다 — 우리가 못 알아듣는 것인데도.
+  if (!말로채울수있나(place, 언어 === "en-US")) return null;
+
+  const 듣기시작 = () => {
+    set못들음(null);
+    set결과(null);
+    set상태("듣는중");
+    /*
+     * 듣기 시작할 때의 장소를 붙들어 둔다.
+     *
+     * 듣는 동안 사용자가 장소를 바꿀 수 있다. 음식점으로 말하기 시작해 병원으로
+     * 바꾸면, 음식점 축인 '맵기' 가 병원 주문표에 들어간다 — 그 장소에 있지도
+     * 않은 축이다. 시작할 때와 장소가 달라졌으면 결과를 버린다(#39 리뷰).
+     *
+     * 번호도 같이 붙든다. 다시 말하기를 눌러 새로 듣기 시작했는데 앞의 결과가
+     * 늦게 도착하면, 지나간 말이 화면에 뜬다.
+     */
+    const 시작할때장소 = place;
+    회차.current += 1;
+    const 내회차 = 회차.current;
+    듣던것.current = 들어보기(언어, (r) => {
+      if (내회차 !== 회차.current) return;
+      듣던것.current = null;
+      if (시작할때장소 !== 지금장소.current) {
+        set못들음("안됨");
+        set상태("쉬는중");
+        return;
+      }
+      if ("들은말" in r) {
+        set결과({ 값: 말에서고르기(r.들은말, 시작할때장소, 언어 === "en-US"), 장소: 시작할때장소 });
+        set상태("보여주는중");
+      } else {
+        set못들음(r.못들은이유);
+        set상태("쉬는중");
+      }
+    });
+  };
+
+  const 상자 = { borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 } as const;
+
+  if (상태 === "듣는중") {
+    return (
+      <div style={상자} role="status">
+        <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 10 }}>듣고 있어요</p>
+        {/*
+          말하는 법은 듣는 동안에도 보인다. 누르고 나서 무슨 말을 해야 할지
+          떠올리는 사람이 많아서, 안내를 앞 화면에만 두면 늦다.
+        */}
+        <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7 }}>
+          이렇게 말씀해 보세요<br />
+          <strong style={{ fontWeight: 600, color: TEXT_1 }}>“매운 닭강정 포장으로 두 개”</strong>
+        </p>
+        <p style={{ fontSize: 13, color: TEXT_2, marginTop: 10, lineHeight: 1.7 }}>
+          한 번에 다 말하지 않으셔도 돼요. 나머지는 손으로 고르시면 돼요.
+        </p>
+        <div style={{ marginTop: 16 }}>
+          <OutlineBtn onClick={() => 듣던것.current?.그만두기()}>다 말했어요</OutlineBtn>
+        </div>
+      </div>
+    );
+  }
+
+  if (상태 === "보여주는중" && 결과) {
+    const 들은것 = 결과.값;
+    // 결과를 보여 주는 동안에도 장소는 바뀔 수 있다. 그때는 채우지 못하게 막는다.
+    const 장소그대로 = 결과.장소 === place;
+    const 고른축 = Object.keys(들은것.고른값);
+    return (
+      <div style={상자}>
+        <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 10 }}>이렇게 들었어요</p>
+        {/* 들은 대로를 그대로 보여 준다. 잘못 들었으면 여기서 보인다. */}
+        <p data-원문 style={{ ...TYPE.body, color: TEXT_1, marginBottom: 14 }}>“{들은것.들은말}”</p>
+
+        {고른축.length > 0 && (
+          <div className="flex flex-wrap" style={{ gap: 6, marginBottom: 10 }}>
+            {고른축.map((축) => (
+              <span key={축} style={{
+                fontSize: 13, fontWeight: 500, padding: "4px 11px", borderRadius: RADIUS.pill,
+                backgroundColor: PAPER, color: TEXT_1,
+              }}>
+                {t(축)} {들은것.고른값[축].map(t).join(", ")}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/*
+          못 들은 축을 감추지 않는다. 감추면 사용자는 우리가 뭘 골라 놨는지 모른
+          채로 넘어간다. 무엇이 비었는지 알아야 손으로 채울 수 있다.
+        */}
+        {들은것.못들은축.length > 0 && (
+          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
+            {/* 조사를 자리표시자로 붙이면 "맵기은(는)" 이 된다. 조사가 필요 없는 문장으로 쓴다. */}
+            {tf("못 들은 것 — {축}. 아래에서 골라 주세요.", { 축: 들은것.못들은축.map(t).join(", ") })}
+          </p>
+        )}
+        {/*
+          말은 했는데 못 고른 축은 다르게 말한다. 못 들었다고 하면 사용자는 다시
+          또박또박 말해 보고 같은 답을 받는다. 무엇이 문제였는지 알려 준다.
+        */}
+        {들은것.모호한축.length > 0 && (
+          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
+            {tf("말씀은 들었는데 어느 쪽인지 못 골랐어요 — {축}. 아래에서 골라 주세요.", { 축: 들은것.모호한축.map(t).join(", ") })}
+          </p>
+        )}
+        {고른축.length === 0 && place === null && (
+          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
+            장소를 고르시면 맵기·형태 같은 것도 말로 채울 수 있어요.
+          </p>
+        )}
+
+        <div className="flex" style={{ gap: 8, marginTop: 16 }}>
+          <div style={{ flex: 1 }}>
+            <OutlineBtn onClick={() => { if (장소그대로) on받기(들은것); set상태("쉬는중"); }}>
+              {장소그대로 ? "이대로 채우기" : "장소가 바뀌어 못 채워요"}
+            </OutlineBtn>
+          </div>
+          <div style={{ flex: 1 }}>
+            <OutlineBtn onClick={듣기시작}>다시 말하기</OutlineBtn>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={상자}>
+      <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 6 }}>말로 채우기</p>
+      <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7, marginBottom: 4 }}>
+        “매운 닭강정 포장으로 두 개” 처럼 말씀하시면 아래 칸이 채워져요.
+      </p>
+      <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
+        한 번에 다 말하지 않으셔도 돼요. 들은 것만 채우고, 나머지는 손으로 고르시면 돼요.
+      </p>
+      {/*
+        안 될 때는 왜 안 되는지 말한다. '다시 시도' 만 띄우면 같은 조건에서 또
+        눌러 보게 되고, 권한이 막힌 경우에는 몇 번을 눌러도 같다.
+      */}
+      {못들음 !== null && (
+        <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 10, lineHeight: 1.7 }}>
+          {못들음 === "권한없음"
+            ? "마이크를 쓸 수 없어요. 브라우저 설정에서 마이크를 허용해 주시거나, 아래에서 손으로 골라 주세요."
+            : 못들음 === "소리없음"
+              ? "잘 안 들렸어요. 조금 더 크게 다시 말씀해 주세요."
+              : "지금은 말로 채울 수 없어요. 아래에서 손으로 골라 주세요."}
+        </p>
+      )}
+      {/* 마이크 그림은 우리 아이콘 묶음에 없다. 글자만으로도 무엇을 하는 단추인지 분명하다. */}
+      <div style={{ marginTop: 16 }}>
+        <OutlineBtn onClick={듣기시작}>말하기</OutlineBtn>
+      </div>
+    </div>
+  );
+}
+
 function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null }: {
   onNext: (p: OrderSheet) => void;
   onBack: () => void;
@@ -1078,6 +1284,29 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
       </div>
 
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        {/*
+          말로 채우는 길. 손으로 고르는 길은 아래에 그대로 있다 — 이건 대신하는
+          길이 아니라 더해 주는 길이다. 마이크가 안 되는 기기에서는 안 보인다.
+        */}
+        <말로채우기
+          place={place}
+          언어={영어인가 ? "en-US" : "ko-KR"}
+          on받기={(들은것) => {
+            /*
+             * **고른 값만 넣는다. 들은 말은 어디에도 저장하지 않는다.**
+             *
+             * 예전에는 메뉴 이름 칸을 들은 말로 채웠다. 자유 발화라 "저 김순자인데요
+             * 매운 닭강정 주세요" 같은 말이 그대로 주문표에 저장되고, 로그인한
+             * 사람은 서버까지 올라갔다. 메뉴 이름 칸에는 메모와 달리 개인정보
+             * 검사도 없다. 이름·전화번호는 받지도 저장하지도 않는다는 규칙을
+             * 정면으로 어기는 자리였다(#39 리뷰).
+             *
+             * 메뉴 이름은 손으로 적는다. 들은 말은 확인 화면에 보이니 보고 적으면 된다.
+             */
+            setSelections((prev) => ({ ...prev, ...들은것.고른값 }));
+          }}
+        />
+
         <div style={{ marginBottom: 28 }}>
           <SectionLabel text="메뉴 이름" required 칸id={이름칸id} />
           <input
@@ -1656,7 +1885,9 @@ function BottomNav({ tab, onChange }: { tab: MainTab; onChange: (t: MainTab) => 
     { id: "account", icon: <Pictogram name="userCircle" size={25} />, label: "계정" },
   ];
   return (
-    <nav aria-label="주요 메뉴" className="shrink-0 flex" style={{ borderTop: `1px solid ${BORDER}`, backgroundColor: PAPER, paddingBottom: 12 }}>
+    /* 화면마다 끝에 "QR 찍기 내 주문표 계정" 이 붙어 읽혔다. 늘 같은 자리에
+       있는 것이라, 새 화면에 왔다는 소식에 끼워 읽을 값어치가 없다. */
+    <nav data-소리생략 aria-label="주요 메뉴" className="shrink-0 flex" style={{ borderTop: `1px solid ${BORDER}`, backgroundColor: PAPER, paddingBottom: 12 }}>
       {items.map(({ id, label }) => {
         const active = tab === id;
         return (
@@ -2483,13 +2714,8 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
         <CenterHeadline
           kicker="accessibility"
           title={<>필요한 도움이<br />있으신가요?</>}
-          desc="켜는 즉시 이 화면이 바로 바뀌어요. 안 켜셔도 괜찮아요"
           spot={<GlassesSpot />}
         />
-
-        <p style={{ fontSize: 13, color: TEXT_2, margin: "24px 0 20px", lineHeight: 1.7, textAlign: "center" }}>
-          나중에 계정 화면에서 언제든 바꿀 수 있어요.
-        </p>
 
         <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
         <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
@@ -2529,15 +2755,9 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
  * 앱이 고장 났다고 생각하므로, 무엇을 하는 값인지 제목으로 먼저 밝힌다.
  * 바꾸지 않는 것을 바꾼다고 말하지 않는다.
  */
-function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, 예산, on예산, onBack }: {
+function AccessibilityScreen({ 설정, onChange, onBack }: {
   설정: 도움설정;
   onChange: (한칸: Partial<도움설정>) => void;
-  /** 가입 직후에 한 번 묻지만 여기서도 고칠 수 있어야 한다 — 한 번 묻고 끝나면 못 고친다. */
-  알레르기: AllergenId[];
-  on알레르기: (id: AllergenId) => void;
-  /** 주문표를 만들 때 묻지만 여기서도 고칠 수 있어야 한다 — 알레르기와 같은 이유다. */
-  예산: number | null;
-  on예산: (원: number | null) => void;
   onBack: () => void;
 }) {
   return (
@@ -2558,19 +2778,6 @@ function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, �
           다섯 문단이던 것을 둘로 줄였다. 지운 것이 아니라 합쳤다 -
           없어지면 안 되는 말들이다(어디까지 남는지 · 직원 도움).
         */}
-        {/*
-          예전에는 "새로고침하면 처음으로 돌아가요" 라고 적혀 있었다. 이제는 안 돌아간다.
-          도움이 필요해서 켠 설정이 새로고침 한 번에 꺼지던 것을 고쳤으니, 문장도 같이
-          고친다 - 안 고치면 켜 놓고도 꺼진 줄 알고 다시 들어와 확인하게 된다.
-        */}
-        <p style={{ fontSize: 13, color: TEXT_2, marginBottom: 10, lineHeight: 1.7 }}>
-          필요하신 것만 켜 주세요. 켠 것은 이 기기에만 남고, 이 창을 닫으면 처음으로 돌아가요.
-        </p>
-        <p style={{ fontSize: 13, color: TEXT_2, marginBottom: 20, lineHeight: 1.7 }}>
-          이 앱은 원래 큰 버튼과 또렷한 대비로 만들었고, 소리로만 알리는 것은 하나도 없어요.
-          어려우면 이 화면을 직원에게 보여 주세요.
-        </p>
-
         <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
         <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
 
@@ -2596,17 +2803,15 @@ function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, �
         <도움목록 항목들={쓸수있는것(전해드릴것)} 설정={설정} onChange={onChange} />
         <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
-        <div style={{ marginTop: 28, paddingTop: 24, borderTop: `2px solid ${RULE}` }}>
-          <알레르기고르기 고른것={알레르기} on뒤집기={on알레르기} />
-          {/*
-            한도는 주문표를 만들 때 묻는다. 여기는 고치는 자리다 — 만들어 둔
-            주문표만 쓰는 사람은 만들기 화면에 갈 일이 없어서, 여기가 없으면
-            한 번 정한 한도를 바꿀 길이 없다.
-          */}
-          <div style={{ marginTop: 24 }}>
-            <한도적기 예산={예산} on바꾸기={on예산} 영어인가={설정.language === "en-US"} />
-          </div>
-        </div>
+        {/*
+          알레르기와 가격 한도는 여기 없다.
+          
+          계약에서 자리가 다르다 — 이 화면의 것들은 accessibility 와 interaction 에
+          들어가고, 저 둘은 hardConstraints 다. 도움이 필요한 정도를 말하는 값과,
+          이번 주문에서 무엇을 빼라는 값은 같은 화면에 있을 것이 아니다.
+          
+          알레르기는 가입할 때, 가격 한도는 주문표를 만들 때 묻는다.
+        */}
       </div>
     </div>
   );
@@ -3963,7 +4168,8 @@ function 연동표시({ onOpenLog, onOpenSide }: { onOpenLog: () => void; onOpen
         }}
       >
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#37d67a", flexShrink: 0 }} />
-        <strong style={{ fontSize: 13 }}>실서버에 붙어 있습니다</strong>
+        {/* 개발용 막대다. 사용자에게 하는 말이 아니다. */}
+        <strong data-소리생략 style={{ fontSize: 13 }}>실서버에 붙어 있습니다</strong>
         <span style={{ marginLeft: "auto", color: "#9a9aa2" }}>{성공}/{목록.length} {펼침 ? "▾" : "▸"}</span>
       </button>
       {!펼침 ? null : (
@@ -4763,12 +4969,24 @@ export default function App() {
      * 첫 그리기가 아직 안 끝나 있을 수 있다. 그때 읽으면 영어 화면을 한국어로
      * 읽거나, 반쯤 그려진 화면을 읽는다.
      */
+    /*
+     * 화면이 바뀌면 **먼저 입을 다문다.**
+     *
+     * 앞 화면을 통째로 읽는 중이었다면 그 말은 이미 지난 얘기다. 예전에는 새
+     * 화면의 읽기가 시작될 때에야 끊겼는데, 그 사이 120ms 동안 지나간 화면을
+     * 계속 읽었고, 새 화면에 읽을 것이 없으면 아예 안 끊겼다.
+     */
+    그만읽기();
+    // 앞 화면에서 읽은 줄 기억도 비운다. 안 비우면 새 화면에 같은 문장이 있을 때
+    // 이미 읽은 것으로 보고 건너뛴다.
+    읽은줄.current = [];
     const 표 = setTimeout(() => {
       const 줄 = 화면글(틀);
       읽은줄.current = 줄;
       읽어주기(줄.join(". "), { 언어: 접근성값.language });
     }, 120);
-    return () => clearTimeout(표);
+    // 떠날 때도 멈춘다. 다음 화면이 읽기 시작하기 전에 조용해진다.
+    return () => { clearTimeout(표); 그만읽기(); };
   }, [screen, tab, 개인정보겹, 접근성값.voiceGuide, 접근성값.language]);
 
   useEffect(() => {
@@ -4793,7 +5011,16 @@ export default function App() {
     });
     지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
     return () => { clearTimeout(표); 지켜보기.disconnect(); };
-  }, [접근성값.voiceGuide, 접근성값.language]);
+    /*
+     * 화면이 바뀌면 이 효과도 새로 건다.
+     *
+     * 예전에는 안 걸었다. 그러면 앞 화면에서 걸어 둔 350ms 타이머가 새 화면에서
+     * 터져 **새 화면 전체를 '새로 붙은 줄' 로 읽고**, 곧이어 120ms 짜리 전체
+     * 읽기가 같은 것을 또 읽었다. 빠르게 넘기거나 겹을 여닫을 때 그랬다.
+     *
+     * 정리에서 타이머와 지켜보기를 둘 다 끊으므로, 새로 걸면 앞의 것이 안 남는다.
+     */
+  }, [screen, tab, 개인정보겹, 접근성값.voiceGuide, 접근성값.language]);
 
   /*
    * 스위치를 끄거나 화면을 떠나면 읽던 것을 멈춘다.
@@ -5095,10 +5322,6 @@ export default function App() {
           {screen === "a11y" && (
             <AccessibilityScreen
               설정={접근성값}
-              알레르기={알레르기}
-              on알레르기={(id) => 알레르기설정.뒤집기(id)}
-              예산={예산}
-              on예산={(원) => 가격한도.바꾸기(원)}
               onChange={(한칸) => 접근성설정.바꾸기(한칸)}
               onBack={() => { setScreen("saved"); setTab("account"); }}
             />
