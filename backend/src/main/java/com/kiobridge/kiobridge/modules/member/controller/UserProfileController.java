@@ -94,7 +94,7 @@ public class UserProfileController {
             throw new ApiException(
                     HttpStatus.FORBIDDEN,
                     "PROFILE_ACCESS_DENIED",
-                    "다른 사용자의 주문표에는 접근할 수 없습니다."
+                    "다른 사용자의 프로필에는 접근할 수 없습니다."
             );
         }
     }

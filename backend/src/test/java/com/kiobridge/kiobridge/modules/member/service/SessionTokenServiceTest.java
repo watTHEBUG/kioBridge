@@ -11,8 +11,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,8 +56,11 @@ class SessionTokenServiceTest {
         ).hasSize(32);
 
         assertThat(user.getSessionTokenHash())
-                .hasSize(64)
-                .isNotEqualTo(issued.accessToken());
+                .isEqualTo(
+                        sha256Hex(
+                                issued.accessToken()
+                        )
+                );
 
         assertThat(user.getSessionExpiresAt())
                 .isEqualTo(issued.expiresAt())
@@ -123,5 +130,22 @@ class SessionTokenServiceTest {
                             .isEqualTo("AUTHENTICATION_REQUIRED");
                 }
         );
+    }
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest =
+                    MessageDigest.getInstance("SHA-256");
+
+            byte[] hashed = digest.digest(
+                    value.getBytes(StandardCharsets.UTF_8)
+            );
+
+            return HexFormat.of().formatHex(hashed);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(
+                    "SHA-256을 사용할 수 없습니다.",
+                    e
+            );
+        }
     }
 }
