@@ -58,6 +58,19 @@ class CandidateFilterServiceTest {
                 org.assertj.core.groups.Tuple.tuple("chicken-has-peanut", "ALLERGEN_CONFLICT")
             );
 
+        ExcludedCandidate allergenExclusion =
+                result.excludedCandidates().stream()
+                        .filter(candidate ->
+                                "chicken-has-peanut".equals(candidate.candidateId())
+                        )
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(allergenExclusion.reasonText())
+                .isEqualTo(
+                        "땅콩 알레르기와 겹쳐서 제외됐어요."
+                );
+
         assertThat(result.warningsByCandidateId()).containsOnlyKeys("chicken-dine-in-only");
         assertThat(result.warningsByCandidateId().get("chicken-dine-in-only"))
             .extracting(RuleEvaluationResult::errorCode)
