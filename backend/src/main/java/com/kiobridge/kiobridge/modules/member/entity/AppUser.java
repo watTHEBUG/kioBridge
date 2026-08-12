@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.Objects;
 
 @Getter
 @Entity
@@ -26,9 +27,29 @@ public class AppUser {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "session_token_hash", unique = true, length = 64)
+    private String sessionTokenHash;
+
+    @Column(name = "session_expires_at")
+    private Instant sessionExpiresAt;
+
     public AppUser(String loginId, String passwordHash) {
         this.loginId = loginId;
         this.passwordHash = passwordHash;
         this.createdAt = Instant.now();
+    }
+
+    public void startSession(
+            String sessionTokenHash,
+            Instant sessionExpiresAt
+    ) {
+        this.sessionTokenHash = Objects.requireNonNull(
+                sessionTokenHash,
+                "sessionTokenHash는 null일 수 없습니다."
+        );
+        this.sessionExpiresAt = Objects.requireNonNull(
+                sessionExpiresAt,
+                "sessionExpiresAt은 null일 수 없습니다."
+        );
     }
 }
