@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, createTeamBackend, type Backend, type EvidenceSummary, type RecommendationResult } from "./backend";
 import { KioBridgeError, getSheet, registerSheet } from "./client";
 import type { OrderSheet } from "@/domain/types";
+import { 알레르기설정 } from "@/api/allergy";
 
 // 백엔드가 아직 없으므로, 명세서대로 응답하는 가짜를 만들어 조립이 맞는지 본다.
 // 이 테스트가 통과한다는 건 "백엔드가 명세대로 주면 화면이 돈다" 는 뜻이다.
@@ -12,6 +13,7 @@ const 후보표시 = {
 };
 
 const 기본추천 = (over: Partial<RecommendationResult> = {}): RecommendationResult => ({
+  scoredAxes: [],
   unmetConditions: [],
   recommendedCandidateId: "candidate-alpha",
   alternativeCandidateIds: [],
@@ -464,7 +466,18 @@ describe("evidence 를 화면이 아는 상태로 옮긴다", () => {
 // 화면이 아는 값으로 옮겨지는지 본다. 명세와 구현이 달라서 둘 다 필요하다.
 
 const 원래fetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = 원래fetch; });
+afterEach(() => {
+  globalThis.fetch = 원래fetch;
+  /*
+   * 알레르기설정 은 모듈 저장소라 시험 사이에 그대로 남는다. 시험 하나가 중간에
+   * 실패하면 켜 둔 값이 다음 시험으로 새어 나가고, 엉뚱한 시험이 알 수 없는
+   * 이유로 깨진다 — 그때는 실패한 시험이 아니라 뒤따르는 시험을 들여다보게 된다.
+   *
+   * 시험 안에서 try/finally 로 감싸는 것보다 여기서 한 번에 치우는 편이 낫다.
+   * 앞으로 생길 시험까지 덮는다.
+   */
+  알레르기설정.비우기();
+});
 
 const 응답 = (body: unknown, status = 200) =>
   ({ ok: status < 400, status, text: async () => JSON.stringify(body), json: async () => body }) as Response;
@@ -626,6 +639,172 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
      * 뜻하지 않는다 - SKIPPED 면 '비교한 적이 없다' 다. 아무 말도 하지 않는다.
      */
     expect(표["이용 방식"]).toBeUndefined();
+  });
+
+  it("서버가 비교한 값을 우리말로 바꿔 적는다", async () => {
+    /*
+     * 예전에는 어느 축이든 "오늘은 이 조합이 없어요" 한 문장이었다. 무엇으로
+     * 바뀌는지를 안 말해 줘서, 사용자가 이걸 담아도 되는지 판단할 근거가 없었다.
+     * 서버는 candidateValue 를 실어 보내고 있었는데 우리가 안 읽었다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-alpha", name: "닭강정", price: 6000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-alpha": [{
+            ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "FAIL", severity: "WARN",
+            errorCode: "SPICY_LEVEL_MISMATCH", sourceValue: "HOT", candidateValue: ["MILD"],
+          }],
+        },
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+
+    const 맵기 = rec.matchedOptions.find((o) => o.label === "맵기");
+    expect(맵기?.matched).toBe(false);
+    // enum 이 아니라 우리말로. "MILD" 가 화면에 뜨면 안 된다.
+    expect(맵기?.note).toBe("이 메뉴는 순한맛이에요");
+    expect(맵기?.note).not.toContain("MILD");
+  });
+
+  it("모르는 enum 이면 원문을 띄우지 않고 예전 문장으로 돌아간다", async () => {
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-alpha", name: "닭강정", price: 6000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-alpha": [{
+            ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "FAIL", severity: "WARN",
+            errorCode: "SPICY_LEVEL_MISMATCH", sourceValue: "HOT", candidateValue: ["SERVER_ADDED_THIS"],
+          }],
+        },
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+
+    const 맵기 = rec.matchedOptions.find((o) => o.label === "맵기");
+    expect(맵기?.note).toBe("오늘은 이 조합이 없어요");
+    expect(맵기?.note).not.toContain("SERVER_ADDED_THIS");
+  });
+
+  it("severity 가 BLOCK 이면 후보에서 뺀다", async () => {
+    /*
+     * warningsByCandidateId 에는 WARN 만 담기게 돼 있어서 지금은 한 번도 안 걸린다.
+     * 그래도 남긴다 - BLOCK 은 알레르기.품절 같은 절대 조건에 붙는 severity 라,
+     * 그런 후보를 "조금 다른 메뉴" 로 내밀면 안 된다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [
+          { candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true },
+          { candidateId: "candidate-beta", name: "순한 순살 닭강정", price: 7000, available: true },
+        ],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          // ruleId 와 errorCode 가 같은 축을 가리켜야 한다. 예전에는 알레르기 규칙에
+          // 맵기 코드를 붙여 놓고 "맵기 때문에 뺐어요" 를 기대값으로 못 박았다 —
+          // 알레르기 코드를 규칙축 표에 넣는 날 이 시험이 틀린 기대를 지킨다.
+          "candidate-beta": [{
+            ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "FAIL", severity: "BLOCK",
+            errorCode: "SPICY_LEVEL_MISMATCH",
+          }],
+        },
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: ["candidate-beta"] },
+    });
+    const f = await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+
+    expect(f.survivingCandidateIds).toEqual(["candidate-alpha"]);
+    // 조용히 사라지면 "왜 없지?" 가 된다. 뺐다고 말하고, 어느 축인지도 짚는다.
+    const 뺀 = f.excluded.find((e) => e.candidateId === "candidate-beta");
+    expect(뺀?.reasonCode).toBe("BLOCKED");
+    expect(뺀?.explanation).toContain("맵기");
+
+    // 추천 응답이 대안으로 올려보내도 다시 걸러진다.
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.alternativeCandidateIds).toEqual([]);
+  });
+
+  it("정규화 도중에 알레르기가 바뀌어도 키와 보낸 값이 갈라지지 않는다", async () => {
+    /*
+     * 예전에는 캐시키를 만들 때 한 번, 요청을 보낼 때 또 한 번 값을 읽었다.
+     * 그 사이에 await 이 있어서, 그동안 알레르기를 바꾸면 **키와 실제 보낸 값이
+     * 서로 다른 조건을 가리켰다.** 알레르기가 빠진 맥락이 '알레르기가 있는' 키에
+     * 저장되고, 다음에 같은 키로 찾으면 걸러졌어야 할 후보가 안 걸러진다.
+     *
+     * 첫 요청(profile-normalizations)이 나가는 순간 알레르기를 비워서 그 틈을
+     * 흉내 낸다. 두 번째 요청에는 처음 값이 실려야 한다.
+     */
+    알레르기설정.되살리기(["PEANUT"]);
+    const 보낸것: Record<string, unknown>[] = [];
+    globalThis.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const 주소 = String(u);
+      const 본문 = JSON.parse(String(init?.body ?? "{}"));
+      보낸것.push({ 주소, 본문 });
+      // 첫 요청이 나가자마자 설정이 바뀐 상황
+      if (주소.includes("profile-normalizations")) 알레르기설정.비우기();
+      return 응답(경로별응답({})(주소, 본문));
+    }) as unknown as typeof fetch;
+
+    const b = createTeamBackend("");
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+
+    const 맥락 = 보낸것.find((x) => String(x.주소).includes("session-context-normalizations"));
+    expect((맥락?.본문 as { contextInput: { allergenIds: string[] } }).contextInput.allergenIds)
+      .toEqual(["PEANUT"]);
+    // 치우는 것은 afterEach 가 한다. 여기서 부르면 실패로 빠져나갈 때 안 불린다.
+  });
+
+  it("규칙축에 없는 errorCode 면 축을 짚지 않고 뭉뚱그린다", async () => {
+    // 알레르기(ALLERGEN_CONFLICT)는 규칙축 표에 없다. 없는 것을 억지로 짚느니
+    // "조건에 맞지 않아서" 라고만 말한다 — 틀린 축을 짚으면 그게 더 나쁘다.
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-beta", name: "땅콩 토핑 닭강정", price: 7000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-beta": [{
+            ruleId: "CHICKEN_ALLERGEN_HARD_CONSTRAINT", result: "FAIL", severity: "BLOCK",
+            errorCode: "ALLERGEN_CONFLICT",
+          }],
+        },
+        passesByCandidateId: {},
+      },
+    });
+    const f = await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    expect(f.survivingCandidateIds).toEqual([]);
+    expect(f.excluded.find((e) => e.candidateId === "candidate-beta")?.explanation)
+      .toBe("땅콩 토핑 닭강정은 조건에 맞지 않아서 뺐어요");
+  });
+
+  it("점수가 양수인 축만 이름으로 뽑고 숫자는 버린다", async () => {
+    /*
+     * 0.0259 는 이 앱을 쓰는 분들에게 읽을 수 없는 값이다. 다만 이유 문장이
+     * 빠뜨리는 것이 있어서(가격 한도를 정해도 서버 이유에는 가격 얘기가 안 나온다)
+     * 축 이름만 남긴다. 깎인 축과 모르는 칸은 뺀다.
+     */
+    const b = 붙이기({
+      recommendations: {
+        ...목추천,
+        scoreBreakdown: { serviceTypeMatch: 1.0, spicyLevelMatch: -0.5, priceScore: 0.0259, serverAddedThis: 3 },
+      },
+    });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.scoredAxes).toEqual(["이용 방식", "가격"]);
+  });
+
+  it("점수가 안 오면 빈 배열이다 — 화면이 그 줄을 안 그린다", async () => {
+    const b = 붙이기();
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.scoredAxes).toEqual([]);
   });
 
   it("규칙 판정이 아예 안 오면 예전처럼 우리가 맞춰 본다", async () => {
