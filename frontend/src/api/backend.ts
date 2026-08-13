@@ -380,12 +380,24 @@ export function createApi(
           문장: text,
           ...(고른값찾기(text) ? { 고른값: 고른값찾기(text) } : {}),
         })),
-        ...제외.map((e) => ({
-          kind: "excluded" as const,
-          text: 이름붙이기(e.candidateId, e.explanation),
-          문장: e.explanation,
-          ...(이름찾기(e.candidateId) ? { 메뉴: 이름찾기(e.candidateId) } : {}),
-        })),
+        /*
+         * 사람이 읽는 문장은 reasonText 다. explanation 은 규칙 추적용 문자열이라
+         * ("ruleId=..., sourceValue=[PEANUT]") 그대로 내보내면 화면에 규칙 식별자가
+         * 뜬다. 같은 파일의 사유문장() 이 이미 그 자리를 알고 있었는데 여기만
+         * explanation 을 읽고 있었다(#101 리뷰).
+         *
+         * reasonText 가 비면 그 줄을 아예 안 만든다. 빈 문장에 메뉴 이름만 붙이면
+         * "순살 닭강정 — " 이 되고, 이유를 말한다면서 아무 이유도 안 적는 셈이다.
+         */
+        ...제외
+          .map((e) => ({ e, 글: 뺀사유(e) }))
+          .filter(({ 글 }) => 글 !== "")
+          .map(({ e, 글 }) => ({
+            kind: "excluded" as const,
+            text: 이름붙이기(e.candidateId, 글),
+            문장: 글,
+            ...(이름찾기(e.candidateId) ? { 메뉴: 이름찾기(e.candidateId) } : {}),
+          })),
       ].filter((r) => 보여도되나(r.text));
       /*
        * 서버가 점수를 매길 때 본 축들. 담을 것이 정해진 뒤에만 뜻이 있어서
@@ -985,6 +997,23 @@ const 규칙축: Record<string, string> = {
 
 /** 사람이 읽을 문장만 고른다. 없으면 비운다 — 규칙 추적 문자열을 보여 주지 않는다. */
 const 사유문장 = (e: KitExcluded): string => e.reasonText ?? "";
+
+/**
+ * 화면에 내보낼 제외 사유.
+ *
+ * reasonText 가 사람이 읽는 자리다. explanation 은 규칙 추적용이라
+ * ("ruleId=..., sourceValue=[PEANUT]") 그대로 내보내면 화면에 규칙 식별자가 뜬다.
+ *
+ * 그런데 두 자리를 다 쓰는 응답이 있다 — 어떤 경로는 explanation 에 사람이 읽는
+ * 문장을 담아 준다. reasonText 를 먼저 보고 없을 때만 물러난다. 둘 다 비면 빈
+ * 문자열이고, 부르는 쪽이 그 줄을 아예 안 만든다 — 빈 문장에 메뉴 이름만 붙이면
+ * "순살 닭강정 — " 이 되어 이유를 말한다면서 아무 이유도 안 적는 셈이다(#101 리뷰).
+ */
+const 뺀사유 = (e: KitExcluded): string => {
+  const 글 = (사유문장(e) || e.explanation || "").trim();
+  // 규칙 추적 문자열은 사람에게 보여 줄 말이 아니다.
+  return /(^|\s)(ruleId|sourceValue)\s*=/.test(글) ? "" : 글;
+};
 
 /** POST /api/v1/recommendations 응답 (Recommendation). */
 interface RecommendationResponse {
