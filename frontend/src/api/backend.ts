@@ -52,7 +52,13 @@ export interface Backend {
    */
   filterCandidates(input: { environmentId: string; profileId: string; profile?: OrderSheet }): Promise<{
     survivingCandidateIds: string[];
-    excluded: { candidateId: string; reasonCode: string; explanation: string }[];
+    /**
+     * menuName 은 품절·차단처럼 **display 에 못 실리는 후보**의 이름이다.
+     * 그런 후보는 이름찾기() 가 못 찾아서, 문장에 이름을 섞으면 영어 화면에서
+     * 통째로 못 옮긴다(#101 리뷰). 문장은 옮길 수 있는 고정문으로 두고
+     * 이름은 여기로 따로 나른다.
+     */
+    excluded: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[];
     /** 후보 표시 정보. 서버가 이름·가격을 함께 주면 여기 실린다. */
     display?: Record<string, { displayName: string; priceText: string; price?: number; imageUrl?: string }>;
   }>;
@@ -102,7 +108,8 @@ export interface Backend {
 export interface RecommendationResult {
   recommendedCandidateId: string | null;
   alternativeCandidateIds: string[];
-  excludedCandidates: { candidateId: string; reasonCode: string; explanation: string }[];
+  // menuName 은 후보 필터가 실어 준 이름이다(Backend.filterCandidates 주석).
+  excludedCandidates: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[];
   recommendationReasons: string[];
   /**
    * 서버가 맞추지 못한 조건.
@@ -330,42 +337,72 @@ export function createApi(
        * **서버 문장은 그대로 둔다.** 앞뒤에 우리가 아는 사실만 덧댄다 — 문장을
        * 고쳐 쓰면 그건 인용이 아니라 우리가 지어낸 말이 된다.
        */
+      const 이름찾기 = (id: string): string | undefined => rec.display[id]?.displayName;
       const 이름붙이기 = (id: string, 글: string): string => {
-        const 이름 = rec.display[id]?.displayName;
+        const 이름 = 이름찾기(id);
         return 이름 ? `${이름} — ${글}` : 글;
       };
       /*
-       * 서버가 축을 부르는 말 → 우리 주문표의 축.
+       * 고른 값을 이유 문장에 붙이지 않는다.
        *
-       * 대부분 같은 말인데 형태만 다르다. 서버는 "뼈/순살" 이라 부르고 우리
-       * 주문표의 축 이름은 "형태" 다.
+       * 예전에는 서버 문장에 축 이름이 들어 있으면("컵", "맵기") 그 축에서 사용자가
+       * 고른 값을 찾아 "(고르신 값: 종이컵)" 으로 이어 붙였다. 부분 문자열이라
+       * **선택 근거가 아닌 문장에도 붙었다** — 서버가 재고 안내에서 "컵" 을 한 번
+       * 쓰기만 해도, 사용자가 고른 컵이 추천 근거인 것처럼 화면에 떴다(#101 리뷰).
+       *
+       * 정확히 붙이려면 그 문장이 어느 축 얘기인지 알아야 하는데, 계약에 그 값이
+       * 없다. `recommendationReasons` 는 `string[]` 이고 킷 계약의 정의도
+       * "<사용자가 읽을 이유>" 라 축 식별자가 없다(킷 5.1.6 examples/ 의 표준 문장은
+       * "사용자 조건에 맞는 항목입니다." 로 축 단어가 아예 없다). 알려진 문장과
+       * 정확 일치로 바꾸는 길도 비교할 문장 표가 없어서 못 쓴다.
+       *
+       * 그래서 **짐작하지 않는다.** 이유 문장은 서버가 준 그대로 두고, 사용자가 고른
+       * 값은 조건표가 따로 보여 준다. 틀린 근거를 보여 주는 것보다 근거를 덜 보여
+       * 주는 쪽이 낫다 — 이 앱이 말 안 한 것을 고르지 않는 것과 같은 판단이다.
+       *
+       * 서버가 이유마다 축 식별자(킷의 SERVICE_TYPE·SPICY_LEVEL·BONE_TYPE·CUP)를
+       * 같이 주면 그때 다시 붙일 수 있다. RecommendationReason 의 고른값 칸이 그
+       * 자리다. docs/BACKEND_INTEGRATION.md 에 요청으로 적어 두었다.
        */
-      const 서버가부르는축: [string, string][] = [
-        ["이용 방식", "이용 방식"], ["맵기", "맵기"], ["뼈/순살", "형태"], ["컵", "컵"], ["수량", "수량"],
-      ];
-      const 고른값붙이기 = (글: string): string => {
-        for (const [서버말, 축] of 서버가부르는축) {
-          if (!글.includes(서버말)) continue;
-          const 값 = profile?.selections?.[축]?.[0];
-          if (값) return `${글} (고르신 값: ${값})`;
-        }
-        return 글;
-      };
       const reasons: MappingResponse["reasons"] = [
         ...rec.recommendationReasons.map((text) => ({
           kind: "used" as const,
-          /*
-           * 축은 **서버 원문에서** 본다. 이름을 먼저 붙이면 메뉴 이름에 "컵" 이나
-           * "맵기" 가 들어 있을 때 서버가 말하지도 않은 축이 걸린다 — "종이컵
-           * 세트" 같은 이름이면 컵 얘기가 아닌 문장에 컵 값이 붙는다. 사용자에게
-           * 틀린 근거를 보여 주는 셈이다(#41 리뷰).
-           */
           text: rec.recommendedCandidateId
-            ? 이름붙이기(rec.recommendedCandidateId, 고른값붙이기(text))
-            : 고른값붙이기(text),
+            ? 이름붙이기(rec.recommendedCandidateId, text)
+            : text,
+          문장: text,
+          ...(rec.recommendedCandidateId && 이름찾기(rec.recommendedCandidateId)
+            ? { 메뉴: 이름찾기(rec.recommendedCandidateId) }
+            : {}),
         })),
-        ...rec.unmetConditions.map((text) => ({ kind: "unmet" as const, text: 고른값붙이기(text) })),
-        ...제외.map((e) => ({ kind: "excluded" as const, text: 이름붙이기(e.candidateId, e.explanation) })),
+        ...rec.unmetConditions.map((text) => ({
+          kind: "unmet" as const,
+          text,
+          문장: text,
+        })),
+        /*
+         * 사람이 읽는 문장은 reasonText 다. explanation 은 규칙 추적용 문자열이라
+         * ("ruleId=..., sourceValue=[PEANUT]") 그대로 내보내면 화면에 규칙 식별자가
+         * 뜬다. 같은 파일의 사유문장() 이 이미 그 자리를 알고 있었는데 여기만
+         * explanation 을 읽고 있었다(#101 리뷰).
+         *
+         * reasonText 가 비면 그 줄을 아예 안 만든다. 빈 문장에 메뉴 이름만 붙이면
+         * "순살 닭강정 — " 이 되고, 이유를 말한다면서 아무 이유도 안 적는 셈이다.
+         */
+        ...제외
+          .map((e) => ({ e, 글: 뺀사유(e) }))
+          .filter(({ 글 }) => 글 !== "")
+          .map(({ e, 글 }) => {
+            // 품절·차단 후보는 display 에 없어서 이름찾기() 가 못 찾는다.
+            // 후보 필터가 menuName 으로 실어 준 이름이 그 빈자리를 채운다(#101 리뷰).
+            const 메뉴 = 이름찾기(e.candidateId) ?? e.menuName;
+            return {
+              kind: "excluded" as const,
+              text: 메뉴 ? `${메뉴} — ${글}` : 글,
+              문장: 글,
+              ...(메뉴 ? { 메뉴 } : {}),
+            };
+          }),
       ].filter((r) => 보여도되나(r.text));
       /*
        * 서버가 점수를 매길 때 본 축들. 담을 것이 정해진 뒤에만 뜻이 있어서
@@ -966,6 +1003,26 @@ const 규칙축: Record<string, string> = {
 /** 사람이 읽을 문장만 고른다. 없으면 비운다 — 규칙 추적 문자열을 보여 주지 않는다. */
 const 사유문장 = (e: KitExcluded): string => e.reasonText ?? "";
 
+/**
+ * 화면에 내보낼 제외 사유.
+ *
+ * reasonText 가 사람이 읽는 자리다. explanation 은 규칙 추적용이라
+ * ("ruleId=..., sourceValue=[PEANUT]") 그대로 내보내면 화면에 규칙 식별자가 뜬다.
+ *
+ * 그런데 두 자리를 다 쓰는 응답이 있다 — 어떤 경로는 explanation 에 사람이 읽는
+ * 문장을 담아 준다. reasonText 를 먼저 보고 없을 때만 물러난다. 둘 다 비면 빈
+ * 문자열이고, 부르는 쪽이 그 줄을 아예 안 만든다 — 빈 문장에 메뉴 이름만 붙이면
+ * "순살 닭강정 — " 이 되어 이유를 말한다면서 아무 이유도 안 적는 셈이다(#101 리뷰).
+ */
+const 뺀사유 = (e: KitExcluded): string => {
+  // 각각 다듬고 나서 고른다. 붙여서 고르면 공백뿐인 reasonText 가 truthy 라
+  // explanation 을 안 보고, 그 뒤 trim 으로 빈 문자열이 된다 — 사람이 읽을 수 있는
+  // 사유가 있는데도 제외 이유가 사라진다(#101 리뷰).
+  const 글 = 사유문장(e).trim() || (e.explanation ?? "").trim();
+  // 규칙 추적 문자열은 사람에게 보여 줄 말이 아니다.
+  return /(^|\s)(ruleId|sourceValue)\s*=/.test(글) ? "" : 글;
+};
+
 /** POST /api/v1/recommendations 응답 (Recommendation). */
 interface RecommendationResponse {
   recommendedCandidateId: string | null;
@@ -1099,12 +1156,6 @@ function 고른것반영(rec: RecommendationResponse, 고른: string | undefined
   if (rec.recommendedCandidateId && rec.recommendedCandidateId !== 고른) 대안.unshift(rec.recommendedCandidateId);
   return { ...rec, recommendedCandidateId: 고른, alternativeCandidateIds: 대안 };
 }
-
-const 은는 = (w: string) => {
-  const c = w.charCodeAt(w.length - 1);
-  if (c < 0xac00 || c > 0xd7a3) return "는";
-  return (c - 0xac00) % 28 === 0 ? "는" : "은";
-};
 
 export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 보내기 = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -1522,10 +1573,16 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // 서버가 세션 생성 시점의 값을 그대로 돌려준다. 조립 계층이 이후 단계에서
         // 이 값을 쓴다 — 화면이 보낸 값을 다시 믿지 않는다.
         ...(r.environmentId ? { environmentId: r.environmentId } : {}),
-        // 백엔드가 키오스크 이름과 만료를 아직 안 준다. 받게 되면 여기서 쓴다.
-        // 만료를 클라이언트 시계로 가정하고 있어서, 서버가 먼저 끝내면 앱은 모른다.
-        // docs/BACKEND_INTEGRATION.md 질문 ① 이 이것이다.
-        kioskName: "키오스크",
+        /*
+         * 백엔드가 키오스크 이름과 만료를 아직 안 준다. 받게 되면 여기서 쓴다.
+         * 만료를 클라이언트 시계로 가정하고 있어서, 서버가 먼저 끝내면 앱은 모른다.
+         * docs/BACKEND_INTEGRATION.md 질문 ① 이 이것이다.
+         *
+         * 그때까지는 킷이 적어 둔 이름을 쓴다 — environments/chicken-store/
+         * manifest.json 의 displayName 이 "닭강정 가게" 다. 지점 번호는 킷 어디에도
+         * 없어서 안 붙인다. 지어내면 화면이 사실이 아닌 것을 말하게 된다.
+         */
+        kioskName: "닭강정 가게",
         expiresAt: Date.now() + 5 * 60 * 1000,
       };
     },
@@ -1592,15 +1649,24 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         pass: r.passesByCandidateId ?? {},
       });
 
-      const 뺀것 = (r.excludedCandidates ?? []).map((e) => ({
-        candidateId: e.candidateId,
-        reasonCode: e.reasonCode ?? "EXCLUDED",
-        explanation: 사유문장(e),
-      })).filter((e) => e.explanation);
-      // 품절이라 뺀 것도 사용자에게 말해 준다. 조용히 사라지면 "왜 없지?" 가 된다.
+      const 뺀것: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[] =
+        (r.excludedCandidates ?? []).map((e) => ({
+          candidateId: e.candidateId,
+          reasonCode: e.reasonCode ?? "EXCLUDED",
+          explanation: 사유문장(e),
+        })).filter((e) => e.explanation);
+      /*
+       * 품절이라 뺀 것도 사용자에게 말해 준다. 조용히 사라지면 "왜 없지?" 가 된다.
+       *
+       * 이름은 문장에 넣지 않고 menuName 으로 따로 나른다. 품절·차단 후보는
+       * display 에 안 실려서 요청 매핑의 이름찾기() 가 못 찾는데, 예전처럼
+       * "품절 닭강정은 지금 팔지 않아서 뺐어요" 로 붙여 두면 매번 다른 문장이
+       * 되어 영어 화면에서 통째로 못 옮겼다(#101 리뷰). 문장은 표로 옮길 수
+       * 있는 고정문만 남긴다.
+       */
       for (const c of (r.eligibleCandidates ?? [])) {
         if (c?.available === false && c.name) {
-          뺀것.push({ candidateId: c.candidateId, reasonCode: "UNAVAILABLE", explanation: `${c.name}${은는(c.name)} 지금 팔지 않아서 뺐어요` });
+          뺀것.push({ candidateId: c.candidateId, reasonCode: "UNAVAILABLE", explanation: "지금 팔지 않아서 뺐어요", menuName: c.name });
         } else if (c?.candidateId && 막힌후보(c.candidateId) && c.name) {
           // 우리가 뺐으면 뺐다고 말한다. 어느 축 때문인지는 서버가 준 errorCode 로 짚는다.
           const 축 = (r.warningsByCandidateId?.[c.candidateId] ?? [])
@@ -1608,8 +1674,9 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
           뺀것.push({
             candidateId: c.candidateId, reasonCode: "BLOCKED",
             explanation: 축
-              ? `${c.name}${은는(c.name)} ${축}이(가) 맞지 않아서 뺐어요`
-              : `${c.name}${은는(c.name)} 조건에 맞지 않아서 뺐어요`,
+              ? `${축}이(가) 맞지 않아서 뺐어요`
+              : "조건에 맞지 않아서 뺐어요",
+            menuName: c.name,
           });
         }
       }

@@ -16,9 +16,14 @@
  * 그 안을 아예 안 본다(apply.ts). 이 표에 무엇을 넣든 그 자리는 안전하다.
  * 새 열쇠를 넣을 때는 그 말이 나가는 자리가 표시돼 있는지 같이 본다(#41 리뷰).
  *
- * **서버가 준 문장**도 넣지 않는다. 추천 이유·제외 사유는 서버가 만든 말이고,
- * 이 앱은 그걸 그대로 인용한다는 원칙을 지켜 왔다. 서버가 영어로 줄 수 있게
- * 되면 그때 서버가 준 것을 그대로 쓴다.
+ * **서버가 준 문장**은 예전에 안 넣었다. 그대로 인용한다는 원칙이었다. 그런데
+ * 영어로 바꾸면 화면에 우리말이 하나도 없어야 한다는 요구와 부딪혔다 — 인용을
+ * 지키느라 영어를 쓰는 사람이 못 읽는 줄을 남긴 셈이었다.
+ *
+ * 인용을 버리지 않는 선에서 넣는다: **본 적 있는 문장만** 아래 '서버가 주는 이유'
+ * 칸에 적고, 모르는 문장은 서버가 준 그대로 나간다. 서버가 새 문장을 만들면 그
+ * 줄은 우리말로 보인다 — 지어낸 영어보다 낫다. 서버가 영어로 줄 수 있게 되면
+ * 이 칸은 지운다.
  *
  * 저장값은 안 바뀐다. 주문표의 selections 는 계속 우리말이고(canonical.ts 가 그
  * 우리말을 enum 으로 옮긴다), 여기서 바뀌는 것은 **보여 주는 글자뿐**이다.
@@ -43,6 +48,62 @@ export const EN: Record<string, string> = {
     "You do not need to save it to order right now. If you save it, you can use it again from this device next time.",
   "이번만 쓰기": "Use just this once",
   "이 기기에 저장하기": "Save on this device",
+
+  // 말하기 — 기기 안 음성 모델을 받는 동안과, 없을 때.
+  "말을 알아들을 준비를 하고 있어요": "Getting ready to understand speech",
+  "처음 한 번만 걸려요. 잠시만 기다려 주세요": "This happens only the first time. One moment",
+  "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 아래에서 손으로 골라 주세요.":
+    "This device is not set up to understand speech. Please choose by hand below.",
+  // 한칸씩말하기 는 보기 칩이 안내문 위에 있어서 '위에서' 라고 말한다.
+  "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 위에서 손으로 골라 주세요.":
+    "This device is not set up to understand speech. Please choose by hand above.",
+
+  /*
+   * ── 서버가 주는 이유 ─────────────────────────────────────────────────────
+   *
+   * 추천 이유·못 맞춘 조건·제외 사유. 화면은 여기에 메뉴 이름과 고른 값을 덧대
+   * 한 줄로 조립한다(i18n/reason.ts). 메뉴 이름은 안 옮긴다 — 가게가 붙인
+   * 이름이라 옮기면 사용자가 키오스크 화면에서 그 이름을 못 찾는다.
+   */
+  "선호하신 맵기와 맞는 메뉴라": "Matches the spice level you chose",
+  "선호하신 뼈/순살과 다릅니다": "Differs from the bone type you chose",
+  "선호하신 이용 방식과 맞는 메뉴라": "Matches the service type you chose",
+  "선호하신 컵과 맞는 메뉴라": "Matches the cup you chose",
+  "선호하신 수량과 맞는 메뉴라": "Matches the quantity you chose",
+  "포장하기를 고르셔서 포장이 되는 메뉴만 남겼어요":
+    "You chose takeout, so only takeout items were kept",
+  "매운맛 선호와 일치해요.": "Matches your spicy preference.",
+  "지금은 품절이라 제외됐어요": "Removed — sold out right now",
+  /*
+   * 팀 백엔드의 고정 제외 문장 넷 (ChickenStoreExclusionMessages.java 의 TEMPLATES ·
+   * UNKNOWN_ALLERGEN_MESSAGE · DEFAULT_MESSAGE). **마침표까지 그대로** 적는다 —
+   * 문장이 곧 키라서 한 글자만 달라도 조용히 안 옮겨진다. 위의 품절 항목이
+   * 실제로 그랬다: 마침표 없이 적혀 있어서 백엔드 문장(마침표 있음)이 한 번도
+   * 안 걸렸다. 서버에서 문구를 고치면 여기도 같이 고쳐야 한다(#101 리뷰).
+   */
+  "지금은 품절이라 제외됐어요.": "Removed — sold out right now.",
+  "설정하신 가격 한도를 넘어서 제외됐어요.": "Removed — it goes over your price limit.",
+  "알레르기 조건과 겹쳐서 제외됐어요.": "Removed — it conflicts with your allergy settings.",
+  "선택하신 조건과 맞지 않아 제외됐어요.": "Removed — it doesn't match your choices.",
+  // 팀 백엔드의 알레르기 제외 문장. 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
+  "{알레르기} 알레르기와 겹쳐서 제외됐어요.": "Removed — contains {알레르기}, which you cannot eat.",
+  /*
+   * 프론트가 직접 만드는 제외 문장(api/backend.ts 의 filterCandidates).
+   * 메뉴 이름은 문장에 안 넣고 menuName 으로 따로 나르므로 여기엔 고정문만 있다.
+   * 축 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
+   */
+  "지금 팔지 않아서 뺐어요": "Removed — not being sold right now",
+  "조건에 맞지 않아서 뺐어요": "Removed — it doesn't match your conditions",
+  "{축}이(가) 맞지 않아서 뺐어요": "Removed — {축} doesn't match",
+  // 백엔드는 EGG 를 '달걀' 로 부른다(프론트 목록은 '계란'). 그 이름 그대로 온다.
+  "달걀": "Egg",
+  "조건에 맞는 메뉴가 오늘은 없어요. 알레르기나 이용 방식 때문에 모두 빠졌어요.":
+    "Nothing matches today. Everything was removed by allergy or service type.",
+  "[{알레르기}] 알레르기와 겹쳐서 제외됐어요.":
+    "Removed — contains {알레르기}, which you cannot eat.",
+  // 조각을 잇는 틀. 언어마다 어순이 달라서 토막을 잇지 않고 통째로 옮긴다.
+  "{메뉴} — {글}": "{메뉴} — {글}",
+  "{글} (고르신 값: {값})": "{글} (you chose: {값})",
 
   /*
    * 앱 이름과 언어 이름.
@@ -180,6 +241,9 @@ export const EN: Record<string, string> = {
   // 직접 적는 칸이다. 단위(원 / KRW)는 표가 아니라 코드에서 언어를 보고 붙인다.
   "예: 8000": "e.g. 8000",
   "비워 두면 한도 없이 찾아요": "Leave it blank to search without a limit",
+  // 키오스크가 반드시 골라야 하는 축이 빈 주문표. 축 이름은 따로 옮겨진다(t).
+  "아직 안 고르신 것이 있어요 — {빠진것}. 주문표를 열어 고르시면 주문할 수 있어요.":
+    "Some choices are still missing — {빠진것}. Open the card and pick them to order.",
   "QR 찍기": "Scan QR",
   "내 주문표": "My cards",
   "계정": "Account",
@@ -193,6 +257,8 @@ export const EN: Record<string, string> = {
   "필수": "Required",
   "선택": "Optional",
   "저장하고 시작하기": "Save and start",
+  // 저장은 막지 않는다. 이대로는 주문이 안 된다는 것만 미리 알린다.
+  "주문하려면 {빠진것}도 고르셔야 해요": "To order, you also need to pick {빠진것}",
   // ─── 말로 채우기 ──────────────────────────────────────────────────────────
   "말로 채우기": "Fill it by voice",
   "“매운 닭강정 포장으로 두 개” 처럼 말씀하시면 아래 칸이 채워져요.":
@@ -256,6 +322,10 @@ export const EN: Record<string, string> = {
   "카메라에 맞춰주세요": "the kiosk’s QR code",
   "QR 코드가 잘 보이지 않으면 조명을 조절해 주세요": "If the QR code is hard to see, adjust the lighting",
   "연결되었습니다": "Connected",
+  "{이름} 키오스크에 연결되었습니다": "Connected to {이름}",
+  "오늘의 메뉴와 맞춰보는 중": "Checking against today's menu",
+  "닭강정 가게": "Dakgangjeong Shop",
+  "이름 없는 주문표": "Untitled order card",
   "키오스크": "Kiosk",
   "세션 유효시간": "Session time left",
   "만료되면 QR을 다시 스캔해 주세요": "Scan the QR code again when it expires",

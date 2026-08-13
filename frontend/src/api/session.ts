@@ -178,6 +178,18 @@ const 계정읽기 = (v: unknown): Account | null => {
 };
 
 /** 여덟 칸을 하나씩 본다. boolean 이 아닌 칸은 기본값으로 둔다. */
+/**
+ * 화면에서 뺀 도움 항목.
+ *
+ * 켜도 이 앱은 아무것도 안 하고, 이번 환경(chicken-store)의 결과도 달라지지 않는다.
+ * 킷의 simulation-driver 는 이 값을 받기는 한다 — 다만 닭강정 환경 데이터에 이
+ * 값을 보는 곳이 없다. 자세한 근거는 App.tsx 의 전해드릴것 주석에 적었다.
+ *
+ * 목록을 비운 자리가 App.tsx 의 전해드릴것 이다 — 여기와 그쪽이 같이 비어 있어야
+ * 한다. 병원 환경까지 내보내게 되면 둘 다 다시 채워야 한다.
+ */
+const 이제안묻는칸 = ["visualGuidance", "hearingSupport"] as const;
+
 const 접근성읽기 = (v: unknown): 도움설정 => {
   const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
   const 값 = { ...기본도움설정 };
@@ -187,6 +199,18 @@ const 접근성읽기 = (v: unknown): 도움설정 => {
   // 언어만 boolean 이 아니다. 아는 값일 때만 받는다 — 손대서 아무 문자열이나
   // 넣어 두면 서버의 BCP 47 검사에 걸려 주문 자체가 안 된다.
   if (아는언어인가(o.language)) 값.language = o.language;
+  /*
+   * 이제 안 묻는 칸은 되살리지 않는다.
+   *
+   * '그림 안내' 와 '소리 대신 화면' 을 화면에서 뺐다(이번 키오스크가 둘 다 안 한다).
+   * 그런데 그 전에 켜 둔 사람의 저장소에는 true 가 남아 있다. 그대로 되살리면 화면
+   * 어디에도 없는 값이 계약 payload 에 실려 나가고, **끌 방법이 없다.** 사용자가
+   * 고르지도 않은 조건을 우리가 대신 말하는 셈이다.
+   *
+   * 계약의 일곱 칸은 그대로 나간다(canonical.ts 의 일곱칸만). 안 묻는 칸은 false 다.
+   * 다시 묻게 되면 이 목록에서 빼면 된다.
+   */
+  for (const 칸 of 이제안묻는칸) 값[칸] = false;
   return 값;
 };
 

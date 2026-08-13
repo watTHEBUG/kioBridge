@@ -430,3 +430,23 @@ describe("이번만 쓰기 — 임시 주문표는 안 남는다", () => {
     expect(적힌것).toContain("\"a\"");
   });
 });
+
+describe("화면에서 뺀 도움 항목은 되살리지 않는다", () => {
+  it("저장소에 남아 있어도 false 로 읽는다", () => {
+    /*
+     * '그림 안내' 와 '소리 대신 화면' 을 화면에서 뺐다. 그 전에 켜 둔 사람의
+     * 저장소에는 true 가 남아 있는데, 그대로 되살리면 화면 어디에도 없는 값이
+     * 계약 payload 로 나가고 **끌 방법이 없다**(#101 리뷰).
+     */
+    globalThis.sessionStorage?.setItem("kb.session.v3", JSON.stringify({
+      screen: "saved", tab: "menu", name: "", account: null, sheets: [], fromServer: [],
+      a11y: { ...기본도움설정, visualGuidance: true, hearingSupport: true, largeText: true },
+      consent: true, allergies: [], budget: null, voiceUsed: false, planId: null,
+    }));
+    const 읽은것 = 이어쓰기.읽기()!;
+    expect(읽은것.a11y.visualGuidance).toBe(false);
+    expect(읽은것.a11y.hearingSupport).toBe(false);
+    // 아직 묻는 칸은 그대로 되살아나야 한다. 안 그러면 이 검사가 헛통과한다.
+    expect(읽은것.a11y.largeText).toBe(true);
+  });
+});

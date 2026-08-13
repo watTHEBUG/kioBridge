@@ -781,8 +781,11 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     });
     const f = await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
     expect(f.survivingCandidateIds).toEqual([]);
-    expect(f.excluded.find((e) => e.candidateId === "candidate-beta")?.explanation)
-      .toBe("땅콩 토핑 닭강정은 조건에 맞지 않아서 뺐어요");
+    const 뺀것 = f.excluded.find((e) => e.candidateId === "candidate-beta");
+    // 문장은 고정문, 이름은 menuName 으로 따로 온다. 문장에 이름을 섞으면
+    // 매번 다른 문장이 되어 영어 화면에서 통째로 못 옮긴다(#101 리뷰).
+    expect(뺀것?.explanation).toBe("조건에 맞지 않아서 뺐어요");
+    expect(뺀것?.menuName).toBe("땅콩 토핑 닭강정");
   });
 
   it("점수가 양수인 축만 이름으로 뽑고 숫자는 버린다", async () => {
