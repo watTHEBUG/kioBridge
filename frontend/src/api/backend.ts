@@ -1003,7 +1003,10 @@ const 사유문장 = (e: KitExcluded): string => e.reasonText ?? "";
  * "순살 닭강정 — " 이 되어 이유를 말한다면서 아무 이유도 안 적는 셈이다(#101 리뷰).
  */
 const 뺀사유 = (e: KitExcluded): string => {
-  const 글 = (사유문장(e) || e.explanation || "").trim();
+  // 각각 다듬고 나서 고른다. 붙여서 고르면 공백뿐인 reasonText 가 truthy 라
+  // explanation 을 안 보고, 그 뒤 trim 으로 빈 문자열이 된다 — 사람이 읽을 수 있는
+  // 사유가 있는데도 제외 이유가 사라진다(#101 리뷰).
+  const 글 = 사유문장(e).trim() || (e.explanation ?? "").trim();
   // 규칙 추적 문자열은 사람에게 보여 줄 말이 아니다.
   return /(^|\s)(ruleId|sourceValue)\s*=/.test(글) ? "" : 글;
 };
