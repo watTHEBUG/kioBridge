@@ -45,6 +45,21 @@ export const EN: Record<string, string> = {
     "You chose takeout, so only takeout items were kept",
   "매운맛 선호와 일치해요.": "Matches your spicy preference.",
   "지금은 품절이라 제외됐어요": "Removed — sold out right now",
+  /*
+   * 팀 백엔드의 고정 제외 문장 넷 (ChickenStoreExclusionMessages.java 의 TEMPLATES ·
+   * UNKNOWN_ALLERGEN_MESSAGE · DEFAULT_MESSAGE). **마침표까지 그대로** 적는다 —
+   * 문장이 곧 키라서 한 글자만 달라도 조용히 안 옮겨진다. 위의 품절 항목이
+   * 실제로 그랬다: 마침표 없이 적혀 있어서 백엔드 문장(마침표 있음)이 한 번도
+   * 안 걸렸다. 서버에서 문구를 고치면 여기도 같이 고쳐야 한다(#101 리뷰).
+   */
+  "지금은 품절이라 제외됐어요.": "Removed — sold out right now.",
+  "설정하신 가격 한도를 넘어서 제외됐어요.": "Removed — it goes over your price limit.",
+  "알레르기 조건과 겹쳐서 제외됐어요.": "Removed — it conflicts with your allergy settings.",
+  "선택하신 조건과 맞지 않아 제외됐어요.": "Removed — it doesn't match your choices.",
+  // 팀 백엔드의 알레르기 제외 문장. 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
+  "{알레르기} 알레르기와 겹쳐서 제외됐어요.": "Removed — contains {알레르기}, which you cannot eat.",
+  // 백엔드는 EGG 를 '달걀' 로 부른다(프론트 목록은 '계란'). 그 이름 그대로 온다.
+  "달걀": "Egg",
   "조건에 맞는 메뉴가 오늘은 없어요. 알레르기나 이용 방식 때문에 모두 빠졌어요.":
     "Nothing matches today. Everything was removed by allergy or service type.",
   "[{알레르기}] 알레르기와 겹쳐서 제외됐어요.":
