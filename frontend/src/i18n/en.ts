@@ -29,6 +29,12 @@
  * 우리말을 enum 으로 옮긴다), 여기서 바뀌는 것은 **보여 주는 글자뿐**이다.
  */
 export const EN: Record<string, string> = {
+  // 말하기 — 기기 안 음성 모델을 받는 동안과, 없을 때.
+  "말을 알아들을 준비를 하고 있어요": "Getting ready to understand speech",
+  "처음 한 번만 걸려요. 잠시만 기다려 주세요": "This happens only the first time. One moment",
+  "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 아래에서 손으로 골라 주세요.":
+    "This device is not set up to understand speech. Please choose by hand below.",
+
   /*
    * ── 서버가 주는 이유 ─────────────────────────────────────────────────────
    *

@@ -47,15 +47,66 @@ interface 듣기엔진 {
   onend: (() => void) | null;
 }
 
-const 만들기찾기 = (): (new () => 듣기엔진) | null => {
+/**
+ * 만들기 함수에 딸린 것들. 기기 안 음성 모델이 있는지 묻고, 없으면 받아 둔다.
+ *
+ * processLocally 를 켜면 **모델이 깔려 있어야** 듣기가 시작된다. 없으면 start()
+ * 가 오류로 끝난다. 예전에는 이걸 안 봐서, 단추는 보이는데 누르면 아무 일도 안
+ * 일어났다. 사용자에게는 앱이 고장 난 것으로 보였다.
+ */
+interface 모델관리 {
+  available?: (opt: { langs: string[]; processLocally: boolean }) => Promise<string>;
+  install?: (opt: { langs: string[]; processLocally: boolean }) => Promise<boolean>;
+}
+
+const 만들기찾기 = (): ((new () => 듣기엔진) & 모델관리) | null => {
   try {
     const g = globalThis as unknown as {
-      SpeechRecognition?: new () => 듣기엔진;
-      webkitSpeechRecognition?: new () => 듣기엔진;
+      SpeechRecognition?: (new () => 듣기엔진) & 모델관리;
+      webkitSpeechRecognition?: (new () => 듣기엔진) & 모델관리;
     };
     return g.SpeechRecognition ?? g.webkitSpeechRecognition ?? null;
   } catch {
     return null;
+  }
+};
+
+/** 기기 안 모델 상태. 화면이 무엇을 말해 줄지 이걸로 정한다. */
+export type 모델상태 = "됨" | "받아야함" | "받는중" | "안됨";
+
+/**
+ * 이 언어를 기기 안에서 알아들을 수 있는가.
+ *
+ * 브라우저가 available 을 안 주면 "됨" 으로 본다 — 물어볼 방법이 없는데 미리
+ * 막으면, 되는 브라우저에서도 단추가 죽는다. 실제로 안 되면 start() 가 오류로
+ * 알려 주고, 그 오류를 이유별로 옮긴다(들어보기).
+ */
+export const 모델있나 = async (언어: string): Promise<모델상태> => {
+  const 만들기 = 만들기찾기();
+  if (!만들기 || typeof 만들기.available !== "function") return "됨";
+  try {
+    const r = await 만들기.available({ langs: [언어], processLocally: true });
+    if (r === "available") return "됨";
+    if (r === "downloadable") return "받아야함";
+    if (r === "downloading") return "받는중";
+    return "안됨";
+  } catch {
+    // 물어보다 실패했으면 막지 않는다. start() 가 진짜 답을 준다.
+    return "됨";
+  }
+};
+
+/**
+ * 모델을 받아 둔다. **사용자가 단추를 누른 자리에서** 불러야 한다 — 브라우저가
+ * 사람의 동작 없이는 받기를 시작하지 않는다.
+ */
+export const 모델받아두기 = async (언어: string): Promise<boolean> => {
+  const 만들기 = 만들기찾기();
+  if (!만들기 || typeof 만들기.install !== "function") return false;
+  try {
+    return await 만들기.install({ langs: [언어], processLocally: true });
+  } catch {
+    return false;
   }
 };
 
@@ -83,7 +134,7 @@ export const 들을수있나 = (): boolean => {
   return 만들기 !== null && "processLocally" in 만들기.prototype;
 };
 
-export type 못들은이유 = "권한없음" | "소리없음" | "안됨";
+export type 못들은이유 = "권한없음" | "소리없음" | "모델없음" | "안됨";
 
 /**
  * 한 번 듣는다.
@@ -129,10 +180,16 @@ export const 들어보기 = (
   엔진.onerror = (e) => {
     const 코드 = e?.error ?? "";
     한번만({
+      /*
+       * 이유를 갈라 놓는다. 예전에는 모델이 없을 때도 "안됨" 하나로 뭉뚱그려서,
+       * 사용자는 무엇을 하면 되는지 알 수 없었다. 받아 두면 되는 것과 아예 안
+       * 되는 것은 할 일이 다르다.
+       */
       못들은이유:
         코드 === "not-allowed" || 코드 === "service-not-allowed" ? "권한없음"
           : 코드 === "no-speech" ? "소리없음"
-            : "안됨",
+            : 코드 === "language-not-supported" ? "모델없음"
+              : "안됨",
     });
   };
   // 아무 결과 없이 끝나는 경우가 있다(조용히 시간이 다 간 때). 그때도 답한다.
