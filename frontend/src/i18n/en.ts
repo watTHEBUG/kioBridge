@@ -265,6 +265,8 @@ export const EN: Record<string, string> = {
   "카메라에 맞춰주세요": "the kiosk’s QR code",
   "QR 코드가 잘 보이지 않으면 조명을 조절해 주세요": "If the QR code is hard to see, adjust the lighting",
   "연결되었습니다": "Connected",
+  "{이름} 키오스크에 연결되었습니다": "Connected to {이름}",
+  "오늘의 메뉴와 맞춰보는 중": "Checking against today's menu",
   "닭강정 가게": "Dakgangjeong Shop",
   "이름 없는 주문표": "Untitled order card",
   "키오스크": "Kiosk",

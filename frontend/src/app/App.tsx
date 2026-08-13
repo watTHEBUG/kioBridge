@@ -2071,8 +2071,15 @@ function PairingConnected({
       <StatusHero
         mark={<Pictogram name="checkCircle" size={64} color={P} />}
         kicker="connected"
-        title="연결되었습니다"
-        desc={<span style={{ fontWeight: 600, color: TEXT_1 }}>{kioskName}</span>}
+        /*
+         * 가게 이름을 문장 안에 넣는다. 이름을 따로 떼어 두면 "연결되었습니다" 만
+         * 읽고 무엇에 연결됐는지는 못 들은 채 넘어가는 사람이 생긴다 — 소리로
+         * 듣는 사람에게는 두 줄이 아니라 한 문장이어야 한다.
+         *
+         * 이름은 키트가 준 것이고 옮기지 않는다(data-원문). 키오스크 화면에 적힌
+         * 글자와 같아야 사용자가 맞는 가게인지 확인할 수 있다.
+         */
+        title={<span data-원문>{tf("{이름} 키오스크에 연결되었습니다", { 이름: kioskName })}</span>}
       />
 
       {/* 면 대신 줄로 가른다. 굵은 줄이 머리와 내용을 나누고, 아래 헤어라인이 끝을 맺는다. */}
