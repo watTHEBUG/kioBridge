@@ -24,6 +24,13 @@
  * 우리말을 enum 으로 옮긴다), 여기서 바뀌는 것은 **보여 주는 글자뿐**이다.
  */
 export const EN: Record<string, string> = {
+  // 이 기기에 남길지 묻는 화면. 비로그인일 때만 지난다.
+  "저장할까요?": "Save this?",
+  "지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때 이 기기에서 다시 꺼내 쓸 수 있어요.":
+    "You do not need to save it to order right now. If you save it, you can use it again from this device next time.",
+  "이번만 쓰기": "Use just this once",
+  "이 기기에 저장하기": "Save on this device",
+
   /*
    * 앱 이름과 언어 이름.
    *

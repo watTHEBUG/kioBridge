@@ -55,6 +55,12 @@ const 대신갈곳: Partial<Record<Screen, Screen>> = {
   signup: "welcome",
   // 연결을 되살리지 않으므로 확인 카드는 보여 줄 내용이 없다. 목록으로 보낸다.
   "order-confirm": "saved",
+  /*
+   * 물어보던 주문표가 메모리에만 있었다. 새로고침하면 그 주문표가 없어서 물어볼
+   * 것도 없다 — 목록으로 보낸다. 빈 화면에 '저장할까요' 만 띄우면 무엇을 저장하는
+   * 건지 알 수 없다.
+   */
+  "save-choice": "saved",
 };
 
 const 장소들: PlaceType[] = ["카페", "음식점", "병원", "관공서", null];
@@ -316,9 +322,20 @@ export const 이어쓰기 = {
   쓰기(값: 이어쓸것): void {
     const s = 저장소();
     if (!s) return;
-    if (!남길것이있나(값)) { this.비우기(); return; }
+    /*
+     * '이번만 쓰기' 로 만든 주문표는 적지 않는다.
+     *
+     * 로그인하지 않은 사람의 기본값이다(types.ts 의 임시). 남기지 않겠다고 고른
+     * 것을 적어 두면 그 선택이 거짓이 된다 — 화면에서는 지웠다고 하고 저장소에는
+     * 남는 상태가 제일 나쁘다.
+     *
+     * 걸러 낸 뒤에 '남길 것이 있나' 를 본다. 임시 주문표 하나만 있는 사람은
+     * 남길 것이 없는 사람이고, 그러면 저장소에 아무것도 안 만든다.
+     */
+    const 남길값 = { ...값, sheets: 값.sheets.filter((p) => p.임시 !== true) };
+    if (!남길것이있나(남길값)) { this.비우기(); return; }
     try {
-      s.setItem(KEY, JSON.stringify(값));
+      s.setItem(KEY, JSON.stringify(남길값));
     } catch {
       /* 꽉 찼거나 막혔다. 이번 이용은 메모리로만 간다. */
     }

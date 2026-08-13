@@ -1147,6 +1147,50 @@ function 말로채우기({ place, 언어, on받기 }: {
   );
 }
 
+/**
+ * 만든 주문표를 이 기기에 남길지 묻는다. **로그인하지 않은 사람에게만 묻는다.**
+ *
+ * 로그인한 사람은 자기 계정에 저장하는 것이 이미 뜻이 통하고, 지우고 싶으면 목록에서
+ * 지우면 된다. 가입도 로그인도 없이 들어온 사람은 다르다 — 자기 정보가 어디에
+ * 남는지 확인할 방법이 없다. 그래서 묻지 않고 남기지 않는다.
+ *
+ * **기본값은 안 남기는 쪽이다.** 두 단추 중 무엇을 크게 두느냐가 곧 기본값이라,
+ * '이번만 쓰기' 를 대표 단추로 둔다. 남기고 싶은 사람은 그렇게 고르면 된다.
+ *
+ * 되돌릴 수 없는 쪽이 아니라 되돌릴 수 있는 쪽을 기본으로 둔다는 뜻이기도 하다.
+ * 안 남긴 것은 다시 만들면 되지만, 남긴 것은 남았다는 사실 자체를 모를 수 있다.
+ */
+function SaveChoiceScreen({ 이름, onChoose, onBack }: {
+  이름: string;
+  onChoose: (남길까: boolean) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
+      <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
+        <BackButton onClick={onBack} />
+      </div>
+      <div style={{ flex: "1 0 auto", padding: `24px ${GAP.screenX}px 24px` }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: TEXT_1, marginBottom: 16 }}>저장할까요?</h2>
+        <p style={{ fontSize: 17, fontWeight: 700, color: TEXT_1, lineHeight: 1.6 }}>
+          {/* 사용자가 적은 이름이다. 옮기지 않는다. */}
+          <span data-원문>{이름}</span>
+        </p>
+        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+          지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때
+          이 기기에서 다시 꺼내 쓸 수 있어요.
+        </p>
+      </div>
+      <StickyFooter>
+        <PrimaryBtn onClick={() => onChoose(false)}>이번만 쓰기</PrimaryBtn>
+        <div style={{ marginTop: 10 }}>
+          <OutlineBtn onClick={() => onChoose(true)}>이 기기에 저장하기</OutlineBtn>
+        </div>
+      </StickyFooter>
+    </div>
+  );
+}
+
 function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null }: {
   onNext: (p: OrderSheet) => void;
   onBack: () => void;
@@ -4694,7 +4738,17 @@ export default function App() {
    * 그 400 은 code 도 message 도 없는 스프링 기본 응답이라 사용자에게 이유를 말해 줄 수 없다.
    * 대신 주문표 화면이 저장하기 전에 미리 알려 준다(아래 OrderSheetScreen 의 안내 한 줄).
    */
-  const 주문표저장 = (p: OrderSheet): void => {
+  /** 물어보는 동안 들고 있을 주문표. 답을 들은 뒤에 목록에 넣는다. */
+  const [물어볼주문표, set물어볼주문표] = useState<OrderSheet | null>(null);
+
+  /**
+   * 주문표를 목록에 넣고 이어서 간다.
+   *
+   * 비로그인이면 여기 오기 전에 남길지 물어본다(주문표저장). 로그인한 사람은
+   * 안 묻는다 — 자기 계정에 저장하는 것이 이미 뜻이 통하고, 지우고 싶으면
+   * 목록에서 지우면 된다.
+   */
+  const 주문표넣기 = (p: OrderSheet): void => {
     /*
      * 고친 것이면 그 자리에 덮고, 새것이면 뒤에 붙인다.
      *
@@ -4712,7 +4766,28 @@ export default function App() {
     setScreen("saved");
     setTab("menu");
     // 못올리는이유() 는 이유 문자열이거나 null 이다. null 일 때만 올린다.
-    if (계정 && 못올리는이유(p) === null) 주문표올리기(계정.userId, p);
+    // 임시 주문표는 안 올린다 — 이 기기에도 안 남기겠다고 한 것을 서버에 두면
+    // 그 선택이 거짓이 된다.
+    if (계정 && p.임시 !== true && 못올리는이유(p) === null) 주문표올리기(계정.userId, p);
+  };
+
+  /**
+   * 주문표 화면에서 저장을 눌렀다.
+   *
+   * 로그인했으면 그대로 넣는다. 아니면 남길지 묻는다 — 가입도 로그인도 없이 들어온
+   * 사람은 자기 정보가 어디에 남는지 확인할 방법이 없어서, 묻지 않고 남기지 않는다.
+   *
+   * 고치는 중일 때는 안 묻는다. 이미 목록에 있는 것을 고치는 길이라, 여기서 '이번만
+   * 쓰기' 를 고르면 있던 주문표가 조용히 사라지는 것처럼 보인다.
+   */
+  const 주문표저장 = (p: OrderSheet): void => {
+    const 고치는중 = sheets.some((있던) => 있던.id === p.id);
+    if (guest && !고치는중) {
+      set물어볼주문표(p);
+      setScreen("save-choice");
+      return;
+    }
+    주문표넣기(p);
   };
 
   /**
@@ -5230,6 +5305,18 @@ export default function App() {
           )}
           {screen === "greeting" && (
             <GreetingScreen name={name} onNext={() => { setScreen("saved"); setTab("menu"); }} />
+          )}
+          {screen === "save-choice" && 물어볼주문표 && (
+            <SaveChoiceScreen
+              이름={물어볼주문표.menuName}
+              onChoose={(남길까) => {
+                주문표넣기(남길까 ? 물어볼주문표 : { ...물어볼주문표, 임시: true });
+                set물어볼주문표(null);
+              }}
+              // 뒤로 가면 아무 일도 없었던 것이 되어야 한다. 고치던 내용은 그대로
+              // 들고 주문표 화면으로 돌아간다.
+              onBack={() => { set고칠주문표(물어볼주문표); set물어볼주문표(null); setScreen("sheet"); }}
+            />
           )}
           {screen === "sheet" && (
             <OrderSheetScreen
