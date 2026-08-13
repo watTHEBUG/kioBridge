@@ -5003,6 +5003,40 @@ export default function App() {
   const [알레르기, set알레르기] = useState<AllergenId[]>(() => 알레르기설정.읽기());
   useEffect(() => 알레르기설정.구독(() => set알레르기([...알레르기설정.읽기()])), []);
   useEffect(() => 가격한도.구독(() => set예산(가격한도.읽기())), []);
+  /*
+   * 로그인해 있으면 도움 설정·알레르기 변경을 계정에도 남긴다.
+   *
+   * 스위치를 켜고 끄는 자리가 넷이라 호출부마다 올리지 않고 저장소 구독으로 한 곳에서
+   * 듣는다. 몰아서 한 번만 보낸다 — 알레르기 여섯 개를 연달아 고르는 것이 요청 여섯이
+   * 되지 않게. 게스트면 아무것도 안 한다: 기기 밖으로 안 나간다는 약속 그대로다.
+   *
+   * 로그인 직후 서버 값을 적용하는 것도 이 구독에 걸린다. 같은 값을 도로 올리는
+   * 낭비라 적용하는 쪽이 표시(서버프로필적용중)를 켜서 끊는다.
+   */
+  const 서버프로필적용중 = useRef(false);
+  const 프로필올릴표 = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!계정) return;
+    const userId = 계정.userId;
+    const 미루기 = () => {
+      if (서버프로필적용중.current) return;
+      if (프로필올릴표.current) clearTimeout(프로필올릴표.current);
+      const 내세대 = 계정세대.current;
+      프로필올릴표.current = setTimeout(() => {
+        // 그 사이 로그아웃했거나 다른 계정으로 바뀌었으면 보내지 않는다.
+        // 주문표올리기의 세대 검사와 같은 이유다 — B 의 기기에서 A 계정에 쓰면 안 된다.
+        if (내세대 !== 계정세대.current) return;
+        void account.putPreferences(userId, {
+          a11y: 접근성설정.읽기(), allergies: 알레르기설정.읽기(),
+        });
+      }, 800);
+    };
+    const 끊기 = [접근성설정.구독(미루기), 알레르기설정.구독(미루기)];
+    return () => {
+      for (const f of 끊기) f();
+      if (프로필올릴표.current) clearTimeout(프로필올릴표.current);
+    };
+  }, [계정]);
   const largeText = 접근성값.largeText;
   /*
    * 되살릴 때 서버에서 다시 불러오지 않는다.
@@ -5290,6 +5324,30 @@ export default function App() {
     setScreen(다음화면);
     if (다음화면 === "saved") setTab("menu");
 
+    /*
+     * 계정 프로필(도움 설정·알레르기)도 받아 적용한다.
+     *
+     * 주문표와 달리 실패해도 안 묻는다 — getPreferences 는 실패를 null 로 삼키는
+     * 계약이고(account.ts), 서버에 이 경로가 생기기 전까지는 늘 null 이다.
+     * 프로필이 없으면 지금 기기 값을 심는다: 게스트로 골라 둔 알레르기가 로그인하는
+     * 순간 계정에 올라간다 — 게스트 주문표를 지우지 않는 것과 같은 동선이다.
+     */
+    void account.getPreferences(a.userId).then((받은) => {
+      if (내세대 !== 계정세대.current) return;
+      if (받은) {
+        // 서버 적용도 '설정 변경' 이라 아래 구독이 되받아 올리려 든다. 같은 값을
+        // 도로 올리는 낭비라 적용하는 동안만 표시를 켜서 끊는다.
+        서버프로필적용중.current = true;
+        접근성설정.바꾸기(받은.a11y);
+        알레르기설정.교체(받은.allergies);
+        서버프로필적용중.current = false;
+      } else {
+        void account.putPreferences(a.userId, {
+          a11y: 접근성설정.읽기(), allergies: 알레르기설정.읽기(),
+        });
+      }
+    });
+
     const 불러오기 = (): void => {
       account.listSheets(a.userId)
         .then((서버것) => {
@@ -5332,6 +5390,18 @@ export default function App() {
    * 게스트로 만든 주문표는 이 기기 것이므로 건드리지 않는다.
    */
   const 로그아웃 = (): void => {
+    /*
+     * 미뤄 둔 프로필 저장이 있으면 지금 보낸다. 아래에서 세대를 올리면 그 예약이
+     * 취소되는데, 방금 켠 스위치가 계정에 안 남으면 다음 기기에서 로그인했을 때
+     * 그 값이 없다 — "저장해 두면 다음에도" 가 그 스위치에만 거짓이 된다.
+     */
+    if (프로필올릴표.current && 계정) {
+      clearTimeout(프로필올릴표.current);
+      프로필올릴표.current = null;
+      void account.putPreferences(계정.userId, {
+        a11y: 접근성설정.읽기(), allergies: 알레르기설정.읽기(),
+      });
+    }
     // 아직 오는 중인 답을 무효로 만든다. 안 그러면 로그아웃한 뒤에 도착한 목록이
     // 방금 뺀 주문표를 그대로 돌려놓는다.
     계정세대.current += 1;
@@ -5985,6 +6055,23 @@ export default function App() {
                   // 알레르기도 지운다. 남겨 두면 다음 사람이 앞사람의 알레르기로
                   // 걸러진 목록을 보게 되고, 정작 자기 것은 안 걸러진다.
                   알레르기설정.비우기();
+                  /*
+                   * 계정 프로필은 여기서 따로 안 비운다.
+                   *
+                   * 이 작업을 처음 만들 때는 비웠다 — 주문표는 서버까지 지우면서
+                   * 도움 설정·알레르기만 계정에 남으면 "모두 지워요" 가 거짓이
+                   * 되기 때문이다.
+                   *
+                   * 그 사이에 계정 삭제가 생겼다(팀 #118). 위 서버정리가 이미
+                   * deleteAccount 를 부르고 서버는 계정과 딸린 것을 함께 지운다.
+                   * 그러니 여기서 프로필을 또 쓰는 것은 **지워질 계정에 값을 밀어
+                   * 넣는 일**이고, PUT 이 DELETE 보다 늦게 닿으면 방금 지운 자리에
+                   * 행을 되살릴 수도 있다.
+                   *
+                   * 계정 삭제가 실패하면(경로없음·못지움) 프로필은 서버에 남는다.
+                   * 그건 화면이 이미 그 사실을 알리고 있는 경우다 — 여기서 몰래
+                   * 덮어쓰는 것보다 낫다.
+                   */
                   /*
                    * 토큰은 서버 정리가 **끝난 뒤에** 지운다. 주문표 삭제는 목록을
                    * 받아 온 뒤에야 DELETE 를 보내는 체인이라, 여기서 동기로 지우면
