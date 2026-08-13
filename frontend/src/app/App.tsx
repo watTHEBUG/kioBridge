@@ -2908,12 +2908,11 @@ function ConfirmRow({
   );
 }
 
-function ConfirmCard({ children, badge, badgeTone = "success", photo }: {
+function ConfirmCard({ children, badge, badgeTone = "success" }: {
   children: React.ReactNode; badge?: string;
   // 배지가 늘 초록 체크였다. "확실하지 않아요" 같은 문구가 성공 배지를 달고 나오면
   // 색과 아이콘으로 상태를 알린다는 원칙이 여기서만 거꾸로 작동한다.
   badgeTone?: "success" | "caution" | "neutral";
-  photo?: string | null;
 }) {
   const 배지색 = badgeTone === "success"
     ? { bg: SURFACE, fg: TEXT_1, icon: "checkCircle" as const }
@@ -2927,9 +2926,7 @@ function ConfirmCard({ children, badge, badgeTone = "success", photo }: {
       {/* 키오스크가 오늘 걸어 둔 메뉴 사진. 담기 전 마지막 확인 화면이라 크게 둔다.
           글자를 읽기 어려운 분도 "내가 시키려던 그것"인지 한눈에 알아볼 수 있어야 한다.
           카탈로그에 사진이 없으면 자리를 비운다. */}
-      {photo && (
-        <img src={photo} alt="" aria-hidden="true" style={{ width: "100%", height: 132, objectFit: "cover", display: "block" }} />
-      )}
+
       <div data-confirm-body style={{ padding: "6px 20px" }}>{children}</div>
       {badge && (
         <div style={{ padding: "13px 20px", backgroundColor: 배지색.bg, display: "flex", alignItems: "center", gap: 8 }}>
@@ -3153,10 +3150,9 @@ function InfoBox({ children, variant = "warn" }: { children: React.ReactNode; va
  * 서로 다른 질문의 선택지가 조용히 한 그룹으로 묶인다.
  */
 function OptionCard({
-  name, price, selected, onClick, photo, groupName, matched,
+  name, price, selected, onClick, groupName, matched,
 }: {
-  name: string; price: string; selected: boolean; onClick: () => void;
-  photo?: string | null; groupName: string;
+  name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
   /**
    * 저장해 두신 조건과 이 후보가 한 축도 어긋나지 않는가.
    *
@@ -3170,7 +3166,6 @@ function OptionCard({
   const 속: React.ReactNode = (
     <>
       <span className="flex items-center gap-3" style={{ minWidth: 0, flex: 1 }}>
-        {photo && <img src={photo} alt="" aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />}
         {/*
           배지를 이름 옆에 두면 이름이 밀려 두 줄로 접힌다. 메뉴 이름은 이 줄에서
           가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
@@ -3258,7 +3253,7 @@ function OrderExact({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <ConfirmCard badge="오늘의 메뉴에서 찾았어요" photo={item.imageUrl}>
+      <ConfirmCard badge="오늘의 메뉴에서 찾았어요">
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} />
@@ -3340,7 +3335,6 @@ function OrderClarification({
             selected={selected === i}
             name={c.displayName}
             price={c.priceText}
-            photo={c.imageUrl}
             matched={c.unmatchedLabels?.length === 0}
             onClick={() => setSelected(i)}
           />
@@ -3392,7 +3386,7 @@ function OrderChanged({
   const [checked, setChecked] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <ConfirmCard photo={item.imageUrl}>
+      <ConfirmCard>
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} changed={!o.matched} changeNote={o.note} />
@@ -3458,7 +3452,7 @@ function OrderLowConfidence({
        * 정보가 가장 적었다. exact 와 같은 확인 카드를 그대로 쓴다.
        * 사용자는 포장인지 종이컵인지 몇 개인지 다 보고 나서 짚는다.
        */}
-      <ConfirmCard badge="확실하지 않아요" badgeTone="caution" photo={item.imageUrl}>
+      <ConfirmCard badge="확실하지 않아요" badgeTone="caution">
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} changed={!o.matched} changeNote={o.note ?? "오늘은 이 조합이 없어요"} />
