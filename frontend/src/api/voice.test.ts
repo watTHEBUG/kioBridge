@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { 말에서고르기, 말로채울수있나 } from "./voice";
+import { 말에서고르기, 말로채울수있나, 예아니오 } from "./voice";
 
 /*
  * 이 파일이 지키는 것 하나 — **말하지 않은 조건이 주문표에 섞이지 않는다.**
@@ -197,5 +197,35 @@ describe("지원하지 않는 이용 방식", () => {
     expect(r.고른값["이용 방식"]).toBeUndefined();
     expect(r.모호한축).toContain("이용 방식");
     expect(r.못들은축).not.toContain("이용 방식");
+  });
+});
+
+describe("예/아니오 — 애매한 것을 예나 아니오로 읽지 않는다", () => {
+  /*
+   * 한 칸씩 물을 때 이 답이 곧 선택이 된다(App.tsx 한칸씩말하기). true 면
+   * choices[0], 보기가 둘일 때 false 면 choices[1] 이 바로 들어간다. 잘못 읽으면
+   * 사용자가 고르지 않은 조건이 주문표에 섞인다 — null 로 두고 다시 묻는 쪽이 낫다.
+   */
+  it("'예' 로 시작하는 다른 낱말을 예로 읽지 않는다", () => {
+    // 병원의 '예약 없음' 이다. 낱말 경계를 안 보면 이 답이 '예' 가 되어,
+    // 그 자리에서 첫 보기가 골라진다(#104 리뷰).
+    expect(예아니오("예약 없음")).toBeNull();
+    expect(예아니오("보통맛이네")).toBeNull();
+  });
+
+  it("우리말 예/아니오는 그대로 읽는다", () => {
+    expect(예아니오("네")).toBe(true);
+    expect(예아니오("예.")).toBe(true);
+    expect(예아니오("아니요")).toBe(false);
+  });
+
+  it("영어 부정도 낱말로 있을 때만 아니오다", () => {
+    // "You can say yes, or say another one." 이 화면 안내라 실제로 나오는 답이다.
+    // "another" 안의 not, "know" 안의 no 를 세면 아니오가 된다(#104 리뷰).
+    expect(예아니오("another one", true)).toBeNull();
+    expect(예아니오("i know", true)).toBeNull();
+    expect(예아니오("no", true)).toBe(false);
+    expect(예아니오("i do not want it", true)).toBe(false);
+    expect(예아니오("yes", true)).toBe(true);
   });
 });

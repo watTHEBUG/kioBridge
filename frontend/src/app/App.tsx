@@ -993,6 +993,23 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
 
   useEffect(() => () => 듣던것.current?.그만두기(), []);
 
+  /*
+   * 장소를 바꾸면 첫 칸으로 돌아간다.
+   *
+   * 축 목록이 통째로 바뀌는데 칸만 남으면 화면과 소리가 틀린 순번을 말한다 —
+   * 카페(7축)에서 다섯 번째까지 간 뒤 관공서(2축)로 바꾸면 "5번째 질문 (전체
+   * 2개)" 를 읽어 준다. 듣던 것도 같이 끊는다. 안 그러면 앞 장소를 보고 말한
+   * 답이 새 축에 들어간다.
+   */
+  useEffect(() => {
+    회차.current += 1;
+    듣던것.current?.그만두기();
+    듣던것.current = null;
+    set칸(0);
+    set상태("쉬는중");
+    set못들음(null);
+  }, [place]);
+
   if (!들을수있나() || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
@@ -1040,6 +1057,21 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     });
   };
 
+  /*
+   * 스스로 멈춘 것은 못 들은 것이 아니다.
+   *
+   * 그만두기() 는 인식 엔진을 멈추고, 그때 listen.ts 의 onend 가 "소리없음" 으로
+   * 답한다. 회차를 안 올리면 그 답이 그대로 통과해서, 사용자가 직접 멈췄는데
+   * "잘 안 들렸어요" 가 뜨고 소리로도 읽힌다.
+   */
+  const 그만듣기 = () => {
+    회차.current += 1;
+    듣던것.current?.그만두기();
+    듣던것.current = null;
+    set상태("쉬는중");
+    set못들음(null);
+  };
+
   const 고른것 = 값[지금축.label] ?? [];
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
@@ -1082,7 +1114,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
       )}
 
       <div className="flex" style={{ gap: 8, marginTop: 16 }}>
-        <OutlineBtn onClick={상태 === "듣는중" ? () => 듣던것.current?.그만두기() : 듣기시작}>
+        <OutlineBtn onClick={상태 === "듣는중" ? 그만듣기 : 듣기시작}>
           {상태 === "듣는중" ? "그만 듣기" : "말하기"}
         </OutlineBtn>
         {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
@@ -4716,13 +4748,21 @@ export default function App() {
    * 쓰기' 를 고르면 있던 주문표가 조용히 사라지는 것처럼 보인다.
    */
   const 주문표저장 = (p: OrderSheet): void => {
-    const 고치는중 = sheets.some((있던) => 있던.id === p.id);
-    if (guest && !고치는중) {
+    const 있던것 = sheets.find((있던) => 있던.id === p.id);
+    if (guest && !있던것) {
       set물어볼주문표(p);
       setScreen("save-choice");
       return;
     }
-    주문표넣기(p);
+    /*
+     * 고쳐도 '이번만 쓰기' 표시는 그대로 둔다.
+     *
+     * 주문표 화면의 저장 단추는 { id, menuName, place, selections, memo } 만 만들어서
+     * 임시 표시가 딸려 오지 않는다. 그대로 넣으면 남기지 않겠다고 고른 주문표가
+     * 고치는 순간 이 기기(session.ts)와 서버(주문표올리기)에 남는다. 사용자는
+     * 다시 저장하겠다고 고른 적이 없다.
+     */
+    주문표넣기(있던것?.임시 === true ? { ...p, 임시: true } : p);
   };
 
   /**
