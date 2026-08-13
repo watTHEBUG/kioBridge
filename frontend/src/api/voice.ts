@@ -157,7 +157,13 @@ export const 말로채울수있나 = (place: PlaceType, 영어인가: boolean): 
  */
 const 축을말했나: Record<string, { ko: string[]; en: string[] }> = {
   "맵기": { ko: ["맵기", "매콤", "맵기는"], en: ["spice", "spiciness"] },
-  "이용 방식": { ko: ["이용 방식"], en: ["dine or", "service type"] },
+  /*
+   * '배달' 은 이용 방식 얘기인데 우리 목록에 없다. 값으로 등록하면 안 되고
+   * (없는 것을 고를 수는 없다) 못 들은 것으로 두어도 안 된다 — 말한 사람에게
+   * "못 들었어요" 라고 하면 다시 또박또박 말해 보게 된다. 축을 말한 것으로
+   * 보고 "어느 쪽인지 못 골랐어요" 라고 답한다(#99 리뷰).
+   */
+  "이용 방식": { ko: ["이용 방식", "배달"], en: ["dine or", "service type", "delivery", "deliver"] },
   "형태": { ko: ["형태"], en: ["bone or"] },
   "컵": { ko: ["컵"], en: ["cup"] },
   "수량": { ko: ["수량", "몇 개"], en: ["how many", "quantity"] },
