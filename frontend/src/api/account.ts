@@ -348,6 +348,12 @@ const 문구 = (code: string, 서버문구: string | undefined, status: number):
     case "USER_NOT_FOUND":      return "계정을 찾을 수 없어요. 다시 로그인해 주세요";
     case "INVALID_REQUEST":     return 서버문구 || "적어 주신 내용을 다시 확인해 주세요";
     default:
+      /*
+       * 401 은 토큰이 없거나 만료된 것이다. 토큰은 메모리에만 두므로 새로고침
+       * 한 번이면 이 상태가 된다 — 사용자 잘못이 아니라 우리가 안 적어 두기로
+       * 한 결과다. 무엇을 하면 되는지 말해 준다(#100 리뷰).
+       */
+      if (status === 401) return "로그인이 풀렸어요. 다시 로그인해 주세요";
       if (status === 400) return "적어 주신 내용을 다시 확인해 주세요";
       if (status >= 500) return "서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요";
       return 서버문구 || "요청을 처리하지 못했어요";
@@ -444,6 +450,16 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         try { return JSON.parse(t ?? "") as { code?: string; message?: string }; } catch { return {}; }
       })();
       const code = b.code ?? `HTTP_${res.status}`;
+      /*
+       * 401 은 토큰이 없거나 만료된 것이다. 들고 있던 토큰을 버린다.
+       *
+       * 토큰은 메모리에만 있어서 새로고침하면 사라지는데(token.ts) 계정은 남는다.
+       * 그러면 화면은 로그인한 것처럼 보이는데 주문표 요청마다 401 이 온다.
+       * 버려 두지 않으면 안 되는 토큰을 계속 붙여 보낸다.
+       *
+       * 화면은 이 코드를 보고 "다시 로그인해 주세요" 로 안내한다(#100 리뷰).
+       */
+      if (res.status === 401) 접근토큰.비우기();
       // 계정 쪽 오류는 전부 recoverable 이다. 아이디가 겹쳤으면 다른 아이디로, 비밀번호가
       // 틀렸으면 다시 적으면 되고, 서버가 죽었으면 잠시 뒤 다시 하면 된다. 화면이
       // 되돌아갈 길 없는 막다른 곳으로 사용자를 보내지 않게 하는 값이라 여기서는 늘 참이다.

@@ -73,6 +73,7 @@ export const EN: Record<string, string> = {
   "아이디를 적어 주세요": "Please enter an ID",
   "비밀번호를 적어 주세요": "Please enter a password",
   "아이디 또는 비밀번호가 맞지 않아요": "That ID or password doesn’t match",
+  "로그인이 풀렸어요. 다시 로그인해 주세요": "You’ve been signed out. Please log in again",
   "이미 쓰고 있는 아이디예요": "That ID is already taken",
   "비밀번호가 달라요": "The passwords don’t match",
   "비밀번호가 너무 길어요. 조금 줄여 주세요": "That password is too long. Please shorten it",
@@ -152,8 +153,10 @@ export const EN: Record<string, string> = {
   "이 주문표로 주문하기": "Order with this card",
   "삭제": "Delete",
   "한 개 값 한도 (선택)": "Price limit per item (optional)",
+  // 단가가 한도와 같아도 이 문구가 뜬다(합계만 넘으면 뜬다). "under" 는 미만이라
+  // 경계값을 빠뜨린다 — "within" 으로 적는다(#100 리뷰).
   "한 개 값은 한도 안이지만, {수량}개면 {합계}예요.":
-    "Each one is under your limit, but {수량} of them come to {합계}.",
+    "Each one is within your limit, but {수량} of them come to {합계}.",
   // 직접 적는 칸이다. 단위(원 / KRW)는 표가 아니라 코드에서 언어를 보고 붙인다.
   "예: 8000": "e.g. 8000",
   "비워 두면 한도 없이 찾아요": "Leave it blank to search without a limit",

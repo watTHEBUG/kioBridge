@@ -3378,10 +3378,12 @@ function OrderNotFound({ message, onCancel }: { message?: string; onCancel: () =
 }
 
 function OrderChanged({
-  item, diffNote, reasons, onReasons, onApprove, onCancel,
+  item, diffNote, reasons, 합계알림, onReasons, onApprove, onCancel,
 }: {
   item: MappedItem;
   diffNote?: string;
+  /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
+  합계알림?: string;
   reasons?: RecommendationReason[];
   onReasons: () => void;
   onApprove: () => void;
@@ -3397,6 +3399,12 @@ function OrderChanged({
         ))}
         <ConfirmRow label="가격" value={item.priceText} large />
       </ConfirmCard>
+      {/* 승인 버튼이 있는 화면은 모두 같은 안내를 단다(#100 리뷰). 막지는 않는다. */}
+      {합계알림 && (
+        <p role="status" style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7, textAlign: "center" }}>
+          {합계알림}
+        </p>
+      )}
 
       <div style={{ borderRadius: RADIUS.input, padding: "15px 18px", backgroundColor: WARN_BG, border: "none", display: "flex", flexDirection: "column", gap: 14 }}>
         <div className="flex gap-3 items-start">
@@ -3430,9 +3438,12 @@ function OrderChanged({
 }
 
 function OrderLowConfidence({
-  item, reasons, onReasons, onApprove, onCancel,
+  item, reasons, 합계알림, onReasons, onApprove, onCancel,
 }: {
-  item: MappedItem; reasons?: RecommendationReason[]; onReasons: () => void; onApprove: () => void; onCancel: () => void;
+  item: MappedItem; reasons?: RecommendationReason[];
+  /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
+  합계알림?: string;
+  onReasons: () => void; onApprove: () => void; onCancel: () => void;
 }) {
   const [selected, setSelected] = useState(false);
   return (
@@ -3454,6 +3465,12 @@ function OrderLowConfidence({
         ))}
         <ConfirmRow label="가격" value={item.priceText} large />
       </ConfirmCard>
+      {/* 승인 버튼이 있는 화면은 모두 같은 안내를 단다(#100 리뷰). 막지는 않는다. */}
+      {합계알림 && (
+        <p role="status" style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7, textAlign: "center" }}>
+          {합계알림}
+        </p>
+      )}
       <InfoBox variant="info">시스템이 정확하게 찾지 못했어요. 위 내용을 확인하고 맞으면 아래에서 짚어 주세요.</InfoBox>
       {/*
        * 위 확인 카드와 같은 메뉴를 카드 모양으로 또 그리면 두 개인 줄 안다.
@@ -3509,7 +3526,12 @@ function OrderConfirmScreen({
    */
   const 한도 = 가격한도.읽기();
   const 수량 = Number((sheet.selections?.["수량"]?.[0] ?? "").replace(/[^0-9]/g, "")) || 1;
-  const 단가 = mapping?.result === "exact" ? mapping.item?.price : undefined;
+  /*
+   * 승인 버튼이 있는 화면은 셋이다 — exact · changed · low_confidence. 셋 다
+   * MappedItem 을 그리고 셋 다 담긴다. 한 곳에만 안내를 달면 나머지 둘에서는
+   * 합계가 한도를 넘어도 아무 말 없이 담긴다(#100 리뷰).
+   */
+  const 단가 = mapping?.item?.price;
   const 합계알림 = (한도 !== null && typeof 단가 === "number" && 수량 > 1 && 단가 * 수량 > 한도)
     ? tf("한 개 값은 한도 안이지만, {수량}개면 {합계}예요.", {
         수량, 합계: 돈(단가 * 수량, 접근성설정.읽기().language === "en-US"),
@@ -3682,6 +3704,7 @@ function OrderConfirmScreen({
             item={mapping.item}
             diffNote={mapping.diffNote}
             reasons={mapping.reasons}
+            합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             onApprove={() => approve({ acknowledgedDiff: true })}
             onCancel={거절하기}
@@ -3702,6 +3725,7 @@ function OrderConfirmScreen({
           <OrderLowConfidence
             item={mapping.item}
             reasons={mapping.reasons}
+            합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             /* 사용자가 카드를 눌러 "이 메뉴가 맞다"고 짚어야만 여기까지 온다. 그 사실을 서버에도 알린다. */
             onApprove={() => approve({ confirmedLowConfidence: true })}

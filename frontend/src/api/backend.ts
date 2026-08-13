@@ -1554,8 +1554,15 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
           display[c.candidateId] = {
             displayName: c.name,
             priceText: 원(c.price),
-            // 숫자도 같이 싣는다. 화면이 수량과 곱해 한도를 넘는지 본다.
-            ...(typeof c.price === "number" ? { price: c.price } : {}),
+            /*
+             * 숫자도 같이 싣는다. 화면이 수량과 곱해 한도를 넘는지 본다.
+             *
+             * 쓸 수 있는 값일 때만 싣는다. NaN 이나 Infinity 가 들어오면 곱한
+             * 결과도 그것들이라 "NaN원이에요" 같은 문장이 화면에 나간다. 음수도
+             * 값이 될 수 없다 — 없는 것으로 두면 화면이 안내를 안 띄운다(#100 리뷰).
+             */
+            ...(typeof c.price === "number" && Number.isFinite(c.price) && c.price >= 0
+              ? { price: c.price } : {}),
           };
         }
       }

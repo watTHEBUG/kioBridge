@@ -48,3 +48,26 @@ describe("접근토큰", () => {
     }
   });
 });
+
+describe("401 을 받으면 토큰을 버린다", () => {
+  it("account.ts 가 401 에서 접근토큰을 비운다", async () => {
+    /*
+     * 토큰은 메모리에만 있어서 새로고침하면 사라지는데 계정은 남는다. 그러면
+     * 화면은 로그인한 것처럼 보이는데 요청마다 401 이 온다. 버려 두지 않으면
+     * 안 되는 토큰을 계속 붙여 보낸다(#100 리뷰).
+     */
+    const { createTeamAccount } = await import("./account");
+    const 원래 = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ code: "UNAUTHORIZED", message: "no" }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+    접근토큰.담기("stale-token");
+    try {
+      await createTeamAccount().listSheets(7).catch(() => {});
+      expect(접근토큰.읽기()).toBeNull();
+    } finally {
+      globalThis.fetch = 원래;
+    }
+  });
+});
