@@ -389,23 +389,23 @@ describe("이번만 쓰기 — 임시 주문표는 안 남는다", () => {
   const 주문표 = (id: string, 임시?: boolean) => ({
     id, menuName: "닭강정", place: "음식점" as const, selections: {}, memo: "", ...(임시 ? { 임시: true } : {}),
   });
-  const 바탕 = () => ({ ...이어쓰기.읽기(), screen: "saved" as const });
+  const 바탕 = () => ({ ...이어쓰기.읽기(), screen: "saved", tab: "menu" }) as 이어쓸것;
 
   it("임시 표시가 붙은 것은 저장소에 안 적힌다", () => {
     /*
      * 남기지 않겠다고 고른 것을 적어 두면 그 선택이 거짓이 된다. 화면에서는
      * 지웠다고 하고 저장소에는 남는 상태가 제일 나쁘다(session.ts).
      */
-    이어쓰기.쓰기({ ...바탕(), sheets: [주문표("a"), 주문표("b", true)] });
-    expect(이어쓰기.읽기().sheets.map((p) => p.id)).toEqual(["a"]);
+    이어쓰기.쓰기({ ...바탕()!, sheets: [주문표("a"), 주문표("b", true)] });
+    expect(이어쓰기.읽기()!.sheets.map((p) => p.id)).toEqual(["a"]);
   });
 
   it("임시 주문표만 있으면 적힌 목록이 빈다", () => {
     이어쓰기.비우기();
-    이어쓰기.쓰기({ ...바탕(), sheets: [주문표("b", true)] });
+    이어쓰기.쓰기({ ...바탕()!, sheets: [주문표("b", true)] });
     const 적힌것 = globalThis.sessionStorage?.getItem("kb.session.v3") ?? "";
     expect(적힌것).not.toContain("\"b\"");
-    expect(이어쓰기.읽기().sheets).toEqual([]);
+    expect(이어쓰기.읽기()!.sheets).toEqual([]);
   });
 
   it("임시가 아닌 주문표는 저장소에 실제로 적힌다", () => {
@@ -414,7 +414,7 @@ describe("이번만 쓰기 — 임시 주문표는 안 남는다", () => {
      * getItem 이 null 이라 '안 적혔다' 는 확인은 언제나 통과한다.
      */
     이어쓰기.비우기();
-    이어쓰기.쓰기({ ...바탕(), sheets: [주문표("a")] });
+    이어쓰기.쓰기({ ...바탕()!, sheets: [주문표("a")] });
     const 적힌것 = globalThis.sessionStorage?.getItem("kb.session.v3");
     expect(적힌것).not.toBeNull();
     expect(적힌것).toContain("\"a\"");
