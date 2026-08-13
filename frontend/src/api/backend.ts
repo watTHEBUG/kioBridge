@@ -330,8 +330,9 @@ export function createApi(
        * **서버 문장은 그대로 둔다.** 앞뒤에 우리가 아는 사실만 덧댄다 — 문장을
        * 고쳐 쓰면 그건 인용이 아니라 우리가 지어낸 말이 된다.
        */
+      const 이름찾기 = (id: string): string | undefined => rec.display[id]?.displayName;
       const 이름붙이기 = (id: string, 글: string): string => {
-        const 이름 = rec.display[id]?.displayName;
+        const 이름 = 이름찾기(id);
         return 이름 ? `${이름} — ${글}` : 글;
       };
       /*
@@ -343,13 +344,17 @@ export function createApi(
       const 서버가부르는축: [string, string][] = [
         ["이용 방식", "이용 방식"], ["맵기", "맵기"], ["뼈/순살", "형태"], ["컵", "컵"], ["수량", "수량"],
       ];
-      const 고른값붙이기 = (글: string): string => {
+      const 고른값찾기 = (글: string): string | undefined => {
         for (const [서버말, 축] of 서버가부르는축) {
           if (!글.includes(서버말)) continue;
           const 값 = profile?.selections?.[축]?.[0];
-          if (값) return `${글} (고르신 값: ${값})`;
+          if (값) return 값;
         }
-        return 글;
+        return undefined;
+      };
+      const 고른값붙이기 = (글: string): string => {
+        const 값 = 고른값찾기(글);
+        return 값 ? `${글} (고르신 값: ${값})` : 글;
       };
       const reasons: MappingResponse["reasons"] = [
         ...rec.recommendationReasons.map((text) => ({
@@ -363,9 +368,24 @@ export function createApi(
           text: rec.recommendedCandidateId
             ? 이름붙이기(rec.recommendedCandidateId, 고른값붙이기(text))
             : 고른값붙이기(text),
+          문장: text,
+          ...(rec.recommendedCandidateId && 이름찾기(rec.recommendedCandidateId)
+            ? { 메뉴: 이름찾기(rec.recommendedCandidateId) }
+            : {}),
+          ...(고른값찾기(text) ? { 고른값: 고른값찾기(text) } : {}),
         })),
-        ...rec.unmetConditions.map((text) => ({ kind: "unmet" as const, text: 고른값붙이기(text) })),
-        ...제외.map((e) => ({ kind: "excluded" as const, text: 이름붙이기(e.candidateId, e.explanation) })),
+        ...rec.unmetConditions.map((text) => ({
+          kind: "unmet" as const,
+          text: 고른값붙이기(text),
+          문장: text,
+          ...(고른값찾기(text) ? { 고른값: 고른값찾기(text) } : {}),
+        })),
+        ...제외.map((e) => ({
+          kind: "excluded" as const,
+          text: 이름붙이기(e.candidateId, e.explanation),
+          문장: e.explanation,
+          ...(이름찾기(e.candidateId) ? { 메뉴: 이름찾기(e.candidateId) } : {}),
+        })),
       ].filter((r) => 보여도되나(r.text));
       /*
        * 서버가 점수를 매길 때 본 축들. 담을 것이 정해진 뒤에만 뜻이 있어서

@@ -32,6 +32,7 @@ import type { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
 import { t, tf } from "@/i18n/t";
+import { 이유글 } from "@/i18n/reason";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -2993,7 +2994,13 @@ function ReasonList({ reasons, 제목 = "이 메뉴를 고른 이유" }: { reaso
             <span style={{ fontSize: 14, lineHeight: 1.6, color: TEXT_1 }}>
               {/* 색을 못 보는 경우에도 종류를 알 수 있게 말머리를 글자로 붙인다. */}
               <b style={{ fontWeight: 700 }}>{이유표시[r.kind].말머리}</b>
-              {r.text}
+              {/*
+                r.text 가 아니라 조각에서 조립한다. r.text 는 우리말로 이어 붙여 둔
+                완성문이라 영어로 바꿔도 그대로 남는다(i18n/reason.ts). data-원문 은
+                DOM 을 훑는 쪽이 이 안을 다시 안 보게 막는 표시다 — 여기 든 메뉴
+                이름이 표의 열쇠와 우연히 같으면 가게 이름이 영어로 바뀐다.
+              */}
+              <span data-원문>{이유글(r)}</span>
             </span>
           </li>
         ))}
@@ -3113,7 +3120,7 @@ function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; 
           이 메뉴를 고른 근거처럼 읽힌다. ReasonList 는 이미 이렇게 하고 있었다.
         */}
         <b style={{ fontWeight: 700 }}>{이유표시[첫줄.kind].말머리}</b>
-        {첫줄.text}
+        <span data-원문>{이유글(첫줄)}</span>
         {남은 > 0 && (
           <span style={{ color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3 }}>
             {/*
