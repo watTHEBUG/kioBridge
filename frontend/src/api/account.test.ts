@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { 접근토큰 } from "./token";
 import {
   clearAccountMock, createTeamAccount, mockAccount, setAccountMockDelay,
   아이디검사, 비밀번호검사, 못올리는이유,
@@ -541,5 +542,72 @@ describe("주문표 삭제 (팀 #79)", () => {
     await mockAccount.deleteSheet(갑.userId, 주문표().id);
     expect(await mockAccount.listSheets(갑.userId)).toHaveLength(0);
     expect(await mockAccount.listSheets(을.userId)).toHaveLength(1);
+  });
+});
+
+describe("팀 백엔드 — 실제 로그인 계약(accessToken)", () => {
+  /*
+   * 이 묶음이 지키는 것 — **테스트가 예전 계약을 붙들고 있지 않게.**
+   *
+   * 위쪽 테스트들은 서버가 `{userId, loginId}` 만 준다고 가정하고 씁니다. 실제
+   * 백엔드는 `accessToken` 을 함께 주고, 주문표 경로는 그 토큰을 요구합니다.
+   * 예전 모양으로만 확인하면 CI 는 초록인데 실제 연동은 깨집니다(팀원 지적).
+   */
+  afterEach(() => 접근토큰.비우기());
+
+  it("로그인 응답의 accessToken 을 붙들어 둔다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "eyJ.abc.def" })) as unknown as typeof fetch;
+
+    const a = await createTeamAccount().login("할머니1", "1234");
+
+    expect(접근토큰.읽기()).toBe("eyJ.abc.def");
+    // 화면으로는 계정만 간다. 토큰은 session.ts 가 sessionStorage 에 적는 값에
+    // 섞이면 안 된다(token.ts).
+    expect(a).toEqual({ userId: 7, loginId: "할머니1" });
+    expect(a).not.toHaveProperty("accessToken");
+  });
+
+  it("가입 응답의 accessToken 도 붙든다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t1" }, 201)) as unknown as typeof fetch;
+    await createTeamAccount().signup("할머니1", "1234");
+    expect(접근토큰.읽기()).toBe("t1");
+  });
+
+  it("주문표 요청에 Authorization: Bearer 를 붙인다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t2" })) as unknown as typeof fetch;
+    const 계정 = createTeamAccount();
+    await 계정.login("할머니1", "1234");
+
+    globalThis.fetch = vi.fn(async () => 응답([])) as unknown as typeof fetch;
+    await 계정.listSheets(7);
+
+    const [, init] = 부른것()[0];
+    const 헤더 = init.headers as Record<string, string>;
+    expect(헤더.authorization).toBe("Bearer t2");
+  });
+
+  it("로그인 전에는 Authorization 을 안 붙인다", async () => {
+    // 가입·로그인은 아직 토큰이 없는 상태에서 부르는 요청이다. 빈 값을 Bearer
+    // 뒤에 붙여 보내면 서버가 그걸 어떻게 읽을지 알 수 없다.
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: "할머니1" })) as unknown as typeof fetch;
+    await createTeamAccount().login("할머니1", "1234");
+    const [, init] = 부른것()[0];
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined();
+  });
+
+  it("401 을 받으면 토큰을 버린다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t3" })) as unknown as typeof fetch;
+    const 계정 = createTeamAccount();
+    await 계정.login("할머니1", "1234");
+
+    globalThis.fetch = vi.fn(async () => 응답({ message: "unauthorized" }, 401)) as unknown as typeof fetch;
+    await expect(계정.listSheets(7)).rejects.toThrow();
+    // 지난 토큰을 들고 있으면 다음 요청도 같은 401 을 받는다. 다시 로그인하라는
+    // 말이 나갈 수 있게 비운다.
+    expect(접근토큰.읽기()).toBeNull();
   });
 });
