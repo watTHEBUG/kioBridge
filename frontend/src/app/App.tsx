@@ -327,13 +327,15 @@ function SectionLabel({ text, required, 칸id }: { text: string; required?: bool
  * onStart  익명으로 바로 시작 — 저장은 이번 한 번만, 기기에 남기지 않는다
  * onLogin  선택적 로그인 — 다음에도 불러오고 싶은 사람만 고른다
  */
-function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
+function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리 }: {
   onStart: () => void;
   onLogin: () => void;
   /** 동의 전에는 어느 길로도 못 들어간다 — 게스트로 시작하는 것도 정보를 쓰는 일이다. */
   동의함: boolean;
   on동의: (v: boolean) => void;
   onPrivacy: () => void;
+  소리켜짐: boolean;
+  on소리: () => void;
 }) {
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
@@ -360,6 +362,24 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
           동의를 먼저 받는다. 게스트로 시작하는 것도 정보를 쓰는 일이라 같이 막는다 —
           로그인한 사람에게만 물으면, 정작 가장 많이 쓰일 길에서는 안 묻는 셈이 된다.
         */}
+        {/*
+          소리 안내를 여기서 켤 수 있게 둔다.
+          지금까지는 도움 설정 화면에만 있었다. 그런데 그 화면까지 가려면 이 화면을
+          읽고 눌러야 한다 — **읽어 줘야 읽을 수 있는 사람은 켜러 갈 수가 없었다.**
+          첫 화면에 두어야 뜻이 있는 스위치다.
+          동의 문구보다 위에 둔다. 아래 두면 동의문을 먼저 읽어야 하는데, 그게 바로
+          못 읽는 그 글이다.
+          소리를 못 내는 기기에서는 안 보인다 — 켜도 아무 일이 없는 스위치를 두면
+          켠 사람은 켜졌다고 믿는다(도움 설정 화면과 같은 판단이다).
+        */}
+        {소리를낼수있나() && (
+          <ToggleRow
+            label="소리로 읽어 주기"
+            sub="화면에 나온 안내를 소리로 읽어 드려요"
+            on={소리켜짐}
+            onToggle={on소리}
+          />
+        )}
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!동의함 && (
           <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center" }} role="status">
@@ -5194,6 +5214,8 @@ export default function App() {
           {screen === "welcome" && (
             <WelcomeScreen
               동의함={동의}
+              소리켜짐={접근성값.voiceGuide}
+              on소리={() => 접근성설정.바꾸기({ voiceGuide: !접근성값.voiceGuide })}
               on동의={(v) => 개인정보동의.바꾸기(v)}
               onPrivacy={() => set개인정보겹(true)}
               // 익명 시작: 계정 화면을 거치지 않고 바로 본 화면으로 간다.
