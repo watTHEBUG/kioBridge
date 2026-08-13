@@ -21,7 +21,7 @@ import {
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
-import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
+import { 들을수있나, 들어보기, 모델있나, 모델받아두기, type 못들은이유 } from "@/api/listen";
 import { 말에서고르기, 말로채울수있나, type 들은결과 } from "@/api/voice";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
@@ -965,7 +965,11 @@ function 말로채우기({ place, 언어, on받기 }: {
   언어: string;
   on받기: (들은것: 들은결과) => void;
 }) {
-  const [상태, set상태] = useState<"쉬는중" | "듣는중" | "보여주는중">("쉬는중");
+  /*
+   * '받는중' 은 기기 안 음성 모델을 내려받는 동안이다. 처음 한 번만 지나가는
+   * 자리인데, 없으면 단추를 누르고 한참 아무 일도 안 일어나는 것처럼 보인다.
+   */
+  const [상태, set상태] = useState<"쉬는중" | "받는중" | "듣는중" | "보여주는중">("쉬는중");
   // 결과와 **그때의 장소**를 같이 들고 있는다. 확인을 누르는 순간에 장소가
   // 달라져 있으면, 그 장소에 있지도 않은 축을 넣게 된다(#39 리뷰).
   const [결과, set결과] = useState<{ 값: 들은결과; 장소: PlaceType } | null>(null);
@@ -1004,6 +1008,34 @@ function 말로채우기({ place, 언어, on받기 }: {
     const 시작할때장소 = place;
     회차.current += 1;
     const 내회차 = 회차.current;
+
+    /*
+     * 듣기 전에 기기 안 모델부터 본다.
+     *
+     * processLocally 를 켜면(listen.ts) 모델이 깔려 있어야 듣기가 시작된다.
+     * 예전에는 이걸 안 보고 바로 시작해서, 없는 기기에서는 단추를 눌러도 아무
+     * 일이 안 일어났다. 사용자에게는 앱이 고장 난 것으로 보였다.
+     *
+     * 받아야 하면 여기서 받는다. **단추를 누른 자리라 받을 수 있다** — 브라우저는
+     * 사람이 누르지 않으면 받기를 시작하지 않는다. 나중에 조용히 받아 두려 하면
+     * 그때는 못 받는다.
+     */
+    void (async () => {
+      const 상태값 = await 모델있나(언어);
+      if (내회차 !== 회차.current) return;
+      if (상태값 === "안됨") { set못들음("모델없음"); set상태("쉬는중"); return; }
+      if (상태값 === "받아야함" || 상태값 === "받는중") {
+        set상태("받는중");
+        const 됐나 = await 모델받아두기(언어);
+        if (내회차 !== 회차.current) return;
+        if (!됐나) { set못들음("모델없음"); set상태("쉬는중"); return; }
+        set상태("듣는중");
+      }
+      시작하기(시작할때장소, 내회차);
+    })();
+  };
+
+  const 시작하기 = (시작할때장소: PlaceType, 내회차: number) => {
     듣던것.current = 들어보기(언어, (r) => {
       if (내회차 !== 회차.current) return;
       듣던것.current = null;
@@ -1023,6 +1055,17 @@ function 말로채우기({ place, 언어, on받기 }: {
   };
 
   const 상자 = { borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 } as const;
+
+  if (상태 === "받는중") {
+    return (
+      <div style={상자} role="status">
+        <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 10 }}>말을 알아들을 준비를 하고 있어요</p>
+        <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7 }}>
+          처음 한 번만 걸려요. 잠시만 기다려 주세요
+        </p>
+      </div>
+    );
+  }
 
   if (상태 === "듣는중") {
     return (
@@ -1136,7 +1179,9 @@ function 말로채우기({ place, 언어, on받기 }: {
             ? "마이크를 쓸 수 없어요. 브라우저 설정에서 마이크를 허용해 주시거나, 아래에서 손으로 골라 주세요."
             : 못들음 === "소리없음"
               ? "잘 안 들렸어요. 조금 더 크게 다시 말씀해 주세요."
-              : "지금은 말로 채울 수 없어요. 아래에서 손으로 골라 주세요."}
+              : 못들음 === "모델없음"
+                ? "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 아래에서 손으로 골라 주세요."
+                : "지금은 말로 채울 수 없어요. 아래에서 손으로 골라 주세요."}
         </p>
       )}
       {/* 마이크 그림은 우리 아이콘 묶음에 없다. 글자만으로도 무엇을 하는 단추인지 분명하다. */}
