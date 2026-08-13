@@ -10,6 +10,12 @@
  * 정확히 같으면 바뀌는데, 사람이 적은 말이 바뀌면 자기가 적은 것이 아닌 것이
  * 화면에 뜬다.
  *
+ * 다만 **표에 없다는 것만으로 지켜지지는 않는다.** 사용자가 표에 있는 말을 그대로
+ * 적을 수 있기 때문이다 — 주문표 이름을 '포장하기' 로 지으면 그 이름이 옮겨졌다.
+ * 그래서 사용자가 적은 말이 나가는 자리에는 `data-원문` 을 붙여 두고, 옮기는 쪽이
+ * 그 안을 아예 안 본다(apply.ts). 이 표에 무엇을 넣든 그 자리는 안전하다.
+ * 새 열쇠를 넣을 때는 그 말이 나가는 자리가 표시돼 있는지 같이 본다(#41 리뷰).
+ *
  * **서버가 준 문장**도 넣지 않는다. 추천 이유·제외 사유는 서버가 만든 말이고,
  * 이 앱은 그걸 그대로 인용한다는 원칙을 지켜 왔다. 서버가 영어로 줄 수 있게
  * 되면 그때 서버가 준 것을 그대로 쓴다.
@@ -18,6 +24,16 @@
  * 우리말을 enum 으로 옮긴다), 여기서 바뀌는 것은 **보여 주는 글자뿐**이다.
  */
 export const EN: Record<string, string> = {
+  /*
+   * 앱 이름과 언어 이름.
+   *
+   * 예전에는 둘 다 일부러 안 옮겼다 — 앱 이름은 고유명사고, 언어 이름은 그 언어로
+   * 적는 것이 보통이라서다("한국어" / "English"). 그런데 영어 화면에 우리말이
+   * 하나도 없어야 한다는 쪽으로 정했다. 로고의 aria-label 은 소리로만 듣는
+   * 사람에게 "키오브릿지" 로 읽히고 있었다.
+   */
+  "키오브릿지": "KioBridge",
+  "한국어": "Korean",
   // ─── 첫 화면 · 동의 ───────────────────────────────────────────────────────
   "키오스크 앞에서 헤매지 않도록,": "So you never feel lost at a kiosk,",
   "저장해 둔 주문을 대신 담아드려요": "we add your saved order for you",
@@ -152,6 +168,33 @@ export const EN: Record<string, string> = {
   "필수": "Required",
   "선택": "Optional",
   "저장하고 시작하기": "Save and start",
+  // ─── 말로 채우기 ──────────────────────────────────────────────────────────
+  "말로 채우기": "Fill it by voice",
+  "“매운 닭강정 포장으로 두 개” 처럼 말씀하시면 아래 칸이 채워져요.":
+    "Say something like “two spicy boneless, to go” and we will fill in the fields below.",
+  "한 번에 다 말하지 않으셔도 돼요. 들은 것만 채우고, 나머지는 손으로 고르시면 돼요.":
+    "You do not have to say it all at once. We fill in what we heard; pick the rest by hand.",
+  "말하기": "Speak",
+  "듣고 있어요": "Listening",
+  "이렇게 말씀해 보세요": "Try saying it like this",
+  "한 번에 다 말하지 않으셔도 돼요. 나머지는 손으로 고르시면 돼요.":
+    "You do not have to say it all at once. Pick the rest by hand.",
+  "다 말했어요": "I am done",
+  "이렇게 들었어요": "This is what we heard",
+  "이대로 채우기": "Use this",
+  "다시 말하기": "Say it again",
+  "못 들은 것 — {축}. 아래에서 골라 주세요.": "We did not catch these — {축}. Please pick them below.",
+  "말씀은 들었는데 어느 쪽인지 못 골랐어요 — {축}. 아래에서 골라 주세요.":
+    "We heard you mention these but could not tell which — {축}. Please pick them below.",
+  "장소가 바뀌어 못 채워요": "Place changed — cannot fill",
+  "장소를 고르시면 맵기·형태 같은 것도 말로 채울 수 있어요.":
+    "Pick a place and you can fill in things like spice level by voice too.",
+  "마이크를 쓸 수 없어요. 브라우저 설정에서 마이크를 허용해 주시거나, 아래에서 손으로 골라 주세요.":
+    "We cannot use the microphone. Allow it in your browser settings, or pick by hand below.",
+  "잘 안 들렸어요. 조금 더 크게 다시 말씀해 주세요.":
+    "We did not catch that. Please say it again a little louder.",
+  "지금은 말로 채울 수 없어요. 아래에서 손으로 골라 주세요.":
+    "Voice is not available right now. Please pick by hand below.",
   // 저장해 둔 주문표를 다시 열어 고칠 때의 문구.
   "주문표 고치기": "Edit this card",
   "고치고 저장하면 이 주문표가 바뀌어요": "Saving replaces this card",
