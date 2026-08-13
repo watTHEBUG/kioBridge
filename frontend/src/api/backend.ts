@@ -918,10 +918,24 @@ interface CandidateFilterResponse {
  * 서버가 칸을 늘리면 여기 없는 이름이 들어오는데, 그때 원문("boneTypeMatch")을
  * 띄우느니 조용히 빠지는 편이 낫다.
  */
+/*
+ * 서버가 점수를 매길 때 본 축들. scoreBreakdown 의 열쇠를 화면 이름으로 옮긴다.
+ *
+ * 셋만 적어 두어서 나머지 셋(형태·컵·혼잡 시간대)이 조용히 버려졌다. 추천 순위에는
+ * 이미 반영된 값인데 "이걸 보고 골랐어요" 목록에서만 빠져서, 사용자는 자기가 고른
+ * 형태와 컵이 계산에 안 들어간 줄 안다(팀원 지적).
+ *
+ * 여기 없는 열쇠는 안 보여 준다 — 서버가 새 축을 더해도 우리가 이름을 모르면
+ * 영어 열쇠를 그대로 화면에 내보내는 것보다 조용한 편이 낫다.
+ */
 const 점수축: Record<string, string> = {
   serviceTypeMatch: "이용 방식",
   spicyLevelMatch: "맵기",
+  boneTypeMatch: "형태",
+  cupOptionMatch: "컵",
   priceScore: "가격",
+  // 사용자가 고른 값이 아니라 가게 사정이다. 그래서 '조건' 이 아니라 시간대라고 적는다.
+  crowdingContextScore: "혼잡 시간대",
 };
 
 /**

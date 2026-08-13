@@ -220,6 +220,7 @@ export const EN: Record<string, string> = {
   "보통맛": "Medium",
   "매운맛": "Hot",
   "형태": "Bone or boneless",
+  "혼잡 시간대": "Busy hours",
   "뼈": "Bone-in",
   "순살": "Boneless",
   "컵": "Cup",

@@ -22,18 +22,39 @@
  */
 
 let 토큰: string | null = null;
+/** 서버가 알려 준 만료 시각(ms). 모르면 null 이다. */
+let 만료: number | null = null;
 
 export const 접근토큰 = {
-  /** 없으면 null. 로그인 전이거나 새로고침 뒤다. */
-  읽기: (): string | null => 토큰,
+  /**
+   * 없거나 만료됐으면 null.
+   *
+   * 만료를 여기서 보는 이유 — 지난 토큰을 붙여 보내면 서버가 401 로 답하고,
+   * 사용자는 한 번 실패한 뒤에야 다시 로그인하라는 말을 듣는다. 시각을 알고
+   * 있으면 보내기 전에 안다. 서버가 만료를 안 주면 이 검사는 그냥 지나간다.
+   */
+  읽기(): string | null {
+    if (토큰 === null) return null;
+    if (만료 !== null && Date.now() >= 만료) { 토큰 = null; 만료 = null; return null; }
+    return 토큰;
+  },
 
-  /** 로그인·회원가입 응답에서 받은 값을 담는다. 빈 문자열은 없는 것으로 본다. */
-  담기(v: unknown): void {
+  /**
+   * 로그인·회원가입 응답에서 받은 값을 담는다. 빈 문자열은 없는 것으로 본다.
+   *
+   * 만료는 서버가 ISO 문자열로 준다(expiresAt). 못 읽으면 안 받는다 — 잘못 읽은
+   * 시각으로 멀쩡한 토큰을 버리는 것보다, 모르는 채로 두고 401 을 받는 편이 낫다.
+   */
+  담기(v: unknown, 만료값?: unknown): void {
     토큰 = typeof v === "string" && v.trim() !== "" ? v : null;
+    const t = typeof 만료값 === "string" ? Date.parse(만료값)
+      : typeof 만료값 === "number" ? 만료값 : NaN;
+    만료 = 토큰 !== null && Number.isFinite(t) ? t : null;
   },
 
   /** 로그아웃·기기 지우기·401 을 받았을 때 비운다. */
   비우기(): void {
     토큰 = null;
+    만료 = null;
   },
 };

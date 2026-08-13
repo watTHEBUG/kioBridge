@@ -370,8 +370,8 @@ const 문구 = (code: string, 서버문구: string | undefined, status: number):
  * 토큰이 Account 에 섞여 나가면 session.ts 가 그대로 적어 둔다. 적어 두지 않기로
  * 한 값이라 여기서 끊는다(token.ts).
  */
-const 계정만 = (r: Account & { accessToken?: unknown }): Account => {
-  접근토큰.담기(r?.accessToken);
+const 계정만 = (r: Account & { accessToken?: unknown; expiresAt?: unknown }): Account => {
+  접근토큰.담기(r?.accessToken, r?.expiresAt);
   return { userId: r.userId, loginId: r.loginId };
 };
 
@@ -489,12 +489,12 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
      * 값이라, 넣으면 토큰이 sessionStorage 로 따라 나간다(token.ts 주석).
      */
     signup: async (loginId, password) => 계정만(
-      await 부르기<Account & { accessToken?: unknown }>(
+      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
         "POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
     ),
 
     login: async (loginId, password) => 계정만(
-      await 부르기<Account & { accessToken?: unknown }>(
+      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
         "POST", "/api/v1/auth/login", { loginId: loginId.trim(), password }),
     ),
 
