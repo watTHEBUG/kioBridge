@@ -1,11 +1,16 @@
 package com.kiobridge.kiobridge.modules.member.controller;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.modules.member.controller.dto.UserProfileResponse;
 import com.kiobridge.kiobridge.modules.member.exception.UserNotFoundException;
+import com.kiobridge.kiobridge.modules.member.service.SessionTokenService;
 import com.kiobridge.kiobridge.modules.member.service.UserProfileService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,6 +22,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -33,6 +39,18 @@ class UserProfileControllerTest {
     @MockitoBean
     private UserProfileService userProfileService;
 
+    @MockitoBean
+    private SessionTokenService sessionTokenService;
+
+    @BeforeEach
+    void authenticateOwner() {
+        when(
+                sessionTokenService.authenticateBearer(
+                        "Bearer owner-token"
+                )
+        ).thenReturn(1L);
+    }
+
     @Test
     void 프로필을_저장한다() throws Exception {
         when(userProfileService.save(
@@ -44,6 +62,10 @@ class UserProfileControllerTest {
                         post(
                                 "/api/v1/users/1/profiles"
                         )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer owner-token"
+                                )
                                 .contentType(
                                         MediaType.APPLICATION_JSON
                                 )
@@ -80,6 +102,10 @@ class UserProfileControllerTest {
                         get(
                                 "/api/v1/users/1/profiles"
                         )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer owner-token"
+                                )
                 )
                 .andExpect(status().isOk())
                 .andExpect(
@@ -102,6 +128,10 @@ class UserProfileControllerTest {
                         post(
                                 "/api/v1/users/1/profiles"
                         )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer owner-token"
+                                )
                                 .contentType(
                                         MediaType.APPLICATION_JSON
                                 )
@@ -127,6 +157,10 @@ class UserProfileControllerTest {
                         post(
                                 "/api/v1/users/1/profiles"
                         )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer owner-token"
+                                )
                                 .contentType(
                                         MediaType.APPLICATION_JSON
                                 )
@@ -157,6 +191,12 @@ class UserProfileControllerTest {
     void 사용자가_없으면_404를_반환한다()
             throws Exception {
 
+        when(
+                sessionTokenService.authenticateBearer(
+                        "Bearer user-999-token"
+                )
+        ).thenReturn(999L);
+
         when(userProfileService.findAll(999L))
                 .thenThrow(
                         new UserNotFoundException()
@@ -166,6 +206,10 @@ class UserProfileControllerTest {
                         get(
                                 "/api/v1/users/999/profiles"
                         )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer user-999-token"
+                                )
                 )
                 .andExpect(status().isNotFound())
                 .andExpect(
@@ -182,6 +226,10 @@ class UserProfileControllerTest {
                         delete(
                                 "/api/v1/users/1/profiles/profile-001"
                         )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer owner-token"
+                                )
                 )
                 .andExpect(
                         status().isNoContent()
@@ -192,6 +240,62 @@ class UserProfileControllerTest {
                         1L,
                         "profile-001"
                 );
+    }
+
+    @Test
+    void 인증_헤더가_없으면_401을_반환한다()
+            throws Exception {
+
+        when(
+                sessionTokenService.authenticateBearer(null)
+        ).thenThrow(
+                new ApiException(
+                        HttpStatus.UNAUTHORIZED,
+                        "AUTHENTICATION_REQUIRED",
+                        "로그인이 필요합니다."
+                )
+        );
+
+        mockMvc.perform(
+                        get(
+                                "/api/v1/users/1/profiles"
+                        )
+                )
+                .andExpect(status().isUnauthorized())
+                .andExpect(
+                        jsonPath("$.code")
+                                .value("AUTHENTICATION_REQUIRED")
+                );
+
+        verifyNoInteractions(userProfileService);
+    }
+
+    @Test
+    void 다른_사용자의_주문표는_삭제할_수_없다()
+            throws Exception {
+
+        when(
+                sessionTokenService.authenticateBearer(
+                        "Bearer other-token"
+                )
+        ).thenReturn(2L);
+
+        mockMvc.perform(
+                        delete(
+                                "/api/v1/users/1/profiles/profile-001"
+                        )
+                                .header(
+                                        HttpHeaders.AUTHORIZATION,
+                                        "Bearer other-token"
+                                )
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(
+                        jsonPath("$.code")
+                                .value("PROFILE_ACCESS_DENIED")
+                );
+
+        verifyNoInteractions(userProfileService);
     }
 
     private UserProfileResponse response() {

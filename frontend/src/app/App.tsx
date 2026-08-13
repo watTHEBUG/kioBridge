@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
@@ -13,14 +13,22 @@ import type {
   MappingResponse, MappedItem, MappedOption, MappingCandidate, ApproveInput, RecommendationReason,
   PlanStatus, CartResult, AbortInfo,
 } from "@/domain/types";
-import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, MOCK_SHEETS, STEPS } from "@/domain/catalog";
+import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, STEPS } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerSheet, unregisterSheet, type Scenario } from "@/api/client";
 import {
   account, 아이디검사, 비밀번호검사, 못올리는이유, 개인정보같은메모,
   LOGIN_ID_MAX, PASSWORD_MIN, MENU_NAME_MAX, MEMO_MAX, type Account,
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
-import { 접근성설정, type 접근성 } from "@/api/a11y";
+import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
+import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
+import { 가격한도 } from "@/api/budget";
+import { 개인정보동의 } from "@/api/consent";
+import { 알레르기설정, 알레르기목록 } from "@/api/allergy";
+import type { AllergenId } from "@/api/canonical";
+import { 이어쓰기 } from "@/api/session";
+import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
+import { tf } from "@/i18n/t";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -53,18 +61,101 @@ function AppLogo({ light = false, size = 34 }: { light?: boolean; size?: number 
 
 // 레퍼런스에는 진행 막대가 없다. 점 형태로 최소화해 상단 여백을 비워 둔다.
 //
-// 전체 3단계다 — 회원가입 → 호칭 → 첫 주문표. 예전에는 전화번호·인증번호가 앞에 있어
-// 4단계였는데, 그 둘을 걷어내면서 하나 줄었다. 기본값만 고치고 넘어가면 화면마다
-// "3단계 중 4단계" 처럼 실제와 어긋난 값이 남으므로 부르는 쪽에서 전부 명시한다.
+// 전체 3단계다 — 회원가입 → 호칭 → 도움 설정. 그다음의 '환영합니다' 는 세지 않는다.
+// 읽고 넘어가는 화면이지 채울 것이 없어서, 단계로 세면 아직 할 일이 남은 것처럼 보인다.
+//
+// 예전에는 두 단계였다(가입 · 호칭). 도움 설정을 계정 화면에서 이 흐름으로 끌어오면서
+// 하나 늘었다. 기본값만 고치고 넘어가면 화면마다 "3단계 중 2단계" 처럼 실제와 어긋난
+// 값이 남으므로 부르는 쪽에서 전부 명시한다.
 function ProgressBar({ step, total = 3 }: { step: number; total?: number }) {
   return (
-    <div className="flex justify-center gap-1.5" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={total} aria-label={`전체 ${total}단계 중 ${step}단계`}>
+    <div className="flex justify-center gap-1.5" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={total} aria-label={tf("전체 {전체}단계 중 {지금}단계", { 전체: total, 지금: step })}>
       {Array.from({ length: total }).map((_, i) => (
         <div
           key={i}
           style={{ width: i < step ? 16 : 5, height: 5, borderRadius: 100, backgroundColor: i < step ? RULE : BORDER, transition: "all 0.4s" }}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * 개인정보 수집·이용 동의 칸.
+ *
+ * 이 앱은 실제 이름·전화번호를 안 받는다. 그래도 묻는 이유는 **고른 조건도 그 사람에
+ * 대한 정보**여서다 — 맵기·형태·알레르기·가격 한도·안내 언어가 모이면 그 사람이
+ * 무엇을 못 먹고 무엇이 불편한지가 드러난다. 이름이 없다는 것이 정보가 아니라는
+ * 뜻은 아니다.
+ *
+ * 무엇에 동의하는지 읽을 길을 같이 둔다. 읽을 수 없는 동의는 동의가 아니다.
+ * '자세히' 는 개인정보 안내 화면을 연다.
+ *
+ * checkbox 를 그대로 쓴다. 직접 만든 네모보다 브라우저 것이 스크린리더.키보드에서
+ * 확실하고, 이 화면은 못 들어가면 아무것도 못 하는 자리라 확실한 편이 낫다.
+ */
+/**
+ * 동의 없이도 볼 수 있는 화면.
+ *
+ * 앞의 셋은 들어오는 문이고, privacy 는 무엇에 동의하는지 읽는 곳이다.
+ * 읽을 수 없는 동의는 동의가 아니라서 그 길은 열어 둔다.
+ */
+const 동의없이볼수있는화면 = new Set<Screen>(["welcome", "login", "signup", "privacy"]);
+
+function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
+  동의함: boolean;
+  on바꾸기: (v: boolean) => void;
+  onDetail: () => void;
+}) {
+  const id = "consent-check";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4, textAlign: "left" }}>
+      {/*
+        네모 자체는 22px 라도 누르는 자리는 44px 이어야 한다(이 앱의 터치 기준).
+        label 이 네모를 품고 있어서 이 줄 어디를 눌러도 켜지고 꺼진다 — 손이
+        떨리는 분에게 22px 과녁을 맞히라고 하면 그게 가장 어려운 동작이다.
+      */}
+      <label
+        htmlFor={id}
+        style={{
+          flex: 1, minHeight: 44, display: "flex", alignItems: "center", gap: 10,
+          padding: "6px 0", cursor: "pointer",
+        }}
+      >
+        {/*
+          aria-hidden 을 붙이면 안 된다. 이 안에 포커스가 가는 체크박스가 있어서,
+          키보드로는 닿는데 스크린리더는 역할도 켜짐 여부도 못 읽는 자리가 된다.
+          자리만 넓히는 껍데기지만 안에 든 것이 조작하는 물건이라 숨기지 않는다.
+        */}
+        <span
+          style={{ width: 44, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <input
+            id={id}
+            type="checkbox"
+            checked={동의함}
+            onChange={(e) => on바꾸기(e.target.checked)}
+            style={{ width: 24, height: 24, accentColor: RULE, cursor: "pointer" }}
+          />
+        </span>
+        <span style={{ fontSize: 14, color: TEXT_1, lineHeight: 1.6, flex: 1 }}>
+          주문에 쓸 정보를 모으고 쓰는 데 동의합니다.
+          <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 2 }}>
+            메뉴 조건과 도움 설정이에요. 이름·전화번호는 받지 않아요.
+          </span>
+        </span>
+      </label>
+      <button
+        type="button"
+        onClick={onDetail}
+        style={{
+          flexShrink: 0, minHeight: 44, padding: "0 4px", background: "transparent", border: "none",
+          color: TEXT_2, fontSize: 13, fontWeight: 700, textDecoration: "underline",
+          fontFamily: FONT, cursor: "pointer",
+        }}
+      >
+        자세히
+      </button>
     </div>
   );
 }
@@ -191,13 +282,30 @@ function Chip({ label, selected, onClick }: { label: string; selected: boolean; 
   );
 }
 
-function SectionLabel({ text, required }: { text: string; required?: boolean }) {
-  return (
-    <div className="flex items-baseline gap-2 mb-3">
+/**
+ * 칸 위의 제목.
+ *
+ * `칸id` 를 주면 `<label>` 이 되어 그 칸에 묶인다. **글자를 눌러도 커서가 칸으로
+ * 간다** — 손이 떨리는 분에게는 누를 수 있는 자리가 두 배가 되는 일이다.
+ *
+ * 묶기 전에는 보이는 글자("메뉴 이름")와 읽히는 글자(`aria-label="메뉴 이름 (필수)"`)를
+ * 따로 적어 두었다. 한쪽만 고치는 날이 오면 눈으로 보는 사람과 귀로 듣는 사람이
+ * 다른 말을 받는다. 묶으면 하나가 되어 그 위험이 사라진다.
+ *
+ * 옆의 '필수/선택' 도 label 안에 둔다. 읽으면 "메뉴 이름 필수" 가 되어, 눈으로
+ * 보는 것과 같은 것을 듣는다.
+ */
+function SectionLabel({ text, required, 칸id }: { text: string; required?: boolean; 칸id?: string }) {
+  const 속 = (
+    <>
       <span style={{ ...TYPE.label, color: TEXT_1 }}>{text}</span>
       <span style={{ fontSize: 12, fontWeight: 400, color: TEXT_2 }}>{required ? "필수" : "선택"}</span>
-    </div>
+    </>
   );
+  const 꾸밈 = "flex items-baseline gap-2 mb-3";
+  return 칸id
+    ? <label htmlFor={칸id} className={꾸밈} style={{ cursor: "pointer" }}>{속}</label>
+    : <div className={꾸밈}>{속}</div>;
 }
 
 // ─── Welcome ──────────────────────────────────────────────────────────────────
@@ -210,12 +318,35 @@ function SectionLabel({ text, required }: { text: string; required?: boolean }) 
  * onStart  익명으로 바로 시작 — 저장은 이번 한 번만, 기기에 남기지 않는다
  * onLogin  선택적 로그인 — 다음에도 불러오고 싶은 사람만 고른다
  */
-function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
+function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
+  onStart: () => void;
+  onLogin: () => void;
+  /** 동의 전에는 어느 길로도 못 들어간다 — 게스트로 시작하는 것도 정보를 쓰는 일이다. */
+  동의함: boolean;
+  on동의: (v: boolean) => void;
+  onPrivacy: () => void;
+}) {
   return (
-    <div className="flex flex-col h-full kb-paper">
-      {/* 첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
-          아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다. */}
-      <div className="shrink-0 relative" style={{ height: "42%", minHeight: 0, overflow: "hidden" }}>
+    <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
+      {/*
+        첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
+        아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다.
+
+        자리가 모자라면 **사진이 먼저 양보한다.** 예전에는 사진을 42% 로 박아 두고
+        (shrink-0) 가운데 칸을 flex-1 로 뒀는데, flex-1 은 바탕 크기가 0 이라
+        가운데 칸이 '남은 만큼' 만 받았다. 동의 문구가 한 줄 늘어 아래 칸이 커지면
+        남는 자리가 글보다 작아지고, 그러면 글이 칸 밖으로 나가 아래 칸을 덮었다.
+        동의를 안 한 첫 화면에서 안내 문구가 소개 문장 위에 겹쳐 보였다.
+
+        사진은 없어도 뜻이 통하는 그림이고 글은 아니다. 그래서 줄어드는 쪽을
+        사진으로 정한다. 160 아래로는 안 줄인다 — 그보다 작으면 무슨 장면인지
+        알아볼 수 없어서 있으나 마나다.
+
+        더 짧은 화면(작은 폰 세로 667 같은)에서는 사진을 다 줄여도 모자란다.
+        그때는 겹치거나 잘리는 대신 **화면이 스크롤된다**(위 kb-paper 칸의
+        overflowY). 로그인 단추가 화면 밖에 남아 못 누르는 것이 제일 나쁘다.
+      */}
+      <div className="relative" style={{ height: "42%", minHeight: 160, flexShrink: 1, overflow: "hidden" }}>
         <img
           src={kioskHeroImg}
           alt=""
@@ -238,7 +369,11 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
         />
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center" style={{ minHeight: 0, padding: `0 ${GAP.screenX}px`, marginTop: -12 }}>
+      {/*
+        flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
+        실제 높이(auto)다. 이 셋이 다 있어야 이 칸의 글이 자리 계산에 들어간다.
+      */}
+      <div className="flex flex-col items-center justify-center" style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px`, marginTop: -12 }}>
         <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
           <AppLogo size={40} />
@@ -248,9 +383,20 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
         </p>
       </div>
 
-      <div style={{ padding: `0 ${GAP.screenX}px 32px` }} className="flex flex-col gap-3">
+      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 사진이 양보한다. */}
+      <div style={{ padding: `0 ${GAP.screenX}px 32px`, flexShrink: 0 }} className="flex flex-col gap-3">
+        {/*
+          동의를 먼저 받는다. 게스트로 시작하는 것도 정보를 쓰는 일이라 같이 막는다 —
+          로그인한 사람에게만 물으면, 정작 가장 많이 쓰일 길에서는 안 묻는 셈이 된다.
+        */}
+        <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
+        {!동의함 && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center" }} role="status">
+            동의하셔야 시작할 수 있어요
+          </p>
+        )}
         {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
-        <PrimaryBtn onClick={onStart}>
+        <PrimaryBtn onClick={onStart} disabled={!동의함}>
           <span className="flex items-center justify-center gap-2">
             {/* 대표 버튼 안이라 버튼 면과 함께 뒤집혀야 한다. #fff 로 박으면 다크에서
                 흰 알약 위에 흰 아이콘이 된다. 코드래빗이 잡은 셋과 같은 종류다. */}
@@ -266,9 +412,11 @@ function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () 
         <button
           type="button"
           onClick={onLogin}
+          disabled={!동의함}
           style={{
             marginTop: 4, minHeight: 56, borderRadius: RADIUS.button, background: SURFACE,
             border: `1px solid ${BORDER}`, color: TEXT_2, fontSize: 15, fontWeight: 600,
+            cursor: 동의함 ? "pointer" : "not-allowed", opacity: 동의함 ? 1 : 0.55,
           }}
           className="flex items-center justify-center gap-2 w-full"
         >
@@ -388,10 +536,13 @@ function AccountField({
  * 아이디가 없는 것과 비밀번호가 틀린 것을 구분해서 알리지 않는다. 구분해 주면 어떤 아이디가
  * 이미 있는지 하나씩 확인할 수 있다. 서버도 같은 예외(InvalidCredentialsException)를 쓴다.
  */
-function LoginScreen({ onDone, onBack, onGoSignup }: {
+function LoginScreen({ onDone, onBack, onGoSignup, 동의함, on동의, onPrivacy }: {
   onDone: (a: Account) => void;
   onBack: () => void;
   onGoSignup: () => void;
+  동의함: boolean;
+  on동의: (v: boolean) => void;
+  onPrivacy: () => void;
 }) {
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
@@ -399,7 +550,9 @@ function LoginScreen({ onDone, onBack, onGoSignup }: {
   // 보내는 중에 또 누르면 요청이 두 번 나간다. 로그인에서는 실패 횟수를 두 배로 쌓는 셈이다.
   const [보내는중, set보내는중] = useState(false);
 
-  const 채워짐 = loginId.trim() !== "" && password !== "";
+  // 동의도 조건이다. 첫 화면에서 이미 체크했으면 켜진 채로 온다 —
+  // 이번 이용에 한 번만 묻는 값이라 화면마다 다시 묻지 않는다.
+  const 채워짐 = loginId.trim() !== "" && password !== "" && 동의함;
 
   const 보내기 = () => {
     if (!채워짐 || 보내는중) return;
@@ -444,9 +597,10 @@ function LoginScreen({ onDone, onBack, onGoSignup }: {
       </div>
 
       <StickyFooter>
+        <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!채워짐 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            아이디와 비밀번호를 적으면 로그인할 수 있어요
+            {동의함 ? "아이디와 비밀번호를 적으면 로그인할 수 있어요" : "동의하셔야 로그인할 수 있어요"}
           </p>
         )}
         <PrimaryBtn onClick={보내기} disabled={!채워짐 || 보내는중}>
@@ -478,10 +632,13 @@ function LoginScreen({ onDone, onBack, onGoSignup }: {
  * 비밀번호를 두 번 받는다. 서버는 한 번만 받지만, 가려진 칸에 오타가 나면 사용자는
  * 다음 로그인에서야 그 사실을 알게 되고 그때는 고칠 방법이 없다.
  */
-function SignupScreen({ onDone, onBack, onGoLogin }: {
+function SignupScreen({ onDone, onBack, onGoLogin, 동의함, on동의, onPrivacy }: {
   onDone: (a: Account) => void;
   onBack: () => void;
   onGoLogin: () => void;
+  동의함: boolean;
+  on동의: (v: boolean) => void;
+  onPrivacy: () => void;
 }) {
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
@@ -522,7 +679,7 @@ function SignupScreen({ onDone, onBack, onGoLogin }: {
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
         <div className="flex-1 flex justify-center" style={{ marginRight: 34 }}>
-          <ProgressBar step={1} total={2} />
+          <ProgressBar step={1} total={3} />
         </div>
       </div>
 
@@ -591,9 +748,11 @@ function SignupScreen({ onDone, onBack, onGoLogin }: {
       </div>
 
       <StickyFooter>
+        <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!보낼수있나 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {아이디문제 ?? 비번문제 ?? 다시문제 ?? "아이디와 비밀번호를 적으면 가입할 수 있어요"}
+            {아이디문제 ?? 비번문제 ?? 다시문제
+              ?? (동의함 ? "아이디와 비밀번호를 적으면 가입할 수 있어요" : "동의하셔야 가입할 수 있어요")}
           </p>
         )}
         <PrimaryBtn onClick={보내기} disabled={!보낼수있나 || 보내는중}>
@@ -624,7 +783,7 @@ function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
         <div className="flex-1 flex justify-center" style={{ marginRight: 34 }}>
-          <ProgressBar step={2} total={2} />
+          <ProgressBar step={2} total={3} />
         </div>
       </div>
 
@@ -638,7 +797,7 @@ function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack
          */}
         <CenterHeadline
           title={<>반갑습니다!<br />어떻게 불러드릴까요?</>}
-          desc="부르는 말만 쓰여요. 실제 이름이 아니어도 괜찮아요"
+          desc="실제 이름 말고, 불리고 싶은 말을 적어 주세요"
         />
 
         <label htmlFor="name-input" className="sr-only">부를 호칭</label>
@@ -649,6 +808,15 @@ function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="예: 할머니, 김씨"
+          /*
+           * 호칭 길이로 잘라 둔다(#96 리뷰).
+           *
+           * 실제 이름인지 아닌지는 코드가 가려낼 수 없다 — '김씨' 도 호칭이고
+           * 성씨이기도 하다. 대신 이 칸이 **호칭 말고 다른 것을 담을 수 없게**
+           * 만든다. 열두 자면 부르는 말은 다 들어가지만 주소나 전화번호,
+           * 주민등록번호는 들어가지 않는다.
+           */
+          maxLength={12}
           data-autofocus
           style={{
             width: "100%", marginTop: 36, textAlign: "center",
@@ -685,7 +853,7 @@ function GreetingScreen({ name, onNext }: { name: string; onNext: () => void }) 
     >
       <Pictogram name="handsClapping" size={72} color={TEXT_1} />
       <h1 style={{ ...TYPE.title, color: TEXT_1, marginTop: 32 }}>
-        반가워요, <span style={{ color: TEXT_1 }}>{name}</span>님!
+        반가워요, <span data-원문 style={{ color: TEXT_1 }}>{name}</span>님!
       </h1>
       <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>
         자주 시키는 주문을 저장해 두면<br />키오스크 앞에서 바로 꺼내 쓸 수 있어요
@@ -802,19 +970,40 @@ function CheckRow({ checked, onToggle, label }: { checked: boolean; onToggle: ()
 let 주문표일련번호 = 0;
 const newSheetId = () => `p${Date.now()}_${++주문표일련번호}`;
 
-function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
+function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null }: {
   onNext: (p: OrderSheet) => void;
   onBack: () => void;
+  /**
+   * 고치러 들어온 주문표. null 이면 새로 만드는 것이다.
+   *
+   * 예전에는 한 번 만든 주문표를 여는 길이 없었다. 조건 하나가 틀리면 지우고
+   * 처음부터 다시 적어야 했다 — 맵기만 바꾸려 해도 이름·장소·메모를 전부 다시
+   * 적는 일이다. 저장해 둔 것을 다시 쓰자고 만든 앱에서 그건 앞뒤가 안 맞는다.
+   */
+  고칠것?: OrderSheet | null;
+  /** 이번 이용의 가격 한도. 주문표에는 안 담긴다 — 한도고르기 의 주석을 보라. */
+  예산: number | null;
+  on예산: (원: number | null) => void;
+  /** 금액 표기가 언어마다 다르다. 한도고르기 까지 내려간다. */
+  영어인가: boolean;
   /**
    * 로그인한 사람인가. 저장한 주문표가 서버에도 올라가는지가 달라지므로 화면이 말해 준다.
    * 로그인하지 않았으면 서버 이야기를 꺼내지 않는다 — 하지 않는 일을 설명할 이유가 없다.
    */
   로그인함?: boolean;
 }) {
-  const [menuName, setMenuName] = useState("");
-  const [place, setPlace] = useState<PlaceType>(null);
-  const [selections, setSelections] = useState<Record<string, string[]>>({});
-  const [memo, setMemo] = useState("");
+  const [menuName, setMenuName] = useState(고칠것?.menuName ?? "");
+  const [place, setPlace] = useState<PlaceType>(고칠것?.place ?? null);
+  // 고른 값을 그대로 물려받되 **새 객체로** 담는다. 저장된 주문표의 selections 를
+  // 그대로 쥐고 고치면, 저장을 안 누르고 나가도 목록의 주문표가 이미 바뀌어 있다.
+  const [selections, setSelections] = useState<Record<string, string[]>>(
+    () => Object.fromEntries(Object.entries(고칠것?.selections ?? {}).map(([축, 값]) => [축, [...값]])),
+  );
+  const [memo, setMemo] = useState(고칠것?.memo ?? "");
+
+  // 이름·메모 칸의 id. 라벨을 칸에 묶는 데 쓴다(SectionLabel 주석).
+  const 이름칸id = useId();
+  const 메모칸id = useId();
 
   const options = place ? DETAIL_OPTIONS[place] : [];
 
@@ -882,16 +1071,18 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
          * 가입 흐름은 가입(1) → 호칭(2) 둘로 끝난다.
          */}
         <BackButton onClick={onBack} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>메뉴 주문표</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>자주 주문하는 메뉴를 저장해두세요</p>
+        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>{고칠것 ? "주문표 고치기" : "메뉴 주문표"}</h1>
+        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+          {고칠것 ? "고치고 저장하면 이 주문표가 바뀌어요" : "자주 주문하는 메뉴를 저장해두세요"}
+        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
         <div style={{ marginBottom: 28 }}>
-          <SectionLabel text="메뉴 이름" required />
+          <SectionLabel text="메뉴 이름" required 칸id={이름칸id} />
           <input
+            id={이름칸id}
             type="text"
-            aria-label="메뉴 이름 (필수)"
             value={menuName}
             onChange={(e) => setMenuName(e.target.value)}
             // 서버의 menuName 이 @Size(max = 100) 이다. 넘으면 저장은 되는데 서버에만
@@ -959,8 +1150,17 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
           </div>
         )}
 
+        {/*
+          조건을 고르는 자리에서 얼마까지 쓸지도 같이 정한다. 맵기·형태와 함께
+          '이 주문의 조건' 이라 여기가 맞다. 다만 값은 주문표가 아니라 이번
+          이용에 담긴다(한도고르기 주석).
+        */}
+        <div style={{ marginBottom: 24 }}>
+          <한도적기 예산={예산} on바꾸기={on예산} 영어인가={영어인가} />
+        </div>
+
         <div style={{ marginBottom: 8 }}>
-          <SectionLabel text="메모" />
+          <SectionLabel text="메모" 칸id={메모칸id} />
           {/*
            * 메모는 자유 입력이라 사용자가 무엇이든 적을 수 있다.
            * "이 칸을 없애라" 는 지적도 있었지만, '얼음 적게 부탁드려요' 처럼
@@ -969,7 +1169,9 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
            * placeholder 는 입력하면 사라지므로 안내는 밖에 따로 둔다.
            */}
           <textarea
-            aria-label="메모 (선택). 이름·전화번호·주민등록번호 같은 개인정보는 적지 마세요"
+            id={메모칸id}
+            /* 무엇을 적지 말아야 하는지는 아래 memo-notice 가 읽어 준다. 라벨에
+               또 적으면 칸에 들어갈 때마다 그 긴 문장을 한 번 더 듣는다. */
             aria-describedby="memo-notice"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
@@ -1023,12 +1225,17 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false }: {
           </p>
         )}
         <PrimaryBtn
-          // Date.now() 만 쓰면 같은 밀리초에 두 개를 만들 때 id 가 겹친다.
-          // 겹치면 주문표 하나를 지울 때 다른 하나도 같이 사라진다.
-          onClick={() => onNext({ id: newSheetId(), menuName, place, selections, memo })}
+          /*
+           * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
+           * 하나가 더 생기고, 서버에 올라간 주문표는 옛것이 그대로 남는다.
+           *
+           * 새로 만들 때만 id 를 짓는다. Date.now() 만 쓰면 같은 밀리초에 두 개를
+           * 만들 때 겹치고, 겹치면 하나를 지울 때 다른 하나도 같이 사라진다.
+           */
+          onClick={() => onNext({ id: 고칠것?.id ?? newSheetId(), menuName, place, selections, memo })}
           disabled={!menuName.trim() || 개인정보같은메모(memo)}
         >
-          저장하고 시작하기
+          {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
         </PrimaryBtn>
       </StickyFooter>
     </div>
@@ -1051,9 +1258,9 @@ const SR_ONLY: React.CSSProperties = {
 };
 
 function OrderSheetCard({
-  sheet, selected, onSelect, onDelete,
+  sheet, selected, onSelect, onDelete, onEdit,
 }: {
-  sheet: OrderSheet; selected: boolean; onSelect: () => void; onDelete: () => void;
+  sheet: OrderSheet; selected: boolean; onSelect: () => void; onDelete: () => void; onEdit: () => void;
 }) {
   const allTags = [...(sheet.place ? [sheet.place] : []), ...Object.values(sheet.selections).flat()];
   const visibleTags = allTags.slice(0, 4);
@@ -1116,7 +1323,7 @@ function OrderSheetCard({
             >
               {sheet.place ? PLACE_ICONS[sheet.place] : <Pictogram name="squaresFour" size={19} />}
             </div>
-            <span style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1 }}>{sheet.menuName}</span>
+            <span data-원문 style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1 }}>{sheet.menuName}</span>
           </div>
           <div
             aria-hidden="true"
@@ -1163,16 +1370,34 @@ function OrderSheetCard({
 
         {/* 반투명 흰색(70%)은 초록 위에서 3.31:1 이라 읽히지 않는다. 흰색은 5.08:1 이다. */}
         {sheet.memo && (
-          <p style={{ fontSize: 14, color: selected ? PAPER : TEXT_2, lineHeight: 1.5, marginTop: 12 }}>{sheet.memo}</p>
+          <p style={{ fontSize: 14, color: selected ? PAPER : TEXT_2, lineHeight: 1.5, marginTop: 12 }} data-원문>{sheet.memo}</p>
         )}
       </label>
 
-      {/* 삭제는 라벨 바깥에 둔다. 안에 있으면 label 이 클릭을 가로채 선택으로 바꿔 버린다. */}
-      <div className="flex justify-end" style={{ padding: "0 20px 20px", marginTop: 4 }}>
+      {/* 고치기·삭제는 라벨 바깥에 둔다. 안에 있으면 label 이 클릭을 가로채 선택으로 바꿔 버린다. */}
+      <div className="flex justify-end" style={{ gap: 4, padding: "0 20px 20px", marginTop: 4 }}>
+        {/*
+          고치기를 삭제 왼쪽에 둔다. 손이 가는 순서가 그렇고, 되돌릴 수 없는 쪽이
+          끝에 있어야 잘못 눌러도 덜 위험하다.
+        */}
+        <button
+          type="button"
+          aria-label={`${듣는이름(sheet)}, 주문표 고치기`}
+          onClick={onEdit}
+          style={{
+            fontSize: 13, fontWeight: 500, minHeight: 44, minWidth: 44, padding: "6px 10px",
+            background: "none", border: "none", cursor: "pointer",
+            color: selected ? PAPER : TEXT_2,
+            textDecoration: "underline", textUnderlineOffset: 3,
+          }}
+        >
+          고치기
+        </button>
         <button
           type="button"
           // 삭제는 되돌릴 수 없다. 고르는 쪽보다 더 정확히 말해 줘야 한다.
-          aria-label={`${듣는이름(sheet)} 주문표 삭제`}
+          /* 쉼표로 띄운다. 스크린리더가 한 박자 쉬어 읽고, 옮길 때도 토막마다 걸린다. */
+          aria-label={`${듣는이름(sheet)}, 주문표 삭제`}
           onClick={onDelete}
           style={{
             // 높이만 44 였고 폭이 30 이었다. 밑줄은 글자에만 걸리므로
@@ -1191,12 +1416,114 @@ function OrderSheetCard({
   );
 }
 
+/**
+ * 가격 한도를 고르는 줄.
+ *
+ * 순위를 바꾸는 값이 아니라 **후보를 빼는 값**이다. 서버에서 확인한 것:
+ * 한도가 5,000원이면 5,500~7,000원짜리 후보가 전부 excludedCandidates 로 빠지고
+ * reasonCode 는 PRICE_LIMIT_EXCEEDED 다. 그래서 "비싼 건 빼고 찾아요" 라고
+ * 먼저 말한다 — 순위만 밀리는 줄 알고 낮게 잡으면 담을 게 없다는 답을 받는다.
+ *
+ * **묻는 자리는 주문표를 만들 때다.** 맵기·형태를 고르는 그 자리에서 얼마까지
+ * 쓸지도 같이 정한다. 예전에는 주문 직전에 물었는데, 그때는 이미 어느 키오스크
+ * 앞에 서 있는 참이라 조건을 되짚는 자리가 아니다.
+ *
+ * **담기는 곳은 주문표가 아니라 이번 이용이다.** 예산은 그날그날 다르다. 주문표에
+ * 넣으면 지난주에 정한 한도가 저장된 조건으로 굳어, 오늘 주문에서 말없이 후보를
+ * 자른다. 그래서 값은 budget.ts 의 이용 저장소에 담고 창을 닫으면 사라진다 —
+ * 묻는 자리와 담는 자리가 다른 것은 일부러 그렇게 한 것이다.
+ *
+ * 만들어 둔 주문표만 있는 사람도 바꿀 수 있어야 해서 도움 설정 화면에도 둔다.
+ * 알레르기가 가입 때 묻고 설정에서 고치는 것과 같은 모양이다.
+ */
+function 한도적기({ 예산, on바꾸기, 영어인가 }: {
+  예산: number | null;
+  on바꾸기: (원: number | null) => void;
+  /** 금액 표기가 언어마다 달라서 여기까지 내려온다("6,000원" vs "KRW 6,000"). */
+  영어인가: boolean;
+}) {
+  // 이 칸은 만들기 화면과 도움 설정 두 곳에 뜬다. id 를 손으로 적어 두면 언젠가
+  // 둘이 같이 떠서 라벨이 엉뚱한 칸을 가리킨다. React 가 겹치지 않게 지어 준다.
+  const 칸id = useId();
+  const [적은것, set적은것] = useState(예산 === null ? "" : String(예산));
+
+  /*
+   * 밖에서 값이 바뀌면 따라간다 — 로그아웃으로 비워지거나, 다른 화면에서 고친
+   * 경우다. 적는 중에는 안 건드린다: 지금 칸의 값이 이미 그 숫자면 그대로 둔다.
+   * (안 그러면 "8000" 을 적는 동안 매 글자마다 칸이 다시 쓰여 커서가 튄다.)
+   */
+  useEffect(() => {
+    set적은것((지금) => (숫자만읽기(지금) === 예산 ? 지금 : 예산 === null ? "" : String(예산)));
+  }, [예산]);
+
+  const 고치기 = (글: string) => {
+    /*
+     * 숫자만 남긴다. 사람은 "8,000" 이나 "8000원" 이라고 적는다. 그걸 틀렸다고
+     * 돌려보내는 대신 우리가 읽어 낸다. 앞의 0 은 버리고(0 8000 → 8000),
+     * 일곱 자리에서 끊는다 — 키오스크 한 끼에 천만 원은 오타다.
+     */
+    const 숫자 = 글.replace(/[^0-9]/g, "").replace(/^0+/, "").slice(0, 7);
+    set적은것(숫자);
+    on바꾸기(숫자 === "" ? null : Number(숫자));
+  };
+
+  return (
+    <div>
+      <label htmlFor={칸id} style={{ ...TYPE.label, color: TEXT_2, display: "block", marginBottom: 6 }}>
+        가격 한도 (선택)
+        {/*
+          눈으로는 칸 오른쪽의 "원" 이 단위를 알려 주지만, 그건 장식이라
+          aria-hidden 이다. 소리로만 듣는 사람은 이 칸이 원 단위인지 만 원
+          단위인지 알 수 없다. 잘못 적으면 후보가 통째로 걸러지는 값이라
+          라벨에서 한 번 말해 준다(#98 리뷰).
+        */}
+        <span className="sr-only">{영어인가 ? " in won" : " 원 단위"}</span>
+      </label>
+      <div className="flex items-center" style={{ gap: 8, backgroundColor: CANVAS, borderRadius: RADIUS.input, padding: "0 16px" }}>
+        <input
+          id={칸id}
+          /*
+           * type="number" 를 안 쓴다. 칸에 손을 얹고 휠을 굴리면 값이 말없이
+           * 바뀌고, 위아래 화살표는 손이 떨리는 사람에게 누르기 어려운 크기다.
+           * 숫자판은 inputMode 로 띄운다.
+           */
+          type="text"
+          inputMode="numeric"
+          value={적은것}
+          onChange={(e) => 고치기(e.target.value)}
+          placeholder="예: 8000"
+          aria-describedby={`${칸id}-help`}
+          style={{
+            flex: 1, minWidth: 0, ...TYPE.body, color: TEXT_1, fontFamily: FONT, ...NUM,
+            padding: "15px 0", border: "none", outline: "none", backgroundColor: "transparent",
+          }}
+        />
+        {/* 단위는 표에 넣지 않고 여기서 언어를 보고 적는다 — 돈() 과 같은 이유다. */}
+        <span aria-hidden="true" style={{ ...TYPE.body, color: TEXT_2 }}>{영어인가 ? "KRW" : "원"}</span>
+      </div>
+      {/* 적는 동안 글자마다 바뀐다. 바뀔 때마다 읽으면 한 글자에 한 문장씩 듣는다. */}
+      <p id={`${칸id}-help`} data-소리조용 style={{ fontSize: 12, color: TEXT_2, marginTop: 6, lineHeight: 1.6 }}>
+        {예산 === null
+          ? "비워 두면 한도 없이 찾아요"
+          : tf("{금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.", { 금액: 돈(예산, 영어인가) })}
+      </p>
+    </div>
+  );
+}
+
+/** 적힌 글에서 우리가 값으로 읽는 숫자. 못 읽으면 null 이다. */
+const 숫자만읽기 = (글: string): number | null => {
+  const 숫자 = 글.replace(/[^0-9]/g, "").replace(/^0+/, "");
+  return 숫자 === "" ? null : Number(숫자);
+};
+
 function SavedSheetsScreen({
-  sheets, onAddSheet, onDeleteSheet, onOrder, showOrder = false,
+  sheets, onAddSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
 }: {
   sheets: OrderSheet[];
   onAddSheet: () => void;
   onDeleteSheet: (id: string) => void;
+  onEditSheet: (sheet: OrderSheet) => void;
   onOrder: (sheet: OrderSheet) => void;
   showOrder?: boolean;
 }) {
@@ -1259,6 +1586,7 @@ function SavedSheetsScreen({
                 // 움직이고 '그대로 두기' 를 눌러도 돌아오지 않는다.
                 // 실제로 지워진 뒤의 선택 이동은 아래 useEffect 가 맡는다.
                 onDelete={() => onDeleteSheet(sheet.id)}
+                onEdit={() => onEditSheet(sheet)}
               />
             ))}
           </fieldset>
@@ -1266,6 +1594,10 @@ function SavedSheetsScreen({
       </div>
 
       <StickyFooter>
+        {/*
+          가격 한도는 여기서 안 묻는다. 주문표를 만들 때 조건과 같이 정하고,
+          만들어 둔 주문표만 있는 사람은 도움 설정에서 고친다.
+        */}
         {/*
           아직 연결되지 않은 장소는 주문으로 보내지 않는다.
           
@@ -1514,7 +1846,8 @@ function PairingConnected({
             <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 5 }}>세션 유효시간</p>
             <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.5 }}>만료되면 QR을 다시 스캔해 주세요</p>
           </div>
-          <span style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
+          {/* 1초마다 바뀐다. 바뀔 때마다 읽으면 1초에 한 번씩 남은 시간을 듣는다. */}
+          <span data-소리조용 style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
         </div>
       </div>
 
@@ -1547,7 +1880,7 @@ function PairingFailed({ reason = "유효하지 않은 QR입니다", onScan }: {
 
       <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
         <p style={{ ...TYPE.caption, color: TEXT_1 }}>
-          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔</strong>해 주세요
+          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔해 주세요</strong>
         </p>
       </div>
 
@@ -1570,7 +1903,7 @@ function PairingExpired({ onScan }: { onScan: () => void }) {
 
       <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
         <p style={{ ...TYPE.caption, color: TEXT_1 }}>
-          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔</strong>해 주세요
+          키오스크에 부착된 QR 코드를 <strong style={{ fontWeight: 600 }}>다시 스캔해 주세요</strong>
         </p>
       </div>
 
@@ -1961,47 +2294,252 @@ function ToggleRow({
   );
 }
 
-/**
- * 접근성 설정.
+/** 도움설정 중 켜고 끄는 칸만. language 는 스위치가 아니라 고르는 값이라 뺀다. */
+type 스위치칸 = { [K in keyof 도움설정]: 도움설정[K] extends boolean ? K : never }[keyof 도움설정];
+
+interface 도움항목 {
+  key: 스위치칸;
+  label: string;
+  sub: string;
+  /** 있으면 이게 참일 때만 보여 준다. 못 하는 것을 스위치로 내밀지 않는다. */
+  될때만?: () => boolean;
+}
+
+/*
+ * 일곱 항목을 여기 한 곳에만 둔다.
  *
- * 여기 있는 항목은 전부 실제로 동작하는 것만 둔다. 준비 중인 기능을 목록에 올려 두면
- * 화면을 믿을 수 없게 된다. 큰 글씨는 앱 전체(휴대폰 틀 안)에 바로 적용된다.
+ * 두 화면이 이걸 쓴다 — 가입 직후의 설정 화면(SetupScreen)과 계정 화면에서 여는
+ * 접근성 화면(AccessibilityScreen). 각자 목록을 갖고 있으면 한쪽만 고치는 날이 오고,
+ * 그러면 같은 스위치가 두 자리에서 다른 말을 하게 된다.
+ *
+ * 킷 계약이 요구하는 일곱 가지를 다 묻는다. 예전에는 '큰 글씨' 하나만 묻고 나머지
+ * 여섯을 false 로 박아 서버에 보냈다 — 백엔드는 받을 준비가 돼 있었는데 화면이 안
+ * 물어서 늘 "아무 도움도 필요 없음" 으로 나가고 있었다.
  */
+
+/** 켜면 이 앱이 실제로 무언가를 한다. 무엇을 하는지 sub 에 그대로 적는다. */
+const 바로바꾸는것: 도움항목[] = [
+  { key: "largeText", label: "큰 글씨", sub: "앱 전체의 글씨와 버튼을 크게 봐요" },
+  { key: "highContrast", label: "고대비", sub: "글씨와 배경의 차이를 더 뚜렷하게 해요" },
+  /*
+   * 이 앱이 화면 글을 소리로 읽어 주고, 서버로는 preferredInput: "VOICE" 로 나간다.
+   * 두 가지를 다 하는 유일한 항목이라 이쪽 무리에 둔다.
+   *
+   * 브라우저가 speechSynthesis 를 안 주면 이 줄을 아예 안 보여 준다(쓸수있는것).
+   * 켰는데 아무 소리도 안 나면 사용자는 앱이 고장 났다고 생각한다.
+   */
+  { key: "voiceGuide", label: "소리로 읽어 주기", sub: "화면에 나온 안내를 소리로 읽어 드려요", 될때만: 소리를낼수있나 },
+  { key: "simpleSteps", label: "쉬운 단계", sub: "이유 화면을 건너뛰고 바로 확인 화면으로 가요" },
+  { key: "mobilitySupport", label: "시간 여유", sub: "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요" },
+  { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
+];
+/** 켜도 이 앱 화면은 그대로다. 키오스크로 전해지기만 한다. */
+const 전해드릴것: 도움항목[] = [
+  { key: "visualGuidance", label: "그림 안내", sub: "글보다 그림으로 알려 달라고 전해요" },
+  // '소리 대신 화면' 은 소리 안내를 못 듣는 분의 항목이다. 위의 '소리로 읽어 주기' 와
+  // 반대되는 것이 아니라 서로 다른 사정이라, 둘 다 켤 수 있게 둔다.
+  { key: "hearingSupport", label: "소리 대신 화면", sub: "소리 안내를 못 들어요. 키오스크에 그렇게 전해요" },
+];
+
+/** 이 브라우저에서 실제로 되는 항목만 남긴다. */
+const 쓸수있는것 = (항목들: 도움항목[]): 도움항목[] => 항목들.filter((r) => !r.될때만 || r.될때만());
+
 /**
- * 접근성 설정.
+ * 늘 피해야 하는 것을 고르는 줄.
  *
- * 킷 계약이 요구하는 일곱 가지를 다 묻는다. 예전에는 '큰 글씨' 하나만 묻고
- * 나머지 여섯을 false 로 박아 서버에 보냈다 — 백엔드는 받을 준비가 돼 있었는데
- * 화면이 안 물어서 늘 "아무 도움도 필요 없음" 으로 나가고 있었다.
+ * 주문표에도 알레르기 축이 있는데 여기서 또 묻는 이유 — **알레르기는 주문마다
+ * 달라지는 값이 아니라 그 사람에 대한 사실**이다. 주문표에만 두면 새 주문표를
+ * 만들 때마다 다시 골라야 하고, 한 번 빠뜨리면 그 주문표로 주문할 때 안 걸러진다.
+ * 빠뜨려도 되는 값이 아니라서 한 번 묻고 계속 쓴다.
+ *
+ * 서버로 나갈 때 주문표 쪽과 **합쳐진다**(canonical.ts). 덮지 않으므로 어느 쪽을
+ * 빠뜨려도 걸러지는 후보가 줄지는 않는다.
+ *
+ * 여섯뿐인 이유는 킷 계약이 여섯만 알아서다. 표에 없는 것을 고르게 하면
+ * UNKNOWN 으로 나가고 서버가 주문을 아예 막는다.
+ */
+function 알레르기고르기({ 고른것, on뒤집기 }: { 고른것: AllergenId[]; on뒤집기: (id: AllergenId) => void }) {
+  return (
+    <div>
+      <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>못 드시는 것</h2>
+      <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
+        고르시면 그게 들어간 메뉴는 추천에서 아예 빼요. 없으시면 안 고르셔도 돼요.
+      </p>
+      <div className="flex flex-wrap" style={{ gap: 6 }} role="group" aria-label="못 드시는 것">
+        {알레르기목록.map(({ id, label }) => (
+          <Chip
+            key={id}
+            label={label}
+            selected={고른것.includes(id)}
+            onClick={() => on뒤집기(id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 안내받고 싶은 언어를 고르는 줄.
+ *
+ * 스위치가 아니라 넷 중 하나라서 칩으로 둔다. 이름은 그 언어로 적는다 —
+ * 한국어를 못 읽는 분이 자기 언어를 찾아야 하는 목록인데 "영어" 라고 적어 두면
+ * 정작 그 줄을 찾아야 할 사람이 못 읽는다.
+ *
+ * **이 앱 화면은 안 바뀐다.** 키오스크에 전하기만 한다. 그래서 '전해 드려요'
+ * 무리에 두고, 화면이 안 바뀐다는 말을 위에 적어 둔다 — 골랐는데 아무 일도
+ * 안 일어나면 사용자는 앱이 고장 났다고 생각한다.
+ */
+function 언어고르기({ 고른것, on바꾸기 }: { 고른것: 언어코드; on바꾸기: (v: 언어코드) => void }) {
+  return (
+    <div style={{ paddingTop: 16 }}>
+      <span style={{ display: "block", fontSize: 17, fontWeight: 700, color: TEXT_1, letterSpacing: "-0.02em" }}>
+        안내 언어
+      </span>
+      <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4, marginBottom: 10 }}>
+        키오스크에 이 언어로 안내해 달라고 전해요
+      </span>
+      <div className="flex flex-wrap" style={{ gap: 6 }} role="radiogroup" aria-label="안내 언어">
+        {언어목록.map(({ code, label }) => (
+          <button
+            key={code}
+            type="button"
+            role="radio"
+            aria-checked={고른것 === code}
+            lang={code}
+            onClick={() => on바꾸기(code)}
+            style={{
+              minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
+              fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+              backgroundColor: 고른것 === code ? RULE : CANVAS,
+              color: 고른것 === code ? PAPER : TEXT_CHIP,
+              border: "none", cursor: "pointer", transition: "all 0.15s",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 머리카락 굵기 선으로 이어 붙인 스위치 묶음. 두 화면이 같은 모양으로 쓴다. */
+function 도움목록({ 항목들, 설정, onChange }: {
+  항목들: 도움항목[];
+  설정: 도움설정;
+  onChange: (한칸: Partial<도움설정>) => void;
+}) {
+  return (
+    <div style={{ borderTop: `1px solid ${BORDER}` }}>
+      {항목들.map((r, i) => (
+        <div key={r.key} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
+          <ToggleRow
+            label={r.label}
+            sub={r.sub}
+            on={설정[r.key]}
+            onToggle={() => onChange({ [r.key]: !설정[r.key] })}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 가입 직후 한 번 묻는 도움 설정. 회원가입 → 호칭 → **여기** → 환영합니다.
+ *
+ * 예전에는 계정 화면 깊숙한 곳에만 있었다. 큰 글씨가 필요한 사람이 그걸 찾으려면
+ * 이미 작은 글씨로 세 번을 눌러야 했다 — 도움이 필요한 사람일수록 도달하기 어려운
+ * 자리에 도움을 두고 있었다.
+ *
+ * 스위치는 **누르는 즉시 적용된다.** 저장 버튼을 따로 두지 않는 이유가 이것이다.
+ * 큰 글씨를 켜 보고 "이 정도면 읽히는지" 를 눈으로 확인한 뒤 넘어가야 뜻이 있다.
+ * 눌러 놓고 저장을 눌러야 반영되면, 그 사이에는 아무 일도 안 일어나서 사용자는
+ * 자기가 무엇을 골랐는지 모른 채 확인을 누르게 된다.
+ *
+ * 그래서 아래에도 버튼이 하나뿐이다. '건너뛰기' 와 '저장하기' 를 나란히 두면
+ * 둘이 똑같은 일(다음 화면으로 가기)을 하게 되고, 무엇을 눌러야 하는지 묻는
+ * 화면이 하나 더 생긴다. 이 화면은 통째로 선택이라 그 말을 글로 적는다.
+ */
+function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, onBack }: {
+  설정: 도움설정;
+  onChange: (한칸: Partial<도움설정>) => void;
+  알레르기: AllergenId[];
+  on알레르기: (id: AllergenId) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex flex-col h-full kb-paper">
+      <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
+        <BackButton onClick={onBack} />
+        <div className="flex-1 flex justify-center" style={{ marginRight: 34 }}>
+          <ProgressBar step={3} total={3} />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0, padding: `28px ${GAP.screenX}px 24px` }}>
+        <CenterHeadline
+          kicker="accessibility"
+          title={<>필요한 도움이<br />있으신가요?</>}
+          desc="켜는 즉시 이 화면이 바로 바뀌어요. 안 켜셔도 괜찮아요"
+          spot={<GlassesSpot />}
+        />
+
+        <p style={{ fontSize: 13, color: TEXT_2, margin: "24px 0 20px", lineHeight: 1.7, textAlign: "center" }}>
+          나중에 계정 화면에서 언제든 바꿀 수 있어요.
+        </p>
+
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
+        <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
+
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24 }}>키오스크에 전해 드려요</h2>
+        <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
+          앱 화면은 그대로예요. 지금은 전해 주기만 해요.
+        </p>
+        <도움목록 항목들={쓸수있는것(전해드릴것)} 설정={설정} onChange={onChange} />
+        <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
+
+        {/*
+          알레르기는 '도움 설정' 이 아니라 안전에 관한 값이라 선 아래에 따로 둔다.
+          스위치 묶음에 섞으면 켜고 끄는 편의 항목처럼 읽힌다.
+        */}
+        <div style={{ marginTop: 28, paddingTop: 24, borderTop: `2px solid ${RULE}` }}>
+          <알레르기고르기 고른것={알레르기} on뒤집기={on알레르기} />
+        </div>
+      </div>
+
+      <div style={{ padding: `0 ${GAP.screenX}px 32px` }}>
+        <PrimaryBtn onClick={onNext}>계속하기</PrimaryBtn>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 접근성 설정. 계정 화면에서 언제든 다시 연다.
  *
  * 두 무리로 나눠 적는다.
  *
- *   이 앱이 바로 바꾸는 것   큰 글씨 · 고대비
- *   키오스크에 전해 드릴 것   나머지 다섯
+ *   이 앱이 바로 바꾸는 것   큰 글씨 · 고대비 · 쉬운 단계 · 시간 여유 · 직원 도움
+ *   키오스크에 전해 드릴 것   그림 안내 · 소리 대신 화면
  *
- * 뒤의 다섯은 이 앱 화면을 바꾸지 않는다. 켰는데 아무 일도 안 일어나면 사용자는
+ * 뒤의 둘은 이 앱 화면을 바꾸지 않는다. 켰는데 아무 일도 안 일어나면 사용자는
  * 앱이 고장 났다고 생각하므로, 무엇을 하는 값인지 제목으로 먼저 밝힌다.
  * 바꾸지 않는 것을 바꾼다고 말하지 않는다.
  */
-function AccessibilityScreen({ 설정, onChange, onBack }: {
-  설정: 접근성;
-  onChange: (한칸: Partial<접근성>) => void;
+function AccessibilityScreen({ 설정, onChange, 알레르기, on알레르기, 예산, on예산, onBack }: {
+  설정: 도움설정;
+  onChange: (한칸: Partial<도움설정>) => void;
+  /** 가입 직후에 한 번 묻지만 여기서도 고칠 수 있어야 한다 — 한 번 묻고 끝나면 못 고친다. */
+  알레르기: AllergenId[];
+  on알레르기: (id: AllergenId) => void;
+  /** 주문표를 만들 때 묻지만 여기서도 고칠 수 있어야 한다 — 알레르기와 같은 이유다. */
+  예산: number | null;
+  on예산: (원: number | null) => void;
   onBack: () => void;
 }) {
-  // 켜면 이 앱이 실제로 무언가를 한다. 무엇을 하는지 sub 에 그대로 적는다.
-  const 바로바꾸는것: { key: keyof 접근성; label: string; sub: string }[] = [
-    { key: "largeText", label: "큰 글씨", sub: "앱 전체의 글씨와 버튼을 크게 봐요" },
-    { key: "highContrast", label: "고대비", sub: "글씨와 배경의 차이를 더 뚜렷하게 해요" },
-    { key: "simpleSteps", label: "쉬운 단계", sub: "이유 화면을 건너뛰고 바로 확인 화면으로 가요" },
-    { key: "mobilitySupport", label: "시간 여유", sub: "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요" },
-    { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
-  ];
-  // 켜도 이 앱 화면은 그대로다. 키오스크로 전해지기만 한다.
-  const 전해드릴것: { key: keyof 접근성; label: string; sub: string }[] = [
-    { key: "visualGuidance", label: "그림 안내", sub: "글보다 그림으로 알려 달라고 전해요" },
-    { key: "hearingSupport", label: "소리 대신 화면", sub: "소리 안내를 못 들어요. 이 앱은 원래 소리를 쓰지 않아요" },
-  ];
-
   return (
     <div className="flex flex-col h-full kb-paper">
       <SubScreenHeader
@@ -2018,10 +2556,15 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
           한눈에 안 들어왔다. 읽을 것은 먼저 끝내고, 그다음부터는 켜기만 한다.
 
           다섯 문단이던 것을 둘로 줄였다. 지운 것이 아니라 합쳤다 -
-          없어지면 안 되는 말들이다(저장 안 함 · 새로고침하면 초기화 · 직원 도움).
+          없어지면 안 되는 말들이다(어디까지 남는지 · 직원 도움).
+        */}
+        {/*
+          예전에는 "새로고침하면 처음으로 돌아가요" 라고 적혀 있었다. 이제는 안 돌아간다.
+          도움이 필요해서 켠 설정이 새로고침 한 번에 꺼지던 것을 고쳤으니, 문장도 같이
+          고친다 - 안 고치면 켜 놓고도 꺼진 줄 알고 다시 들어와 확인하게 된다.
         */}
         <p style={{ fontSize: 13, color: TEXT_2, marginBottom: 10, lineHeight: 1.7 }}>
-          필요하신 것만 켜 주세요. 켠 것은 이 기기에만 남고, 새로고침하면 처음으로 돌아가요.
+          필요하신 것만 켜 주세요. 켠 것은 이 기기에만 남고, 이 창을 닫으면 처음으로 돌아가요.
         </p>
         <p style={{ fontSize: 13, color: TEXT_2, marginBottom: 20, lineHeight: 1.7 }}>
           이 앱은 원래 큰 버튼과 또렷한 대비로 만들었고, 소리로만 알리는 것은 하나도 없어요.
@@ -2029,18 +2572,7 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
         </p>
 
         <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
-        <div style={{ borderTop: `1px solid ${BORDER}` }}>
-          {바로바꾸는것.map((r, i) => (
-            <div key={r.key} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
-              <ToggleRow
-                label={r.label}
-                sub={r.sub}
-                on={설정[r.key]}
-                onToggle={() => onChange({ [r.key]: !설정[r.key] })}
-              />
-            </div>
-          ))}
-        </div>
+        <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
 
         {/*
           이 한 줄은 문단이 아니라 제목의 일부다. 스위치와 제목 사이에 본문이
@@ -2061,19 +2593,20 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
         <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
           앱 화면은 그대로예요. 지금은 전해 주기만 해요.
         </p>
-        <div style={{ borderTop: `1px solid ${BORDER}` }}>
-          {전해드릴것.map((r, i) => (
-            <div key={r.key} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
-              <ToggleRow
-                label={r.label}
-                sub={r.sub}
-                on={설정[r.key]}
-                onToggle={() => onChange({ [r.key]: !설정[r.key] })}
-              />
-            </div>
-          ))}
-        </div>
+        <도움목록 항목들={쓸수있는것(전해드릴것)} 설정={설정} onChange={onChange} />
+        <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
+        <div style={{ marginTop: 28, paddingTop: 24, borderTop: `2px solid ${RULE}` }}>
+          <알레르기고르기 고른것={알레르기} on뒤집기={on알레르기} />
+          {/*
+            한도는 주문표를 만들 때 묻는다. 여기는 고치는 자리다 — 만들어 둔
+            주문표만 쓰는 사람은 만들기 화면에 갈 일이 없어서, 여기가 없으면
+            한 번 정한 한도를 바꿀 길이 없다.
+          */}
+          <div style={{ marginTop: 24 }}>
+            <한도적기 예산={예산} on바꾸기={on예산} 영어인가={설정.language === "en-US"} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2087,9 +2620,17 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
 const 개인정보항목 = (guest: boolean): { title: string; body: string }[] => {
   const rows: { title: string; body: string }[] = [
     {
+      title: "동의는 언제 받나요",
+      /*
+       * 이 화면은 '자세히' 로 열리는 곳이라, 무엇에 동의하는지가 맨 위에 있어야 한다.
+       * 아래로 밀면 동의 칸 옆의 링크를 눌러 놓고 정작 그 내용을 못 읽는다.
+       */
+      body: "처음 화면에서 한 번 여쭤요. 동의하지 않으시면 앱을 시작할 수 없어요 — 저장해 두신 메뉴 조건으로 골라 드리는 앱이라, 그 조건을 쓰지 못하면 해 드릴 수 있는 일이 없어서예요. 동의는 이번 이용에만 남고, 창을 닫으면 사라져요. 다음에 이 기기를 쓰는 분은 다시 여쭤요.",
+    },
+    {
       title: "저장하는 것",
       body: guest
-        ? "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요."
+        ? "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요. 실수로 새로고침해도 다시 적지 않으셔도 되게 이 창 안에 남겨 두고, 창을 닫으면 지워요."
         // 전부 올라간다고 적으면 사실이 아니다. 장소를 안 고른 주문표는 서버가
         // 받아 주지 않아서(place 가 필수) 이 기기에만 남는다.
         : "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 로그인하고 계셔서, 장소를 정해 두신 주문표는 서버에도 올라가요 — 다음에 로그인하면 다시 불러오기 위해서예요. 장소를 안 고르신 주문표는 이 기기에만 있어요.",
@@ -2100,7 +2641,9 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
     },
     {
       title: "로그인은 어떻게 하나요",
-      body: "직접 지으신 아이디와 비밀번호만 받아요. 실제 이름이나 전화번호는 묻지 않아요. 비밀번호는 서버에서 알아볼 수 없는 형태로 바꿔 저장하고, 이 앱은 적으신 비밀번호를 어디에도 남기지 않아요. 로그인 상태는 이 기기 메모리에만 있어서 새로고침하면 풀립니다.",
+      // 예전에는 "새로고침하면 풀립니다" 라고 적혀 있었다. 이제는 안 풀린다 —
+      // 문장을 같이 안 고치면 화면이 거짓말을 하게 된다.
+      body: "직접 지으신 아이디와 비밀번호만 받아요. 실제 이름이나 전화번호는 묻지 않아요. 비밀번호는 서버에서 알아볼 수 없는 형태로 바꿔 저장하고, 이 앱은 적으신 비밀번호를 어디에도 남기지 않아요. 로그인 상태는 새로고침해도 그대로지만, 이 창을 닫으면 풀립니다.",
     },
     {
       title: "키오스크에 넘기는 것",
@@ -2111,7 +2654,7 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
       // 서버에 지우기 경로가 아직 없다. 지운다고 적어 두면 그 문장이 거짓이 된다.
       // 주문표만이 아니라 키오스크에 보낸 승인·거절 기록도 서버에 남는다.
       body: guest
-        ? "지금은 로그인 없이 쓰고 계셔서 이 기기에는 이번 이용이 끝나면 남지 않아요. 바로 지우시려면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요."
+        ? "지금은 로그인 없이 쓰고 계셔서 이 창을 닫으면 이 기기에 남지 않아요. 바로 지우시려면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요."
         // 둘을 뭉뚱그려 "다 지워져요" 라고 쓰면 그게 거짓말이 된다.
         // 주문표는 지워지고(팀 #79 의 DELETE), 주문 기록은 여전히 남는다.
         : "계정 화면의 ‘이 기기에서 정보 지우기’를 누르면 이 기기에 있는 내용이 모두 사라지고, 서버에 올라간 주문표도 함께 지워요. 서버 쪽이 잘 안 되면 그때 화면으로 알려 드리고 다시 시도하실 수 있어요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 그건 아직 지우는 길이 없어서요.",
@@ -2277,8 +2820,18 @@ function ReasonList({ reasons, 제목 = "이 메뉴를 고른 이유" }: { reaso
  * 킷 가이드가 [필수] 로 정한 "결과만 보여주지 말고 왜 그런지 함께" 도 이 순서가
  * 더 잘 지킨다. 아래로 밀려 안 읽히는 것보다 앞에 세우는 편이 낫다.
  */
-function ReasonStep({ reasons, onNext, 확인중 }: {
+function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
   reasons: RecommendationReason[];
+  /**
+   * 서버가 점수를 매길 때 이 메뉴를 밀어 준 축들.
+   *
+   * 이유 문장(reasons)이 빠뜨리는 것이 있어서 따로 보여 준다 — 가격 한도를 정해도
+   * 서버의 이유 문장에는 가격 얘기가 한 줄도 안 나온다(실측). 그러면 사용자는
+   * 자기가 정한 한도가 결과에 반영됐는지 알 방법이 없다.
+   *
+   * 점수 숫자는 안 띄운다. 0.0259 는 이 앱을 쓰는 분들에게 읽을 수 없는 값이다.
+   */
+  scoredAxes?: string[];
   onNext: () => void;
   /** 되묻는 상황이면 다음 화면에서 할 일을 미리 알려 준다. */
   확인중?: boolean;
@@ -2295,6 +2848,24 @@ function ReasonStep({ reasons, onNext, 확인중 }: {
         desc="저장해 두신 조건으로 오늘 메뉴에서 찾은 결과예요."
       />
 
+      {scoredAxes.length > 0 && (
+        <div>
+          <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 6 }}>이걸 보고 골랐어요</h2>
+          <div className="flex flex-wrap" style={{ gap: 6 }}>
+            {scoredAxes.map((축) => (
+              <span
+                key={축}
+                style={{
+                  fontSize: 14, fontWeight: 700, color: TEXT_1, fontFamily: FONT,
+                  backgroundColor: CANVAS, borderRadius: RADIUS.pill, padding: "8px 14px",
+                }}
+              >
+                {축}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {쓴것.length > 0 && <ReasonList reasons={쓴것} 제목="반영한 조건" />}
       {/* 못 맞춘 것을 반영한 것 바로 아래 둔다. 이 둘을 나란히 읽어야 무엇이
           되고 무엇이 안 됐는지가 한눈에 잡힌다. 빼 둔 메뉴는 그다음이다. */}
@@ -2352,7 +2923,11 @@ function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; 
         {첫줄.text}
         {남은 > 0 && (
           <span style={{ color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3 }}>
-            {" "}이유 {남은}개 더 보기
+            {/*
+              조각으로 나눠 옮기면 어순이 깨진다("reason 2more"). 자리표시자를 둔
+              한 문장으로 만들어 언어마다 제 어순을 갖게 한다.
+            */}
+            {" "}{tf("이유 {n}개 더 보기", { n: 남은 })}
           </span>
         )}
       </span>
@@ -2417,7 +2992,7 @@ function OptionCard({
           가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
         */}
         <span style={{ minWidth: 0, textAlign: "left" }}>
-        <span style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1, display: "block" }}>{name}</span>
+        <span data-원문 style={{ ...TYPE.bodyBold, color: selected ? PAPER : TEXT_1, display: "block" }}>{name}</span>
         {/*
           위트 액센트 하나. 뜻은 옆의 '조건 일치' 라는 글자가 지고 있고 이 그림은
           거들기만 한다 - 이모지는 기기마다 모양이 다르고 스크린리더가 이름을
@@ -2793,7 +3368,7 @@ function OrderConfirmScreen({
         <BackButton onClick={onBack} />
         <div className="flex items-center gap-2" style={{ marginTop: 20, paddingBottom: 16 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: PAPER, backgroundColor: RULE, padding: "4px 11px", borderRadius: RADIUS.pill }}>내 주문표</span>
-          <span style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>
+          <span data-원문 style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>
         </div>
         <div style={{ height: 1, backgroundColor: BORDER, marginLeft: -GAP.screenX, marginRight: -GAP.screenX }} />
       </div>
@@ -2847,6 +3422,7 @@ function OrderConfirmScreen({
         {mapping && 이유단계 && (
           <ReasonStep
             reasons={mapping.reasons ?? []}
+            scoredAxes={mapping.scoredAxes}
             확인중={mapping.result === "clarification" || mapping.result === "low_confidence"}
             onNext={() => set이유먼저(false)}
           />
@@ -3019,8 +3595,10 @@ function DoneSteps({ done }: { done: { text: string; ok: boolean }[] }) {
         {/* 키오스크가 대신 눌러 준 일이라 handPointing 을 쓴다. 새 아이콘은 두지 않는다. */}
         <Pictogram name="handPointing" size={17} color={TEXT_2} />
         <span style={{ ...TYPE.caption, color: TEXT_2 }}>
-          키오스크가 한 일 {done.length}가지
-          {실패 > 0 && <b style={{ fontWeight: 700, color: WARN }}> · {실패}가지 실패</b>}
+          {/* 조각으로 나누면 어순이 깨진다("What the kiosk did 10steps"). 한 문장으로 만든다. */}
+          {tf("키오스크가 한 일 {n}가지", { n: done.length })}
+          {/* 숫자가 끼는 문장이라 조각으로 쪼개진다. tf() 로 통째로 옮긴다(#98 리뷰). */}
+          {실패 > 0 && <b style={{ fontWeight: 700, color: WARN }}> · {tf("{n}가지 실패", { n: 실패 })}</b>}
           <span style={{ textDecoration: "underline", textUnderlineOffset: 3 }}>{" "}{펼침 ? "접기" : "보기"}</span>
         </span>
       </button>
@@ -3555,20 +4133,51 @@ export default function App() {
   // 주소로 정해진 값으로 시작하고, 그 뒤로는 패널 버튼으로 바꾼다 —
   // 주소를 바꾸면 페이지가 새로 떠서 기록이 사라지기 때문이다.
   const [로그모드, set로그모드] = useState(처음로그모드);
-  const [screen, setScreen] = useState<Screen>("welcome");
-  const [tab, setTab] = useState<MainTab>("menu");
-  const [name, setName] = useState("");
+  /**
+   * 새로고침 전에 하던 것. 없으면 null 이다.
+   *
+   * 한 번만 읽는다. 아래 useState 들이 이 값을 초기값으로 쓰므로 순서가 중요하다 —
+   * 이 훅이 먼저 와야 한다.
+   *
+   * 접근성 설정은 여기서 바로 되돌린다. useEffect 로 미루면 첫 그림이 한 번 그려진
+   * 뒤에 바뀌어서, 큰 글씨를 켜 둔 사람에게 작은 글씨가 번쩍하고 지나간다.
+   * 도움이 필요해서 켠 설정이라 그 한 번이 그냥 깜빡임으로 끝나지 않는다.
+   *
+   * 바꾸기 가 아니라 되살리기 를 쓴다. 바꾸기 는 듣는이에게 알리는데, 여기는
+   * 그리는 도중이라 그러면 React 가 경고한다. 바로 아래 접근성값 이 같은 값으로
+   * 시작하므로 알릴 것도 없다.
+   */
+  const [이어받은] = useState(() => {
+    const v = 이어쓰기.읽기();
+    // 되살릴 곳이 한 자리뿐이어야 한다. 두 줄로 갈라 두면 새 값이 생겼을 때
+    // 한쪽에만 넣는 날이 오고, 그날 빠지는 것이 알레르기면 걸러졌어야 할 후보가
+    // 새로고침 뒤에 그냥 올라온다(#96 리뷰).
+    if (v) {
+      접근성설정.되살리기(v.a11y);
+      가격한도.되살리기(v.budget);
+      개인정보동의.되살리기(v.consent);
+      알레르기설정.되살리기(v.allergies);
+    }
+    return v;
+  });
+  const [screen, setScreen] = useState<Screen>(이어받은?.screen ?? "welcome");
+  const [tab, setTab] = useState<MainTab>(이어받은?.tab ?? "menu");
+  const [name, setName] = useState(이어받은?.name ?? "");
   /**
    * 로그인한 계정. null 이면 게스트다.
    *
-   * 메모리에만 둔다. localStorage 를 쓰지 않아 새로고침하면 로그아웃되는데, 개인정보
-   * 안내 화면이 "이번 이용이 끝나면 남지 않아요" 라고 약속하고 있어서 그대로 둔다.
+   * 이 탭이 살아 있는 동안만 남는다(api/session.ts 의 sessionStorage). 새로고침해도
+   * 풀리지 않고, 탭을 닫으면 사라진다 — 개인정보 안내 화면이 약속한 "이번 이용이
+   * 끝나면 남지 않아요" 가 그 말이다. localStorage 로 옮기면 다음에 이 기기를 켠
+   * 사람이 앞사람 계정으로 들어가 있게 되므로 옮기지 말 것.
+   *
+   * 비밀번호는 어디에도 남기지 않는다. 여기 있는 것은 { userId, loginId } 뿐이다.
    *
    * 서버가 토큰을 주지 않는다 — 응답이 { userId, loginId } 뿐이다. 그래서 여기 있는 것은
    * 인증 증명이 아니라 식별자다. 이 값으로 할 수 있는 일은 주문표를 불러오고 올리는 것뿐이고,
    * 화면 어디에도 "안전하게 보관됩니다" 같은 말을 쓰지 않는다.
    */
-  const [계정, set계정] = useState<Account | null>(null);
+  const [계정, set계정] = useState<Account | null>(이어받은?.account ?? null);
   /*
    * 게스트인지는 계정에서 나오는 값이다. 따로 useState 로 두면 둘이 어긋난다 —
    * 예전에는 로그인 화면으로 '들어갈 때' guest 를 false 로 만들어서, 로그인하지 않고
@@ -3580,8 +4189,11 @@ export default function App() {
    *
    * 로그아웃할 때 이것만 목록에서 뺀다. 전부 지우면 로그인 전에 게스트로 만들어 둔 주문표까지
    * 사라지고, 남겨 두면 다음 사람이 이 기기를 열었을 때 앞사람 주문표가 그대로 보인다.
+   *
+   * 새로고침해도 이어진다. 안 이어 주면 되살아난 목록에서 어느 것이 서버 것인지 알 수
+   * 없어져서, 로그아웃해도 앞사람 주문표가 그대로 남는다.
    */
-  const 서버에서온것 = useRef<Set<string>>(new Set());
+  const 서버에서온것 = useRef<Set<string>>(new Set(이어받은?.fromServer ?? []));
   /**
    * 계정이 몇 번 바뀌었는지. 로그인·로그아웃·정보 지우기가 이 값을 올린다.
    *
@@ -3597,10 +4209,48 @@ export default function App() {
    * 상태를 여기 두지 않는 이유는 연동 계층(backend.ts)도 이 값을 읽어야 해서다 —
    * 서버로 보내는 표준형에 그대로 실린다. React 상태로만 두면 그쪽에서 못 읽는다.
    */
-  const [접근성값, set접근성값] = useState<접근성>(() => 접근성설정.읽기());
+  const [접근성값, set접근성값] = useState<도움설정>(() => 접근성설정.읽기());
   useEffect(() => 접근성설정.구독(() => set접근성값({ ...접근성설정.읽기() })), []);
+  /*
+   * 가격 한도. 저장소는 api/budget.ts 에 있고 화면은 그걸 비춘다 — 접근성과 같은 이유다.
+   * 연동 계층(backend.ts)도 이 값을 읽어야 한다. 서버로 나가는 hardConstraints 에 실린다.
+   */
+  const [예산, set예산] = useState<number | null>(() => 가격한도.읽기());
+  /*
+   * 개인정보 수집·이용 동의. 저장소는 api/consent.ts 에 있고 화면은 그걸 비춘다 —
+   * 접근성.가격 한도와 같은 이유다. 연동 계층도 이 값을 읽어야 한다
+   * (consent.personalization 으로 서버에 나간다).
+   */
+  const [동의, set동의] = useState<boolean>(() => 개인정보동의.읽기());
+  /*
+   * 동의 칸 옆 '자세히' 로 여는 개인정보 안내. 화면을 바꾸지 않고 겹으로 띄운다.
+   *
+   * setScreen("privacy") 로 옮기면 그 아래 화면이 언마운트된다 — 로그인.가입
+   * 화면에서 열었다면 적어 둔 아이디와 비밀번호가 통째로 날아가고, 읽고 돌아온
+   * 사람은 처음부터 다시 적어야 한다. 무엇에 동의하는지 읽어 보라고 둔 링크가
+   * 읽으면 벌을 주는 셈이 된다.
+   *
+   * 계정 화면의 '개인정보 안내' 는 그대로 screen 을 쓴다. 거기는 잃을 입력이 없고
+   * 하단 탭으로 오가는 자리라 겹으로 띄우면 오히려 어색하다.
+   */
+  const [개인정보겹, set개인정보겹] = useState(false);
+  useEffect(() => 개인정보동의.구독(() => set동의(개인정보동의.읽기())), []);
+  /*
+   * 늘 피해야 하는 것. 저장소는 api/allergy.ts 에 있고 화면은 그걸 비춘다 —
+   * 연동 계층도 이 값을 읽어야 한다(주문표의 알레르기와 합쳐서 서버로 나간다).
+   */
+  const [알레르기, set알레르기] = useState<AllergenId[]>(() => 알레르기설정.읽기());
+  useEffect(() => 알레르기설정.구독(() => set알레르기([...알레르기설정.읽기()])), []);
+  useEffect(() => 가격한도.구독(() => set예산(가격한도.읽기())), []);
   const largeText = 접근성값.largeText;
-  const [sheets, setSheets] = useState<OrderSheet[]>(MOCK_SHEETS);
+  /*
+   * 되살릴 때 서버에서 다시 불러오지 않는다.
+   *
+   * 마지막으로 보고 있던 목록을 그대로 돌려주는 편이 낫다. 다시 불러오면 새로고침할
+   * 때마다 기다리는 화면이 끼어들고, 서버가 느리거나 안 되는 날에는 있던 주문표가
+   * 잠깐 사라졌다 나타난다. 목록을 맞추는 일은 다음 로그인 때 이미 하고 있다.
+   */
+  const [sheets, setSheets] = useState<OrderSheet[]>(이어받은?.sheets ?? []);
   const [fromQr, setFromQr] = useState(false);
   const [qrKey, setQrKey] = useState(0);
   // 되돌릴 수 없는 동작은 물어보고 실행한다. null 이면 물어볼 게 없다는 뜻이다.
@@ -3615,9 +4265,41 @@ export default function App() {
   // 만료 때문에 QR 화면으로 되돌아왔는지. 되돌아왔으면 안내부터 띄운다.
   const [qrExpired, setQrExpired] = useState(false);
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
-  const [planId, setPlanId] = useState<string | null>(null);
+  /**
+   * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
+   *
+   * 적어 두지 않는다(session.ts). 새로고침하면 만들기 화면 자체가 안 살아나므로
+   * 여기에만 있으면 된다. 저장을 안 누르고 나가면 목록의 주문표는 그대로다.
+   */
+  const [고칠주문표, set고칠주문표] = useState<OrderSheet | null>(null);
+  /*
+   * 연결(pairingId)은 안 이어 받는데 이것만 이어 받는다. 되살린 값으로 하는 일이
+   * 읽기뿐이라서다 — 진행 상황을 물어보는 GET 하나다. 계획을 새로 만들거나 실행하는
+   * 것은 승인 버튼에서만 일어나고(P0-4), 그 버튼은 살아 있는 연결을 필요로 한다.
+   *
+   * 안 이어 받으면 키오스크는 계속 움직이는데 앱만 목록으로 돌아간다. 대신 봐 주는
+   * 앱에서 지켜볼 수 없게 되는 것이 가장 나쁘다.
+   */
+  const [planId, setPlanId] = useState<string | null>(이어받은?.planId ?? null);
 
-  const addSheet = (p: OrderSheet) => setSheets((prev) => [...prev, p]);
+  /**
+   * 이번 이용을 새로고침 너머로 넘긴다.
+   *
+   * 연결·확인 카드·비밀번호는 담기지 않는다. 무엇을 담고 무엇을 안 담는지는
+   * api/session.ts 에 적어 두었다.
+   *
+   * 서버에서온것 은 ref 라 이 목록에 넣어도 다시 그려지지 않는다. 그래도 새는 곳이
+   * 없다 — 이 값이 바뀌는 자리(로그인·로그아웃·정보 지우기)는 전부 계정이나 sheets 도
+   * 같이 바꾼다. 그때 이 효과가 함께 돈다.
+   */
+  useEffect(() => {
+    이어쓰기.쓰기({
+      screen, tab, name, account: 계정, sheets,
+      fromServer: [...서버에서온것.current],
+      a11y: 접근성값, consent: 동의, allergies: 알레르기, budget: 예산, planId,
+    });
+  }, [screen, tab, name, 계정, sheets, 접근성값, 동의, 알레르기, 예산, planId]);
+
   // 화면에서만 지우면 목에 등록해 둔 사본이 남는다. 둘을 같이 지운다.
   const deleteSheet = (id: string) => {
     const 이름 = sheets.find((p) => p.id === id)?.menuName ?? "이 주문표";
@@ -3771,7 +4453,20 @@ export default function App() {
    * 대신 주문표 화면이 저장하기 전에 미리 알려 준다(아래 OrderSheetScreen 의 안내 한 줄).
    */
   const 주문표저장 = (p: OrderSheet): void => {
-    addSheet(p);
+    /*
+     * 고친 것이면 그 자리에 덮고, 새것이면 뒤에 붙인다.
+     *
+     * 자리를 지키는 게 중요하다. 고쳤다고 목록 맨 뒤로 가면, 방금 고친 주문표를
+     * 다시 찾아야 한다. 세 개쯤 되면 그때부터 헷갈린다.
+     *
+     * 목에 등록해 둔 사본도 새 내용으로 갈아 준다. 안 갈면 조건은 고쳐졌는데
+     * 추천은 옛 조건으로 돌아, 화면이 말하는 것과 실제로 담기는 것이 달라진다.
+     */
+    setSheets((prev) => prev.some((있던) => 있던.id === p.id)
+      ? prev.map((있던) => (있던.id === p.id ? p : 있던))
+      : [...prev, p]);
+    registerSheet(p);
+    set고칠주문표(null);
     setScreen("saved");
     setTab("menu");
     // 못올리는이유() 는 이유 문자열이거나 null 이다. null 일 때만 올린다.
@@ -3851,6 +4546,48 @@ export default function App() {
     setFromQr(false);
     setTab("menu");
     setScreen("welcome");
+    /*
+     * 동의도 푼다.
+     *
+     * 처음에는 안 풀었다 — "로그아웃은 계정을 나가는 것이지 이 기기를 넘기는 것이
+     * 아니다" 라고 봤다. 같은 사람이 게스트로 계속 쓰는 흐름에서 두 번 묻게 되니까.
+     *
+     * 그런데 안 풀면 **다음 사람이 앞사람의 동의로 앱에 들어간다.** 로그아웃은
+     * 첫 화면으로 보내는데, 가드는 첫 화면을 통과시키므로 아무것도 막지 않는다.
+     * 거기서 '바로 시작하기' 를 누르면 그냥 들어가진다.
+     *
+     * 두 쪽의 대가가 다르다. 다시 체크하는 것은 한 번 누르는 일이고, 안 푸는 것은
+     * 동의한 적 없는 사람이 앱을 쓰게 되는 일이다. 알레르기를 로그아웃에서
+     * 비우기로 한 것과 같은 판단이다(#33 리뷰).
+     */
+    개인정보동의.비우기();
+    /*
+     * 알레르기도 비운다.
+     *
+     * 로그아웃은 이 기기를 다음 사람에게 넘기는 자리이기도 하다. 남겨 두면 다음
+     * 사람의 주문이 **앞사람의 알레르기로** 걸러지고, 정작 자기 것은 안 걸러진다.
+     * 화면에는 알레르기가 설정된 것처럼 보이니 더 나쁘다 — 걸러지는 줄 알고
+     * 승인한다.
+     *
+     * 다시 고르는 값이 여섯 칸뿐인 것과, 안 걸러져서 못 먹는 것을 먹는 것 중
+     * 어느 쪽이 나쁜지는 분명하다.
+     */
+    알레르기설정.비우기();
+    /*
+     * 가격 한도도 같은 이유로 비운다(#96 리뷰).
+     *
+     * 한도는 화면에 늘 보이는 값이 아니라 후보를 조용히 잘라 내는 값이다.
+     * 남겨 두면 다음 사람은 앞사람의 지갑 사정으로 걸러진 목록을 보고, 왜
+     * 어떤 메뉴가 안 나오는지 알 방법이 없다.
+     *
+     * 도움 설정(큰 글씨·고대비 등)은 그대로 둔다. 그건 화면을 보면 켜져 있는 게
+     * 바로 보이는 값이라, 다음 사람이 모르고 쓰게 되는 종류가 아니다.
+     */
+    가격한도.비우기();
+    // 적어 둔 것도 같이 지운다. 안 지우면 새로고침 한 번에 로그아웃이 되돌아간다.
+    // 위의 setState 들이 끝나면 저장 효과가 한 번 더 도는데, 그때는 담을 것이
+    // 남아 있지 않아서 다시 쓰이지 않는다(session.ts 의 남길것이있나).
+    이어쓰기.비우기();
   };
 
   // 연결이 끝나면 어느 화면에 있든 되돌린다.
@@ -3897,8 +4634,57 @@ export default function App() {
   //
   // 적을 게 없는 화면에서는 첫 제목으로 보내 "여기가 어디인지" 부터 들려준다.
   const 화면영역 = useRef<HTMLDivElement>(null);
+  /**
+   * 고른 언어로 화면 글자를 바꾼다.
+   *
+   * useLayoutEffect 다 — 그린 뒤 눈에 보이기 전에 끝내야 우리말이 한 번 번쩍이지
+   * 않는다. 화면이 다시 그려질 때마다 다시 부른다. 이미 바뀐 글자는 표에 없어서
+   * 그대로 있으므로 되풀이해도 안전하다.
+   *
+   * 글자만 만진다. 주문표에 저장되는 값도, 서버로 나가는 값도 계속 우리말이다 —
+   * canonical.ts 가 그 우리말을 enum 으로 옮기고 있어서 저장값을 건드리면
+   * 매핑이 통째로 깨진다(i18n/apply.ts 주석).
+   */
+  useLayoutEffect(() => {
+    /*
+     * 한국어로 돌아오면 우리가 바꾼 자리를 우리 손으로 되돌린다.
+     *
+     * 여기서 그냥 나가면 화면은 영어로 남는다. React 는 자기가 그린 한국어가
+     * 아직 화면에 있다고 여기기 때문에 다시 쓰지 않는다 — 설정만 ko-KR 이고
+     * 글자는 영어인 채로, 새로고침 전에는 돌아올 길이 없었다(#34 리뷰).
+     */
+    if (접근성값.language !== "en-US") { 되돌리기(); return; }
+    const 틀 = 화면영역.current?.closest<HTMLElement>("[data-frame]") ?? document.body;
+    영어로바꾸기(틀);
+
+    /*
+     * 화면 안쪽에서 일어난 변화도 잡는다.
+     *
+     * 이 효과는 App 이 다시 그려질 때만 돈다. 그런데 장소를 고르면 세부 옵션이
+     * 나타나는 것처럼, **자식 화면이 제 상태만 바꾸는 경우에는 App 이 안 그려진다.**
+     * 그러면 새로 뜬 부분만 우리말로 남는다 — 실제로 그랬다.
+     *
+     * 그래서 틀 안을 지켜보다가 무언가 붙으면 다시 옮긴다. 우리가 바꾼 글자는
+     * 표에 없으므로 두 번째 바퀴에서는 아무것도 안 바뀌고 멈춘다. 그래도 우리
+     * 손질이 다시 자기를 깨우지 않도록 옮기는 동안에는 잠깐 떼어 둔다.
+     */
+    const 지켜보기 = new MutationObserver(() => {
+      지켜보기.disconnect();
+      영어로바꾸기(틀);
+      지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
+    });
+    지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
+    return () => 지켜보기.disconnect();
+  });
+  // 무엇이 아직 우리말로 남았는지 콘솔에서 확인하는 손잡이. 화면은 안 건드린다.
   useEffect(() => {
-    const 뿌리 = 화면영역.current;
+    (globalThis as unknown as { __안바뀐것?: () => string[] }).__안바뀐것 = () =>
+      안바뀐것(화면영역.current?.closest<HTMLElement>("[data-frame]") ?? document.body);
+  }, []);
+  useEffect(() => {
+    // 겹이 떠 있으면 겹 안에서 찾는다. 아래 화면이 DOM 앞쪽이라 그냥 찾으면
+    // 덮인 화면의 제목으로 포커스가 가고, 읽는 사람은 겹이 열린 줄도 모른다.
+    const 뿌리 = (개인정보겹 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]")) || 화면영역.current;
     if (!뿌리) return;
     // data-autofocus 로 표시한다. React 는 autoFocus prop 을 DOM 속성으로 남기지 않고
     // 커밋 때 focus() 를 직접 부르므로, [autofocus] 로는 찾을 수 없다.
@@ -3912,7 +4698,130 @@ export default function App() {
       대상.setAttribute("tabindex", "-1");
     }
     대상.focus({ preventScroll: true });
-  }, [screen, tab]);
+
+    // 소리는 아래 '화면을 읽어 준다' 효과가 맡는다. 여기는 포커스만 옮긴다.
+  }, [screen, tab, 개인정보겹]);
+
+  /*
+   * ── 화면을 읽어 준다 ─────────────────────────────────────────────────────
+   *
+   * 예전에는 제목 한 줄만 읽었다. 어디에 왔는지는 알려 주지만, **정작 알아야 할
+   * 것은 안 읽었다** — 왜 이 메뉴를 골랐는지(선호 이유), 무엇이 왜 빠졌는지
+   * (제외 이유), 지금 연결이 어디까지 갔는지. 눈으로 못 읽는 사람에게 그 셋은
+   * 화면에 있으나 없으나 같았다.
+   *
+   * 그래서 화면에 보이는 것을 다 읽는다.
+   *
+   * 읽는 자리가 둘이다.
+   *
+   *   ① 화면이 바뀌면  — 앞의 말을 끊고 처음부터 다 읽는다.
+   *   ② 같은 화면에서 무언가 새로 뜨면 — 새로 뜬 줄만 뒤에 붙여 읽는다.
+   *
+   * ② 가 이 기능의 핵심이다. 제외 이유나 연결 상태는 화면을 바꾸지 않고 나중에
+   * 도착한다. 그때 화면 전체를 다시 읽으면 방금 들은 말을 또 듣고, 앞의 말을
+   * 끊으면 문장 하나를 통째로 잃는다. 새로 뜬 줄만, 읽던 말 뒤에 붙인다.
+   */
+  const 읽은줄 = useRef<string[]>([]);
+  /*
+   * 읽을 자리. 겹이 떠 있으면 겹 안만 읽는다.
+   *
+   * 위 포커스 효과와 같은 규칙이다. 겹 아래 화면은 `inert` 로 막아 스크린리더가
+   * 못 읽게 해 두었는데, 소리 안내만 틀 전체를 읽으면 그 약속이 깨진다 — 겹의
+   * 안내문 앞에 덮인 화면이 통째로 읽힌다(#36 리뷰).
+   */
+  const 읽을틀 = () =>
+    (개인정보겹 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]"))
+    || 화면영역.current?.closest<HTMLElement>("[data-frame]")
+    || null;
+
+  /**
+   * 앞서 읽은 줄에 견줘 **새로 붙은 줄**만 골라 낸다.
+   *
+   * 개수까지 센다. 내용만으로 Set 을 만들면 같은 문구가 두 번 뜰 때 두 번째가
+   * 사라진다. 이 화면에는 같은 문구가 여럿이다 — 세부 옵션마다 붙는 "1개 선택",
+   * 두 메뉴에 똑같이 붙는 제외 사유 같은 것들이다. 제외 사유가 사라지면 눈으로
+   * 못 읽는 사람은 그 후보가 왜 빠졌는지 알 길이 없다(#36 리뷰).
+   */
+  const 새로붙은줄 = (전: string[], 지금: string[]): string[] => {
+    const 남은 = new Map<string, number>();
+    for (const 줄 of 전) 남은.set(줄, (남은.get(줄) ?? 0) + 1);
+    const 새것: string[] = [];
+    for (const 줄 of 지금) {
+      const 몇 = 남은.get(줄) ?? 0;
+      if (몇 > 0) 남은.set(줄, 몇 - 1);
+      else 새것.push(줄);
+    }
+    return 새것;
+  };
+
+  useEffect(() => {
+    if (!접근성값.voiceGuide) { 읽은줄.current = []; return; }
+    const 틀 = 읽을틀();
+    if (!틀) return;
+    /*
+     * 한 박자 뒤에 읽는다. 화면이 막 바뀐 순간에는 영어 옮기기(useLayoutEffect)와
+     * 첫 그리기가 아직 안 끝나 있을 수 있다. 그때 읽으면 영어 화면을 한국어로
+     * 읽거나, 반쯤 그려진 화면을 읽는다.
+     */
+    const 표 = setTimeout(() => {
+      const 줄 = 화면글(틀);
+      읽은줄.current = 줄;
+      읽어주기(줄.join(". "), { 언어: 접근성값.language });
+    }, 120);
+    return () => clearTimeout(표);
+  }, [screen, tab, 개인정보겹, 접근성값.voiceGuide, 접근성값.language]);
+
+  useEffect(() => {
+    if (!접근성값.voiceGuide) return;
+    const 틀 = 읽을틀();
+    if (!틀) return;
+    /*
+     * 잠깐 기다렸다가 본다. 한 번 바뀔 때 DOM 은 여러 번 움직이고, 움직일 때마다
+     * 읽으면 한 문장이 조각조각 끊겨 나온다. 조용해진 다음에 한 번만 읽는다.
+     */
+    let 표: ReturnType<typeof setTimeout> | undefined;
+    const 지켜보기 = new MutationObserver(() => {
+      clearTimeout(표);
+      표 = setTimeout(() => {
+        const 틀지금 = 읽을틀();
+        if (!틀지금) return;
+        const 지금 = 화면글(틀지금, { 바뀌는것빼고: true });
+        const 새것 = 새로붙은줄(읽은줄.current, 지금);
+        읽은줄.current = 지금;
+        if (새것.length > 0) 읽어주기(새것.join(". "), { 언어: 접근성값.language, 이어서: true });
+      }, 350);
+    });
+    지켜보기.observe(틀, { childList: true, subtree: true, characterData: true });
+    return () => { clearTimeout(표); 지켜보기.disconnect(); };
+  }, [접근성값.voiceGuide, 접근성값.language]);
+
+  /*
+   * 스위치를 끄거나 화면을 떠나면 읽던 것을 멈춘다.
+   *
+   * 안 멈추면 끈 뒤에도 하던 말을 끝까지 한다. 끄는 사람은 지금 조용해지기를
+   * 바라는 것이라, 그 한 문장이 가장 거슬린다.
+   */
+  useEffect(() => {
+    if (!접근성값.voiceGuide) 그만읽기();
+    return 그만읽기;
+  }, [접근성값.voiceGuide]);
+
+  /*
+   * 동의 없이는 앱 안으로 못 들어간다.
+   *
+   * 화면마다 버튼을 잠그는 것만으로는 샌다 — 실제로 새는 길이 둘 있었다.
+   *   ① 첫 화면의 '자세히' 로 개인정보 안내를 열고 뒤로 가기
+   *   ② '이 기기에서 정보 지우기' 는 동의를 풀지만 화면은 계정 화면에 그대로 있다
+   * 여기 한 곳에서 되돌린다. 문을 여러 개 만들면 하나를 빠뜨리는 날이 온다.
+   *
+   * privacy 는 열어 둔다. 무엇에 동의하는지 읽으러 가는 길이라, 그 길까지 막으면
+   * 읽을 수 없는 동의가 된다.
+   */
+  useEffect(() => {
+    if (동의 || 동의없이볼수있는화면.has(screen)) return;
+    setScreen("welcome");
+    setTab("menu");
+  }, [동의, screen]);
 
   const inMain = screen === "saved";
 
@@ -3957,6 +4866,8 @@ export default function App() {
       */}
       <div style={{ width: "100%", maxWidth: FRAME_W, height: FRAME_H }}>
         <div
+          data-frame
+
           ref={화면영역}
           /*
            * 고대비는 색 토큰을 갈아 끼워서 만든다. tokens.ts 의 PALETTE_STYLES 가
@@ -3979,9 +4890,22 @@ export default function App() {
             borderRadius: 54, boxShadow: "0 24px 80px rgba(0,0,0,0.16)",
           }}
         >
+        {/*
+          겹이 떠 있으면 이 아래(화면 + 하단 탭)를 통째로 잠근다. inert 는 포커스와
+          스크린리더 읽기를 함께 막는다. 하단 탭까지 감싸는 것이 핵심이다 —
+          빼 두면 겹을 띄운 채로 탭을 눌러 다른 화면으로 갈 수 있다.
+        */}
+        <div
+          className="flex-1 flex flex-col"
+          style={{ minHeight: 0 }}
+          {...(개인정보겹 ? { inert: "" } : {})}
+        >
         <div className="flex-1 overflow-hidden relative" style={{ minHeight: 0 }}>
           {screen === "welcome" && (
             <WelcomeScreen
+              동의함={동의}
+              on동의={(v) => 개인정보동의.바꾸기(v)}
+              onPrivacy={() => set개인정보겹(true)}
               // 익명 시작: 계정 화면을 거치지 않고 바로 본 화면으로 간다.
               onStart={() => { setName(""); setScreen("saved"); setTab("menu"); }}
               // 선택적 로그인: 고른 사람만 계정 경로로 간다. 여기서 뒤로 가면
@@ -3991,6 +4915,9 @@ export default function App() {
           )}
           {screen === "login" && (
             <LoginScreen
+              동의함={동의}
+              on동의={(v) => 개인정보동의.바꾸기(v)}
+              onPrivacy={() => set개인정보겹(true)}
               // 이미 계정이 있는 사람이다. 호칭은 서버가 갖고 있지 않지만 다시 묻지 않는다 —
               // 로그인할 때마다 호칭을 적게 하면 로그인이 가입보다 번거로워진다.
               // 계정 화면은 호칭이 없으면 아이디를 부른다.
@@ -4001,6 +4928,9 @@ export default function App() {
           )}
           {screen === "signup" && (
             <SignupScreen
+              동의함={동의}
+              on동의={(v) => 개인정보동의.바꾸기(v)}
+              onPrivacy={() => set개인정보겹(true)}
               // 가입 직후에는 서버에 주문표가 없다. 그래도 같은 경로를 탄다 —
               // 갈래를 둘로 두면 한쪽만 고치는 날이 온다. 빈 목록이면 아무 일도 안 한다.
               onDone={(a) => 계정으로들어가기(a, "name")}
@@ -4010,10 +4940,24 @@ export default function App() {
           )}
           {screen === "name" && (
             <NameScreen
-              onNext={(n) => { setName(n); setScreen("greeting"); }}
+              onNext={(n) => { setName(n); setScreen("setup"); }}
               // 가입은 이미 끝났다. 뒤로 가도 가입 화면으로 돌아가지 않는다 —
               // 돌아가면 같은 아이디로 또 가입하려다 "이미 쓰고 있는 아이디예요" 를 만난다.
               onBack={() => { setScreen("saved"); setTab("menu"); }}
+            />
+          )}
+          {screen === "setup" && (
+            <SetupScreen
+              설정={접근성값}
+              알레르기={알레르기}
+              on알레르기={(id) => 알레르기설정.뒤집기(id)}
+              // 계정 화면의 접근성 설정과 같은 저장소에 쓴다. 여기서 켠 것이
+              // 거기서도 켜져 있어야 한다 — 두 화면이 같은 스위치를 다루므로.
+              onChange={(한칸) => 접근성설정.바꾸기(한칸)}
+              onNext={() => setScreen("greeting")}
+              // 호칭 화면으로 되돌아간다. 여기까지 왔으면 호칭은 이미 적었고,
+              // 고쳐 적고 싶을 수 있는 유일한 앞 단계다.
+              onBack={() => setScreen("name")}
             />
           )}
           {screen === "greeting" && (
@@ -4021,9 +4965,16 @@ export default function App() {
           )}
           {screen === "sheet" && (
             <OrderSheetScreen
+              // 고치던 것이 바뀌면 화면을 새로 만든다. 안 그러면 첫 useState 값이
+              // 남아 다른 주문표를 눌러도 앞엣것이 그대로 떠 있다.
+              key={고칠주문표?.id ?? "new"}
               로그인함={!guest}
+              고칠것={고칠주문표}
               onNext={주문표저장}
-              onBack={() => setScreen("saved")}
+              onBack={() => { set고칠주문표(null); setScreen("saved"); }}
+              예산={예산}
+              on예산={(원) => 가격한도.바꾸기(원)}
+              영어인가={접근성값.language === "en-US"}
             />
           )}
           {inMain && tab === "qr" && (
@@ -4044,8 +4995,9 @@ export default function App() {
           {inMain && tab === "menu" && (
             <SavedSheetsScreen
               sheets={sheets}
-              onAddSheet={() => { setScreen("sheet"); }}
+              onAddSheet={() => { set고칠주문표(null); setScreen("sheet"); }}
               onDeleteSheet={deleteSheet}
+              onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
               onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}
@@ -4093,6 +5045,15 @@ export default function App() {
                   // 설정을 그대로 보게 되고, 그 값이 서버로도 계속 나간다.
                   // 화면이 '모두 지워요' 라고 말한 것에 이것도 들어간다.
                   접근성설정.비우기();
+                  // 가격 한도도 내가 정한 값이다. 남겨 두면 다음 사람이 앞사람의 한도로
+                  // 걸러진 목록을 보게 되고, 왜 메뉴가 적게 나오는지 알 수 없다.
+                  가격한도.비우기();
+                  // 동의도 되돌린다. 이 기기를 다음에 쓰는 사람이 앞사람의 동의로
+                  // 앱에 들어가면 그건 동의를 받은 것이 아니다.
+                  개인정보동의.비우기();
+                  // 알레르기도 지운다. 남겨 두면 다음 사람이 앞사람의 알레르기로
+                  // 걸러진 목록을 보게 되고, 정작 자기 것은 안 걸러진다.
+                  알레르기설정.비우기();
                   서버까지지우기();
                   /*
                    * 서버에 올라간 주문표도 지운다 (팀 #79 의 DELETE).
@@ -4119,18 +5080,25 @@ export default function App() {
                   // 터지면서 QR 만료 화면으로 튕겨 나간다. 방금 다 지웠는데 왜 그러는지
                   // 사용자는 알 수 없다.
                   setPairingId(null); setPairingExpiresAt(null); setPairingKiosk(null); setFromQr(false);
+                  // 새로고침 너머로 넘기려고 적어 둔 것까지 지운다. 이걸 빼면
+                  // "모두 지워요" 라고 말한 뒤 새로고침 한 번에 전부 되돌아온다.
+                  이어쓰기.비우기();
                 },
               })}
               // 연결이 살아 있으면 주문 경로를 끊지 않는다. 하단 탭과 같은 판단이다.
               // 끊으면 QR 을 다시 찍는 것 말고 되돌릴 방법이 없다.
               onSheets={() => { setTab("menu"); if (!pairingId) setFromQr(false); }}
               onA11y={() => setScreen("a11y")}
-              onPrivacy={() => setScreen("privacy")}
+              onPrivacy={() => set개인정보겹(true)}
             />
           )}
           {screen === "a11y" && (
             <AccessibilityScreen
               설정={접근성값}
+              알레르기={알레르기}
+              on알레르기={(id) => 알레르기설정.뒤집기(id)}
+              예산={예산}
+              on예산={(원) => 가격한도.바꾸기(원)}
               onChange={(한칸) => 접근성설정.바꾸기(한칸)}
               onBack={() => { setScreen("saved"); setTab("account"); }}
             />
@@ -4142,6 +5110,21 @@ export default function App() {
 
         {inMain && (
           <BottomNav tab={tab} onChange={handleTabChange} />
+        )}
+        </div>
+
+        {/*
+          '자세히' 로 연 개인정보 안내. 아래 화면을 덮되 언마운트하지는 않으므로
+          로그인.가입 화면에 적어 둔 것이 그대로 남는다. 닫으면 있던 자리로 돌아온다.
+
+          **틀 전체를 덮는다.** 예전에는 화면 영역 안에만 있어서 하단 탭이 겹 밖에
+          남았고, 겹을 띄운 채로 탭을 눌러 다른 화면으로 갈 수 있었다. inert 도
+          화면 영역에만 걸려서 Tab 이 하단 탭으로 빠져나갔다.
+        */}
+        {개인정보겹 && (
+          <div className="absolute inset-0" style={{ zIndex: 20 }} data-겹>
+            <PrivacyScreen guest={guest} onBack={() => set개인정보겹(false)} />
+          </div>
         )}
 
         {/* 되돌릴 수 없는 동작을 묻는 자리. 폰 프레임 안에 뜬다. */}
