@@ -12,7 +12,7 @@ import type {
   MappingResponse, MappedItem, MappedOption, MappingCandidate, ApproveInput, RecommendationReason,
   PlanStatus, CartResult, AbortInfo,
 } from "@/domain/types";
-import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, STEPS } from "@/domain/catalog";
+import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, STEPS, 못채운필수축 } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerSheet, unregisterSheet, type Scenario } from "@/api/client";
 import {
   account, 아이디검사, 비밀번호검사, 못올리는이유, 개인정보같은글,
@@ -1448,6 +1448,21 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
             <span style={{ fontWeight: 600, color: TEXT_1 }}>장소</span>를 정해 두시면 다음에 로그인해도 불러올 수 있어요
           </p>
         )}
+        {/*
+          키오스크가 반드시 골라야 하는 축을 미리 알려 준다.
+
+          **막지는 않는다.** 저장은 이 기기에 적어 두는 일이고, 채우다 만 주문표를
+          저장해 두었다가 나중에 마저 고르는 길을 닫을 이유가 없다. 다만 이대로는
+          주문이 안 된다는 것은 그때 가서가 아니라 지금 알아야 한다 — 목록 화면의
+          '주문하기' 가 같은 이유로 잠긴다.
+        */}
+        {못채운필수축(place, selections).length > 0 && (
+          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+            {tf("주문하려면 {빠진것}도 고르셔야 해요", {
+              빠진것: 못채운필수축(place, selections).map(t).join(", "),
+            })}
+          </p>
+        )}
         <PrimaryBtn
           /*
            * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
@@ -1792,7 +1807,13 @@ function SavedSheetsScreen({
   }, [sheets]);
 
   const 고른것 = sheets.find((p) => p.id === selectedId) ?? null;
-  const 주문가능 = 고른것 !== null && 백엔드가아는장소(고른것);
+  /*
+   * 필수 축이 비면 실행계획이 검증에서 떨어진다(킷의 통과 조건). 그 응답으로는
+   * 무엇이 빠졌는지 사용자에게 말해 줄 수 없어서, 보내기 전에 여기서 막는다.
+   * 장소 안내와 같은 판단이다 — 막을 때 무엇을 하면 되는지 같이 말한다.
+   */
+  const 빠진필수 = 고른것 ? 못채운필수축(고른것.place, 고른것.selections) : [];
+  const 주문가능 = 고른것 !== null && 백엔드가아는장소(고른것) && 빠진필수.length === 0;
 
   return (
     <div className="flex flex-col h-full kb-paper">
@@ -1872,6 +1893,23 @@ function SavedSheetsScreen({
               {고른것.place === null
                 ? "장소를 아직 안 고르셨어요. 주문표를 열어 장소를 고르시면 주문할 수 있어요."
                 : `${고른것.place}는 아직 키오스크와 연결되지 않았어요. 지금은 음식점 주문표로만 주문할 수 있어요.`}
+            </InfoBox>
+          </div>
+        )}
+        {/*
+          장소는 맞는데 필수 축이 빈 경우.
+
+          키오스크가 반드시 골라야 하는 축이라(킷의 option-groups.json 의 required)
+          비어 있으면 실행계획이 검증에서 떨어진다. 그 응답에는 code 도 message 도
+          없어서 "왜 안 됐는지" 를 사용자에게 말해 줄 수 없다. 여기서 이름을 대고
+          막는다 — 무엇을 고르면 되는지 알아야 고칠 수 있다.
+        */}
+        {showOrder && 고른것 && 백엔드가아는장소(고른것) && 빠진필수.length > 0 && (
+          <div style={{ marginBottom: 4 }} role="status">
+            <InfoBox>
+              {tf("아직 안 고르신 것이 있어요 — {빠진것}. 주문표를 열어 고르시면 주문할 수 있어요.", {
+                빠진것: 빠진필수.map(t).join(", "),
+              })}
             </InfoBox>
           </div>
         )}

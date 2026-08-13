@@ -189,6 +189,9 @@ export const EN: Record<string, string> = {
   // 직접 적는 칸이다. 단위(원 / KRW)는 표가 아니라 코드에서 언어를 보고 붙인다.
   "예: 8000": "e.g. 8000",
   "비워 두면 한도 없이 찾아요": "Leave it blank to search without a limit",
+  // 키오스크가 반드시 골라야 하는 축이 빈 주문표. 축 이름은 따로 옮겨진다(t).
+  "아직 안 고르신 것이 있어요 — {빠진것}. 주문표를 열어 고르시면 주문할 수 있어요.":
+    "Some choices are still missing — {빠진것}. Open the card and pick them to order.",
   "QR 찍기": "Scan QR",
   "내 주문표": "My cards",
   "계정": "Account",
@@ -202,6 +205,8 @@ export const EN: Record<string, string> = {
   "필수": "Required",
   "선택": "Optional",
   "저장하고 시작하기": "Save and start",
+  // 저장은 막지 않는다. 이대로는 주문이 안 된다는 것만 미리 알린다.
+  "주문하려면 {빠진것}도 고르셔야 해요": "To order, you also need to pick {빠진것}",
   // ─── 말로 채우기 ──────────────────────────────────────────────────────────
   "말로 채우기": "Fill it by voice",
   "“매운 닭강정 포장으로 두 개” 처럼 말씀하시면 아래 칸이 채워져요.":
