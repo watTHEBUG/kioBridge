@@ -191,7 +191,11 @@ describe("지원하지 않는 이용 방식", () => {
   });
 
   it("영어도 같다", () => {
+    // 우리말과 같은 것을 본다. 모호한축에 들어갔는지만 보면, 값이 몰래 골라졌는지도
+    // 못 들은 것으로 숨겨졌는지도 알 수 없다(#99 리뷰).
     const r = 말에서고르기("can you deliver it", "음식점", true);
+    expect(r.고른값["이용 방식"]).toBeUndefined();
     expect(r.모호한축).toContain("이용 방식");
+    expect(r.못들은축).not.toContain("이용 방식");
   });
 });

@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
-import kioskHeroImg from "@/assets/images/kiosk-hero.jpg";
 import {
   P, TEXT_1, TEXT_2, TEXT_3, BORDER, SURFACE, CANVAS, BACKDROP,
   SUCCESS, WARN, WARN_BG, FAIL, FAIL_BG, TEXT_BTN, TEXT_CHIP,
@@ -26,6 +25,7 @@ import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/liste
 import { 말에서고르기, 말로채울수있나, type 들은결과 } from "@/api/voice";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
+import { 접근토큰 } from "@/api/token";
 import { 개인정보동의 } from "@/api/consent";
 import { 알레르기설정, 알레르기목록 } from "@/api/allergy";
 import type { AllergenId } from "@/api/canonical";
@@ -337,51 +337,13 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy }: {
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
       {/*
-        첫 화면은 사진 한 장으로 "어디서 쓰는 앱인지"를 설명한다.
-        아래쪽을 흰색으로 흘려보내 사진과 본문의 경계를 지운다.
-
-        자리가 모자라면 **사진이 먼저 양보한다.** 예전에는 사진을 42% 로 박아 두고
-        (shrink-0) 가운데 칸을 flex-1 로 뒀는데, flex-1 은 바탕 크기가 0 이라
-        가운데 칸이 '남은 만큼' 만 받았다. 동의 문구가 한 줄 늘어 아래 칸이 커지면
-        남는 자리가 글보다 작아지고, 그러면 글이 칸 밖으로 나가 아래 칸을 덮었다.
-        동의를 안 한 첫 화면에서 안내 문구가 소개 문장 위에 겹쳐 보였다.
-
-        사진은 없어도 뜻이 통하는 그림이고 글은 아니다. 그래서 줄어드는 쪽을
-        사진으로 정한다. 160 아래로는 안 줄인다 — 그보다 작으면 무슨 장면인지
-        알아볼 수 없어서 있으나 마나다.
-
-        더 짧은 화면(작은 폰 세로 667 같은)에서는 사진을 다 줄여도 모자란다.
-        그때는 겹치거나 잘리는 대신 **화면이 스크롤된다**(위 kb-paper 칸의
-        overflowY). 로그인 단추가 화면 밖에 남아 못 누르는 것이 제일 나쁘다.
-      */}
-      <div className="relative" style={{ height: "42%", minHeight: 160, flexShrink: 1, overflow: "hidden" }}>
-        <img
-          src={kioskHeroImg}
-          alt=""
-          aria-hidden="true"
-          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 40%" }}
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0"
-          /*
-            그라데이션 끝색을 종이색으로 맞춘다.
-            사진 위에서 시작해 아래 배경으로 이어지는 띠라, 끝이 배경과 같아야
-            이음매가 안 보인다. #fff 로 박아 두면 다크에서 이 띠만 하얗게 남고
-            바로 아래 #0C0C0C 와 맞닿아 화면이 두 동강 난다.
-          */
-          style={{
-            height: "58%",
-            background: `linear-gradient(to bottom, rgba(0,0,0,0) 0%, color-mix(in srgb, ${PAPER} 85%, transparent) 62%, ${PAPER} 100%)`,
-          }}
-        />
-      </div>
-
-      {/*
         flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
         실제 높이(auto)다. 이 셋이 다 있어야 이 칸의 글이 자리 계산에 들어간다.
       */}
-      <div className="flex flex-col items-center justify-center" style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px`, marginTop: -12 }}>
+      <div
+        className="flex flex-col items-center justify-center"
+        style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px` }}
+      >
         <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
           <AppLogo size={40} />
@@ -1708,7 +1670,15 @@ function 한도적기({ 예산, on바꾸기, 영어인가 }: {
   return (
     <div>
       <label htmlFor={칸id} style={{ ...TYPE.label, color: TEXT_2, display: "block", marginBottom: 6 }}>
-        가격 한도 (선택)
+        {/*
+          "가격 한도" 라고만 두면 총액으로 읽힌다. 실제로 그렇게 읽고 8,000원을
+          적은 뒤 8,000원짜리를 두 개 담았는데 안 걸러진다는 얘기를 들었다.
+
+          킷 규칙이 단가와 비교한다 — CHICKEN_PRICE_LIMIT 은 후보의 price 필드에
+          MAX 를 건다. quantity 는 이 비교에 안 들어간다. 그러니 화면이 "가격
+          한도" 라고 부르는 것이 틀린 말이었다. 서버가 하는 일 그대로 부른다.
+        */}
+        한 개 값 한도 (선택)
         {/*
           눈으로는 칸 오른쪽의 "원" 이 단위를 알려 주지만, 그건 장식이라
           aria-hidden 이다. 소리로만 듣는 사람은 이 칸이 원 단위인지 만 원
@@ -1743,7 +1713,7 @@ function 한도적기({ 예산, on바꾸기, 영어인가 }: {
       <p id={`${칸id}-help`} data-소리조용 style={{ fontSize: 12, color: TEXT_2, marginTop: 6, lineHeight: 1.6 }}>
         {예산 === null
           ? "비워 두면 한도 없이 찾아요"
-          : tf("{금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.", { 금액: 돈(예산, 영어인가) })}
+          : tf("한 개에 {금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.", { 금액: 돈(예산, 영어인가) })}
       </p>
     </div>
   );
@@ -3279,9 +3249,12 @@ function OptionCard({
 }
 
 function OrderExact({
-  item, reasons, onReasons, onApprove, onCancel,
+  item, reasons, 합계알림, onReasons, onApprove, onCancel,
 }: {
-  item: MappedItem; reasons?: RecommendationReason[]; onReasons: () => void; onApprove: () => void; onCancel: () => void;
+  item: MappedItem; reasons?: RecommendationReason[];
+  /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 넘지 않으면 없다. */
+  합계알림?: string;
+  onReasons: () => void; onApprove: () => void; onCancel: () => void;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -3292,6 +3265,18 @@ function OrderExact({
         ))}
         <ConfirmRow label="가격" value={item.priceText} large />
       </ConfirmCard>
+      {/*
+        한 개 값은 한도 안인데 수량을 곱하면 넘는 경우를 알려 준다.
+
+        **막지는 않는다.** 킷 규칙(CHICKEN_PRICE_LIMIT)은 단가에만 걸려 있어서
+        서버는 이 주문을 통과시킨다. 여기서 막으면 서버는 되는데 앱만 안 되는
+        상태가 되고, 사용자는 왜 막혔는지 알 수 없다. 알려 주고 정하게 한다.
+      */}
+      {합계알림 && (
+        <p role="status" style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7, textAlign: "center" }}>
+          {합계알림}
+        </p>
+      )}
       <ReasonSummary reasons={reasons} onOpen={onReasons} />
       <PrimaryBtn onClick={onApprove}>승인하고 담기</PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
@@ -3393,10 +3378,12 @@ function OrderNotFound({ message, onCancel }: { message?: string; onCancel: () =
 }
 
 function OrderChanged({
-  item, diffNote, reasons, onReasons, onApprove, onCancel,
+  item, diffNote, reasons, 합계알림, onReasons, onApprove, onCancel,
 }: {
   item: MappedItem;
   diffNote?: string;
+  /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
+  합계알림?: string;
   reasons?: RecommendationReason[];
   onReasons: () => void;
   onApprove: () => void;
@@ -3412,6 +3399,12 @@ function OrderChanged({
         ))}
         <ConfirmRow label="가격" value={item.priceText} large />
       </ConfirmCard>
+      {/* 승인 버튼이 있는 화면은 모두 같은 안내를 단다(#100 리뷰). 막지는 않는다. */}
+      {합계알림 && (
+        <p role="status" style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7, textAlign: "center" }}>
+          {합계알림}
+        </p>
+      )}
 
       <div style={{ borderRadius: RADIUS.input, padding: "15px 18px", backgroundColor: WARN_BG, border: "none", display: "flex", flexDirection: "column", gap: 14 }}>
         <div className="flex gap-3 items-start">
@@ -3445,9 +3438,12 @@ function OrderChanged({
 }
 
 function OrderLowConfidence({
-  item, reasons, onReasons, onApprove, onCancel,
+  item, reasons, 합계알림, onReasons, onApprove, onCancel,
 }: {
-  item: MappedItem; reasons?: RecommendationReason[]; onReasons: () => void; onApprove: () => void; onCancel: () => void;
+  item: MappedItem; reasons?: RecommendationReason[];
+  /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
+  합계알림?: string;
+  onReasons: () => void; onApprove: () => void; onCancel: () => void;
 }) {
   const [selected, setSelected] = useState(false);
   return (
@@ -3469,6 +3465,12 @@ function OrderLowConfidence({
         ))}
         <ConfirmRow label="가격" value={item.priceText} large />
       </ConfirmCard>
+      {/* 승인 버튼이 있는 화면은 모두 같은 안내를 단다(#100 리뷰). 막지는 않는다. */}
+      {합계알림 && (
+        <p role="status" style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7, textAlign: "center" }}>
+          {합계알림}
+        </p>
+      )}
       <InfoBox variant="info">시스템이 정확하게 찾지 못했어요. 위 내용을 확인하고 맞으면 아래에서 짚어 주세요.</InfoBox>
       {/*
        * 위 확인 카드와 같은 메뉴를 카드 모양으로 또 그리면 두 개인 줄 안다.
@@ -3513,6 +3515,28 @@ function OrderConfirmScreen({
   const [mapping, setMapping] = useState<MappingResponse | null>(null);
   // 서버가 이유를 여러 줄 줄 수 있어 문장 하나가 아니라 목록으로 들고 있는다.
   const [error, setError] = useState<{ message: string; details?: string[] } | null>(null);
+  /*
+   * 한 개 값은 한도 안인데 수량을 곱하면 넘는 경우.
+   *
+   * 킷 규칙(CHICKEN_PRICE_LIMIT)은 후보의 단가에만 MAX 를 건다 — quantity 는 그
+   * 비교에 안 들어간다. 그래서 8,000원 한도에 8,000원짜리 두 개가 통과한다.
+   * 서버가 틀린 것이 아니라 그 값의 뜻이 '한 개 값 상한' 이라서다.
+   *
+   * 우리가 대신 세어 알려만 준다. 막지 않는 이유는 OrderExact 주석에 적었다.
+   */
+  const 한도 = 가격한도.읽기();
+  const 수량 = Number((sheet.selections?.["수량"]?.[0] ?? "").replace(/[^0-9]/g, "")) || 1;
+  /*
+   * 승인 버튼이 있는 화면은 셋이다 — exact · changed · low_confidence. 셋 다
+   * MappedItem 을 그리고 셋 다 담긴다. 한 곳에만 안내를 달면 나머지 둘에서는
+   * 합계가 한도를 넘어도 아무 말 없이 담긴다(#100 리뷰).
+   */
+  const 단가 = mapping?.item?.price;
+  const 합계알림 = (한도 !== null && typeof 단가 === "number" && 수량 > 1 && 단가 * 수량 > 한도)
+    ? tf("한 개 값은 한도 안이지만, {수량}개면 {합계}예요.", {
+        수량, 합계: 돈(단가 * 수량, 접근성설정.읽기().language === "en-US"),
+      })
+    : undefined;
   // 승인은 한 번만. 연타로 실행 계획이 두 번 만들어지면 안 된다.
   const approving = useRef(false);
 
@@ -3661,7 +3685,7 @@ function OrderConfirmScreen({
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={mapping.reasons} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact item={mapping.item} reasons={mapping.reasons} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
           <OrderClarification
@@ -3680,6 +3704,7 @@ function OrderConfirmScreen({
             item={mapping.item}
             diffNote={mapping.diffNote}
             reasons={mapping.reasons}
+            합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             onApprove={() => approve({ acknowledgedDiff: true })}
             onCancel={거절하기}
@@ -3700,6 +3725,7 @@ function OrderConfirmScreen({
           <OrderLowConfidence
             item={mapping.item}
             reasons={mapping.reasons}
+            합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             /* 사용자가 카드를 눌러 "이 메뉴가 맞다"고 짚어야만 여기까지 온다. 그 사실을 서버에도 알린다. */
             onApprove={() => approve({ confirmedLowConfidence: true })}
@@ -4806,6 +4832,8 @@ export default function App() {
      * 바로 보이는 값이라, 다음 사람이 모르고 쓰게 되는 종류가 아니다.
      */
     가격한도.비우기();
+    // 토큰도 버린다. 로그아웃한 사람의 토큰으로 다음 사람이 서버를 부르면 안 된다.
+    접근토큰.비우기();
     // 입력 방식도 이 사람 것이다. 남겨 두면 다음 사람이 말한 적도 없는데
     // 키오스크에 "말로 넣는 사람" 이라고 전해진다.
     입력출처.비우기();
@@ -5294,6 +5322,7 @@ export default function App() {
                   // 가격 한도도 내가 정한 값이다. 남겨 두면 다음 사람이 앞사람의 한도로
                   // 걸러진 목록을 보게 되고, 왜 메뉴가 적게 나오는지 알 수 없다.
                   가격한도.비우기();
+                  접근토큰.비우기();
                   입력출처.비우기();
                   // 동의도 되돌린다. 이 기기를 다음에 쓰는 사람이 앞사람의 동의로
                   // 앱에 들어가면 그건 동의를 받은 것이 아니다.

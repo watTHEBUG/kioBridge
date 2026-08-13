@@ -3,6 +3,7 @@ import type { PlaceType, OrderSheet } from "@/domain/types";
 // 계정 오류만 다른 타입이면 화면에 분기가 하나 더 생긴다. backend.ts 도 같은 방식이다.
 import { KioBridgeError } from "@/api/client";
 import { 연동기록, 팀백엔드모드, 본문을남길까 } from "@/api/devlog";
+import { 접근토큰 } from "@/api/token";
 
 /**
  * 계정과 그 계정에 딸린 주문표.
@@ -347,6 +348,12 @@ const 문구 = (code: string, 서버문구: string | undefined, status: number):
     case "USER_NOT_FOUND":      return "계정을 찾을 수 없어요. 다시 로그인해 주세요";
     case "INVALID_REQUEST":     return 서버문구 || "적어 주신 내용을 다시 확인해 주세요";
     default:
+      /*
+       * 401 은 토큰이 없거나 만료된 것이다. 토큰은 메모리에만 두므로 새로고침
+       * 한 번이면 이 상태가 된다 — 사용자 잘못이 아니라 우리가 안 적어 두기로
+       * 한 결과다. 무엇을 하면 되는지 말해 준다(#100 리뷰).
+       */
+      if (status === 401) return "로그인이 풀렸어요. 다시 로그인해 주세요";
       if (status === 400) return "적어 주신 내용을 다시 확인해 주세요";
       if (status >= 500) return "서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요";
       return 서버문구 || "요청을 처리하지 못했어요";
@@ -357,6 +364,17 @@ const 문구 = (code: string, 서버문구: string | undefined, status: number):
  * 기본 주소는 /api/bff 다. 이 앱의 서버 함수가 백엔드로 대신 보내 주므로 브라우저는
  * 같은 출처로만 요청하고 CORS 가 발생하지 않는다. backend.ts 의 createTeamBackend 와 같다.
  */
+/**
+ * 응답에서 토큰만 떼어 담고, 화면·저장소로는 계정 식별자만 내보낸다.
+ *
+ * 토큰이 Account 에 섞여 나가면 session.ts 가 그대로 적어 둔다. 적어 두지 않기로
+ * 한 값이라 여기서 끊는다(token.ts).
+ */
+const 계정만 = (r: Account & { accessToken?: unknown; expiresAt?: unknown }): Account => {
+  접근토큰.담기(r?.accessToken, r?.expiresAt);
+  return { userId: r.userId, loginId: r.loginId };
+};
+
 export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
   const 부르기 = async <T>(방법: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> => {
     const 시작 = 팀백엔드모드 ? performance.now() : 0;
@@ -395,12 +413,28 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
     const ac = new AbortController();
     const 시계 = setTimeout(() => ac.abort(), 20_000);
 
+    /*
+     * 한 번만 읽어서 붙들어 둔다.
+     *
+     * 읽기() 는 만료 시각을 보면서 지난 토큰을 지우기도 한다(token.ts). 그래서
+     * 조건과 헤더에서 각각 부르면, 두 호출 사이에 만료된 순간 조건은 통과하고
+     * 헤더에는 `Bearer null` 이 실린다. 같은 값을 둘 다 보게 한다.
+     */
+    const 토큰 = 접근토큰.읽기();
+
     let res: Response;
     try {
       res = await fetch(baseUrl + path, {
         method: 방법,
         signal: ac.signal,
-        headers: { "content-type": "application/json" },
+        /*
+         * 주문표 경로는 Authorization 을 요구한다. 있을 때만 붙인다 —
+         * 가입.로그인은 아직 토큰이 없는 상태에서 부르는 요청이다.
+         */
+        headers: {
+          "content-type": "application/json",
+          ...(토큰 ? { authorization: `Bearer ${토큰}` } : {}),
+        },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (e) {
@@ -425,6 +459,16 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         try { return JSON.parse(t ?? "") as { code?: string; message?: string }; } catch { return {}; }
       })();
       const code = b.code ?? `HTTP_${res.status}`;
+      /*
+       * 401 은 토큰이 없거나 만료된 것이다. 들고 있던 토큰을 버린다.
+       *
+       * 토큰은 메모리에만 있어서 새로고침하면 사라지는데(token.ts) 계정은 남는다.
+       * 그러면 화면은 로그인한 것처럼 보이는데 주문표 요청마다 401 이 온다.
+       * 버려 두지 않으면 안 되는 토큰을 계속 붙여 보낸다.
+       *
+       * 화면은 이 코드를 보고 "다시 로그인해 주세요" 로 안내한다(#100 리뷰).
+       */
+      if (res.status === 401) 접근토큰.비우기();
       // 계정 쪽 오류는 전부 recoverable 이다. 아이디가 겹쳤으면 다른 아이디로, 비밀번호가
       // 틀렸으면 다시 적으면 되고, 서버가 죽었으면 잠시 뒤 다시 하면 된다. 화면이
       // 되돌아갈 길 없는 막다른 곳으로 사용자를 보내지 않게 하는 값이라 여기서는 늘 참이다.
@@ -447,11 +491,21 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
   };
 
   return {
-    signup: (loginId, password) =>
-      부르기<Account>("POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
+    /*
+     * 응답에 accessToken 이 같이 온다. 담아 두고 이후 주문표 요청에 붙인다.
+     *
+     * Account 로 돌려주는 값에는 안 싣는다 — 그 객체는 session.ts 가 적어 두는
+     * 값이라, 넣으면 토큰이 sessionStorage 로 따라 나간다(token.ts 주석).
+     */
+    signup: async (loginId, password) => 계정만(
+      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
+        "POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
+    ),
 
-    login: (loginId, password) =>
-      부르기<Account>("POST", "/api/v1/auth/login", { loginId: loginId.trim(), password }),
+    login: async (loginId, password) => 계정만(
+      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
+        "POST", "/api/v1/auth/login", { loginId: loginId.trim(), password }),
+    ),
 
     async listSheets(userId) {
       const r = await 부르기<UserProfileResponse[]>("GET", `/api/v1/users/${encodeURIComponent(userId)}/profiles`);

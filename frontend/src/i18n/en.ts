@@ -73,6 +73,7 @@ export const EN: Record<string, string> = {
   "아이디를 적어 주세요": "Please enter an ID",
   "비밀번호를 적어 주세요": "Please enter a password",
   "아이디 또는 비밀번호가 맞지 않아요": "That ID or password doesn’t match",
+  "로그인이 풀렸어요. 다시 로그인해 주세요": "You’ve been signed out. Please log in again",
   "이미 쓰고 있는 아이디예요": "That ID is already taken",
   "비밀번호가 달라요": "The passwords don’t match",
   "비밀번호가 너무 길어요. 조금 줄여 주세요": "That password is too long. Please shorten it",
@@ -151,7 +152,11 @@ export const EN: Record<string, string> = {
   "+ 새 주문표 추가": "+ Add an order card",
   "이 주문표로 주문하기": "Order with this card",
   "삭제": "Delete",
-  "가격 한도 (선택)": "Price limit (optional)",
+  "한 개 값 한도 (선택)": "Price limit per item (optional)",
+  // 단가가 한도와 같아도 이 문구가 뜬다(합계만 넘으면 뜬다). "under" 는 미만이라
+  // 경계값을 빠뜨린다 — "within" 으로 적는다(#100 리뷰).
+  "한 개 값은 한도 안이지만, {수량}개면 {합계}예요.":
+    "Each one is within your limit, but {수량} of them come to {합계}.",
   // 직접 적는 칸이다. 단위(원 / KRW)는 표가 아니라 코드에서 언어를 보고 붙인다.
   "예: 8000": "e.g. 8000",
   "비워 두면 한도 없이 찾아요": "Leave it blank to search without a limit",
@@ -215,6 +220,7 @@ export const EN: Record<string, string> = {
   "보통맛": "Medium",
   "매운맛": "Hot",
   "형태": "Bone or boneless",
+  "혼잡 시간대": "Busy hours",
   "뼈": "Bone-in",
   "순살": "Boneless",
   "컵": "Cup",
@@ -370,8 +376,8 @@ export const EN: Record<string, string> = {
   "QR 스캔 닫기": "Close the scanner",
   // 한 덩어리로 오는 자리. 줄 단위 항목만으로는 안 맞아서 줄바꿈째 넣는다.
   "키오스크의 QR 코드를\n카메라에 맞춰주세요": "Point your camera\nat the kiosk’s QR code",
-  "{금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.":
-    "We’ll leave out anything above {금액}. If nothing is left, we’ll tell you so.",
+  "한 개에 {금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.":
+    "We’ll leave out anything over {금액} per item. If nothing is left, we’ll tell you so.",
   "주문표 삭제": "Delete order card",
   // ─── QR 다시 찍기 갈래 ────────────────────────────────────────────────────
   "QR 코드를": "Scan the",
