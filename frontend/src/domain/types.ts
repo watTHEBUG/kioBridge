@@ -4,7 +4,9 @@ export type Screen =
   | "welcome" | "login" | "signup" | "name"
   | "setup"     // 가입 직후 한 번 묻는 도움 설정. 'profile' 이라 부르지 않는다 —
                 // 백엔드가 주문표를 profile 이라 불러서 그 이름은 이미 임자가 있다.
-  | "greeting" | "sheet" | "saved"
+  | "greeting" | "sheet"
+  | "save-choice"  // 만든 주문표를 이 기기에 남길지 묻는다. 비로그인일 때만 지난다.
+  | "saved"
   | "order-confirm" | "execution"
   | "a11y"      // 접근성 설정 (계정 화면에서 언제든)
   | "privacy";  // 무엇을 저장하고 무엇을 저장하지 않는지
@@ -30,6 +32,17 @@ export interface OrderSheet {
   place: PlaceType;
   selections: Record<string, string[]>;
   memo: string;
+  /**
+   * 이번만 쓰고 남기지 않는다.
+   *
+   * 로그인하지 않은 사람에게는 이쪽이 **기본값**이다. 가입도 로그인도 없이 들어온
+   * 사람은 자기 정보가 어디에 남는지 확인할 방법이 없다 — 묻지 않고 남기면 안
+   * 된다. 남기고 싶으면 그렇게 고르면 된다.
+   *
+   * 이 표시가 붙은 주문표는 새로고침을 넘기지 않는다(session.ts). 화면에는 이번
+   * 이용 동안 그대로 있어서, 만들고 바로 주문하는 길은 똑같이 동작한다.
+   */
+  임시?: boolean;
 }
 
 export interface DetailOption {

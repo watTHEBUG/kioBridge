@@ -29,11 +29,34 @@
  * 우리말을 enum 으로 옮긴다), 여기서 바뀌는 것은 **보여 주는 글자뿐**이다.
  */
 export const EN: Record<string, string> = {
+  // 한 칸씩 묻는 음성 화면.
+  "{n}번째 질문 (전체 {전체}개)": "Question {n} of {전체}",
+  "{보기} — 이것으로 할까요? 그렇게 말씀하셔도 되고, 다른 것을 말씀하셔도 돼요.":
+    "{보기} — shall we go with this? You can say yes, or say another one.",
+  "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요.":
+    "We heard you but could not tell which one. Please say it again, or choose above.",
+  "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
+    "The microphone is not available. Please choose by hand above.",
+  "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",
+  "그만 듣기": "Stop listening",
+  "건너뛰기": "Skip",
+  "끝내기": "Done",
+
+  // 이 기기에 남길지 묻는 화면. 비로그인일 때만 지난다.
+  "저장할까요?": "Save this?",
+  "지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때 이 기기에서 다시 꺼내 쓸 수 있어요.":
+    "You do not need to save it to order right now. If you save it, you can use it again from this device next time.",
+  "이번만 쓰기": "Use just this once",
+  "이 기기에 저장하기": "Save on this device",
+
   // 말하기 — 기기 안 음성 모델을 받는 동안과, 없을 때.
   "말을 알아들을 준비를 하고 있어요": "Getting ready to understand speech",
   "처음 한 번만 걸려요. 잠시만 기다려 주세요": "This happens only the first time. One moment",
   "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 아래에서 손으로 골라 주세요.":
     "This device is not set up to understand speech. Please choose by hand below.",
+  // 한칸씩말하기 는 보기 칩이 안내문 위에 있어서 '위에서' 라고 말한다.
+  "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 위에서 손으로 골라 주세요.":
+    "This device is not set up to understand speech. Please choose by hand above.",
 
   /*
    * ── 서버가 주는 이유 ─────────────────────────────────────────────────────

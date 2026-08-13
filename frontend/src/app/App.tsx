@@ -10,7 +10,7 @@ import {
 import type {
   Screen, MainTab, PlaceType, PairingState, StepStatus, OrderSheet, PairingResult,
   MappingResponse, MappedItem, MappedOption, MappingCandidate, ApproveInput, RecommendationReason,
-  PlanStatus, CartResult, AbortInfo,
+  PlanStatus, CartResult, AbortInfo, DetailOption,
 } from "@/domain/types";
 import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, STEPS, 못채운필수축 } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerSheet, unregisterSheet, type Scenario } from "@/api/client";
@@ -22,7 +22,7 @@ import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
 import { 들을수있나, 들어보기, 모델있나, 모델받아두기, type 못들은이유 } from "@/api/listen";
-import { 말에서고르기, 말로채울수있나, type 들은결과 } from "@/api/voice";
+import { 말에서고르기, 예아니오 } from "@/api/voice";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
 import { 접근토큰 } from "@/api/token";
@@ -981,70 +981,102 @@ const newSheetId = () => `p${Date.now()}_${++주문표일련번호}`;
  * 말 안 한 것을 우리가 고르지 않는다(api/voice.ts). 화면도 그대로 말한다 —
  * "이건 못 들었어요" 라고 적고, 손으로 고르라고 남겨 둔다.
  */
-function 말로채우기({ place, 언어, on받기 }: {
+/**
+ * 한 칸씩 묻고 말로 답을 받는다.
+ *
+ * 예전에는 한 번에 다 말하게 했다("포장이고 매운맛으로 두 개"). 짧은 문장으로
+ * 여러 축을 한꺼번에 말하는 건 익숙한 사람에게나 쉬운 일이다. 무엇을 말해야
+ * 하는지 모르는 채로 마이크가 켜지면 대부분 아무 말도 못 한다.
+ *
+ * 한 칸씩 물으면 답할 것이 하나뿐이라 말이 짧아진다. 답하는 길도 둘로 연다.
+ *
+ *   보기 이름을 그대로   "매운맛"
+ *   예/아니오            "매운맛으로 할까요?" → "네"
+ *
+ * 둘째 길이 필요한 이유 — 물음표로 끝나는 말을 들으면 사람은 네/아니오로 답한다.
+ * 이름을 다시 말하게 하면 물어 놓고 안 듣는 셈이 된다.
+ *
+ * 손으로 고르는 길은 그대로 둔다. 말이 안 되는 자리에서 갇히면 안 된다.
+ */
+function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   place: PlaceType;
   언어: string;
-  on받기: (들은것: 들은결과) => void;
+  값: Record<string, string[]>;
+  on고르기: (축: string, 고른것: string[]) => void;
+  onDone: () => void;
 }) {
+  const 축들 = place ? DETAIL_OPTIONS[place] : [];
+  const [칸, set칸] = useState(0);
   /*
-   * '받는중' 은 기기 안 음성 모델을 내려받는 동안이다. 처음 한 번만 지나가는
-   * 자리인데, 없으면 단추를 누르고 한참 아무 일도 안 일어나는 것처럼 보인다.
+   * '받는중' 은 기기 안 음성 모델을 내려받는 동안이다(#102). 처음 한 번만
+   * 지나가는 자리인데, 없으면 단추를 누르고 한참 아무 일도 안 일어나는 것처럼
+   * 보인다. 말로채우기가 한칸씩말하기로 바뀌면서 그 상태를 여기로 옮겨 왔다.
    */
-  const [상태, set상태] = useState<"쉬는중" | "받는중" | "듣는중" | "보여주는중">("쉬는중");
-  // 결과와 **그때의 장소**를 같이 들고 있는다. 확인을 누르는 순간에 장소가
-  // 달라져 있으면, 그 장소에 있지도 않은 축을 넣게 된다(#39 리뷰).
-  const [결과, set결과] = useState<{ 값: 들은결과; 장소: PlaceType } | null>(null);
-  const [못들음, set못들음] = useState<못들은이유 | null>(null);
+  const [상태, set상태] = useState<"쉬는중" | "받는중" | "듣는중">("쉬는중");
+  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
   const 듣던것 = useRef<{ 그만두기: () => void } | null>(null);
-  // 몇 번째 듣기인지. 늦게 온 앞의 결과를 버리는 데 쓴다.
   const 회차 = useRef(0);
-  // 지금 장소. 콜백은 시작할 때의 place 를 붙들고 있어서, 지금 값은 따로 본다.
-  const 지금장소 = useRef(place);
-  지금장소.current = place;
 
   /*
    * 화면을 떠나면 듣던 것을 멈춘다. 안 멈추면 마이크가 계속 켜져 있다.
    *
    * 회차도 같이 올린다. 모델을 보고 받는 동안에는 듣던것 이 아직 null 이라
    * 그만두기() 로 막을 수 있는 것이 없다 — 그대로 두면 화면을 떠난 뒤에 받기가
-   * 끝나면서 마이크가 켜지고, 그때는 이 컴포넌트가 없어서 끌 사람도 없다.
+   * 끝나면서 마이크가 켜지고, 그때는 이 컴포넌트가 없어서 끌 사람도 없다(#102).
    */
   useEffect(() => () => {
     회차.current += 1;
     듣던것.current?.그만두기();
   }, []);
 
-  // 이 기기에서 안 되면 아예 안 내민다. 눌렀는데 아무 일도 안 일어나는 단추가
-  // 제일 나쁘다 — 소리 안내 스위치를 숨기는 것과 같은 판단이다.
-  if (!들을수있나()) return null;
-  // 이 장소를 이 언어로 못 알아들으면 안 내민다. 눌렀는데 아무것도 안 채워지면
-  // 사용자는 자기가 잘못 말한 줄 안다 — 우리가 못 알아듣는 것인데도.
-  if (!말로채울수있나(place, 언어 === "en-US")) return null;
+  /*
+   * 장소를 바꾸면 첫 칸으로 돌아간다.
+   *
+   * 축 목록이 통째로 바뀌는데 칸만 남으면 화면과 소리가 틀린 순번을 말한다 —
+   * 카페(7축)에서 다섯 번째까지 간 뒤 관공서(2축)로 바꾸면 "5번째 질문 (전체
+   * 2개)" 를 읽어 준다. 듣던 것도 같이 끊는다. 안 그러면 앞 장소를 보고 말한
+   * 답이 새 축에 들어간다.
+   */
+  useEffect(() => {
+    회차.current += 1;
+    듣던것.current?.그만두기();
+    듣던것.current = null;
+    set칸(0);
+    set상태("쉬는중");
+    set못들음(null);
+  }, [place]);
+
+  if (!들을수있나() || 축들.length === 0) return null;
+  const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
+  const 마지막인가 = 칸 >= 축들.length - 1;
+
+  const 다음으로 = () => {
+    set못들음(null);
+    if (마지막인가) { onDone(); return; }
+    set칸((n) => n + 1);
+  };
+
+  // 고른 값을 넣고 다음 칸으로. 여러 개 고르는 칸은 이어 붙이고 그 자리에 머문다.
+  const 넣기 = (고른것: string) => {
+    const 이전 = 값[지금축.label] ?? [];
+    on고르기(지금축.label, 지금축.multi ? [...new Set([...이전, 고른것])] : [고른것]);
+    if (지금축.multi) set못들음(null);
+    else 다음으로();
+  };
 
   const 듣기시작 = () => {
     set못들음(null);
-    set결과(null);
     set상태("듣는중");
-    /*
-     * 듣기 시작할 때의 장소를 붙들어 둔다.
-     *
-     * 듣는 동안 사용자가 장소를 바꿀 수 있다. 음식점으로 말하기 시작해 병원으로
-     * 바꾸면, 음식점 축인 '맵기' 가 병원 주문표에 들어간다 — 그 장소에 있지도
-     * 않은 축이다. 시작할 때와 장소가 달라졌으면 결과를 버린다(#39 리뷰).
-     *
-     * 번호도 같이 붙든다. 다시 말하기를 눌러 새로 듣기 시작했는데 앞의 결과가
-     * 늦게 도착하면, 지나간 말이 화면에 뜬다.
-     */
-    const 시작할때장소 = place;
     회차.current += 1;
     const 내회차 = 회차.current;
+    const 이축 = 지금축;
 
     /*
      * 듣기 전에 기기 안 모델부터 본다.
      *
      * processLocally 를 켜면(listen.ts) 모델이 깔려 있어야 듣기가 시작된다.
      * 예전에는 이걸 안 보고 바로 시작해서, 없는 기기에서는 단추를 눌러도 아무
-     * 일이 안 일어났다. 사용자에게는 앱이 고장 난 것으로 보였다.
+     * 일이 안 일어났다. 사용자에게는 앱이 고장 난 것으로 보였다(#102).
      *
      * 받아야 하면 여기서 받는다. **단추를 누른 자리라 받을 수 있다** — 브라우저는
      * 사람이 누르지 않으면 받기를 시작하지 않는다. 나중에 조용히 받아 두려 하면
@@ -1062,173 +1094,165 @@ function 말로채우기({ place, 언어, on받기 }: {
         set상태("듣는중");
       }
       /*
-       * 준비하는 동안 장소가 바뀌었으면 시작하지 않는다.
-       *
-       * 시작해 봐야 시작하기() 의 콜백이 장소가 달라진 것을 보고 버린다. 버리기
-       * 전까지 마이크는 켜져 있다 — 쓰지도 않을 소리를 듣는 셈이다.
-       *
-       * 오류로 알리지 않는다. 사용자가 스스로 장소를 바꾼 것이라, 여기서 "안됨" 을
-       * 띄우면 자기가 한 일을 실패로 되돌려 받는다. 새 장소의 말하기 단추는 그대로
-       * 있어서 다시 누르면 된다.
+       * 준비하는 동안 장소가 바뀌었거나 화면을 떠났으면 여기 오기 전에 회차가
+       * 올라가 위의 내회차 검사에서 이미 걸러졌다(place useEffect · 언마운트 정리).
+       * 말로채우기 시절의 장소 재확인이 그 두 곳으로 옮겨 온 셈이다(#102).
        */
-      if (시작할때장소 !== 지금장소.current) { set상태("쉬는중"); return; }
-      시작하기(시작할때장소, 내회차);
+      시작하기(내회차, 이축);
     })();
   };
 
-  const 시작하기 = (시작할때장소: PlaceType, 내회차: number) => {
+  const 시작하기 = (내회차: number, 이축: DetailOption) => {
     듣던것.current = 들어보기(언어, (r) => {
       if (내회차 !== 회차.current) return;
       듣던것.current = null;
-      if (시작할때장소 !== 지금장소.current) {
-        set못들음("안됨");
-        set상태("쉬는중");
-        return;
-      }
-      if ("들은말" in r) {
-        set결과({ 값: 말에서고르기(r.들은말, 시작할때장소, 언어 === "en-US"), 장소: 시작할때장소 });
-        set상태("보여주는중");
-      } else {
-        set못들음(r.못들은이유);
-        set상태("쉬는중");
-      }
+      set상태("쉬는중");
+      if (!("들은말" in r)) { set못들음(r.못들은이유); return; }
+
+      // 첫째 길 — 보기 이름을 그대로 말했나. 기존 맞추기를 그대로 쓴다.
+      const 고른값 = 말에서고르기(r.들은말, place, 언어 === "en-US").고른값[이축.label];
+      if (고른값 && 고른값.length > 0) { 넣기(고른값[0]); return; }
+
+      /*
+       * 둘째 길 — 예/아니오. 화면이 첫 보기를 물어보고 있으므로 '네' 는 그 보기다.
+       *
+       * 보기가 셋 이상일 때 '아니오' 로는 아무것도 안 고른다. 아니라는 말만으로는
+       * 무엇을 고를지 알 수 없고, 짐작해서 넣으면 안 고른 것이 골라진다.
+       */
+      const 답 = 예아니오(r.들은말, 언어 === "en-US");
+      if (답 === true) { 넣기(이축.choices[0]); return; }
+      if (답 === false) { 이축.choices.length === 2 ? 넣기(이축.choices[1]) : 다음으로(); return; }
+      set못들음("못골랐어요");
     });
   };
 
-  const 상자 = { borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 } as const;
+  /*
+   * 스스로 멈춘 것은 못 들은 것이 아니다.
+   *
+   * 그만두기() 는 인식 엔진을 멈추고, 그때 listen.ts 의 onend 가 "소리없음" 으로
+   * 답한다. 회차를 안 올리면 그 답이 그대로 통과해서, 사용자가 직접 멈췄는데
+   * "잘 안 들렸어요" 가 뜨고 소리로도 읽힌다.
+   */
+  const 그만듣기 = () => {
+    회차.current += 1;
+    듣던것.current?.그만두기();
+    듣던것.current = null;
+    set상태("쉬는중");
+    set못들음(null);
+  };
 
-  if (상태 === "받는중") {
-    return (
-      <div style={상자} role="status">
-        <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 10 }}>말을 알아들을 준비를 하고 있어요</p>
-        <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7 }}>
-          처음 한 번만 걸려요. 잠시만 기다려 주세요
-        </p>
-      </div>
-    );
-  }
+  /*
+   * 손으로 고르거나 건너뛸 때도 듣던 것을 먼저 끊는다.
+   *
+   * 안 끊으면 인식이 계속 돌다가 늦게 답한다. 그 콜백이 쥔 이축은 지금 축이 아니라
+   * 말하기를 누르던 때의 축이라, 방금 건너뛴 축에 값이 들어가고 손으로 고른 칸은
+   * 말한 적 없는 값으로 덮인다.
+   *
+   * 칸도 한 번 더 넘어간다. 콜백이 부르는 다음으로() 는 옛 칸으로 만들어진
+   * 마지막인가 를 보고 있어서, 이미 넘어간 자리에서 set칸 이 또 올라간다 —
+   * 물어본 적 없는 축이 그대로 지나간다.
+   *
+   * '쉬는중이 아니면' 끊는다. 모델을 받는 동안(받는중)도 준비가 끝나면 옛 축을
+   * 듣기 시작하므로 같은 문제다 — 그만듣기 의 회차 올리기가 그 예약을 버린다.
+   */
+  const 손으로고르기 = (고른값: string) => {
+    if (상태 !== "쉬는중") 그만듣기();
+    넣기(고른값);
+  };
 
-  if (상태 === "듣는중") {
-    return (
-      <div style={상자} role="status">
-        <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 10 }}>듣고 있어요</p>
-        {/*
-          말하는 법은 듣는 동안에도 보인다. 누르고 나서 무슨 말을 해야 할지
-          떠올리는 사람이 많아서, 안내를 앞 화면에만 두면 늦다.
-        */}
-        <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7 }}>
-          이렇게 말씀해 보세요<br />
-          <strong style={{ fontWeight: 600, color: TEXT_1 }}>“매운 닭강정 포장으로 두 개”</strong>
-        </p>
-        <p style={{ fontSize: 13, color: TEXT_2, marginTop: 10, lineHeight: 1.7 }}>
-          한 번에 다 말하지 않으셔도 돼요. 나머지는 손으로 고르시면 돼요.
-        </p>
-        <div style={{ marginTop: 16 }}>
-          <OutlineBtn onClick={() => 듣던것.current?.그만두기()}>다 말했어요</OutlineBtn>
-        </div>
-      </div>
-    );
-  }
+  const 건너뛰기 = () => {
+    if (상태 !== "쉬는중") 그만듣기();
+    다음으로();
+  };
 
-  if (상태 === "보여주는중" && 결과) {
-    const 들은것 = 결과.값;
-    // 결과를 보여 주는 동안에도 장소는 바뀔 수 있다. 그때는 채우지 못하게 막는다.
-    const 장소그대로 = 결과.장소 === place;
-    const 고른축 = Object.keys(들은것.고른값);
-    return (
-      <div style={상자}>
-        <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 10 }}>이렇게 들었어요</p>
-        {/* 들은 대로를 그대로 보여 준다. 잘못 들었으면 여기서 보인다. */}
-        <p data-원문 style={{ ...TYPE.body, color: TEXT_1, marginBottom: 14 }}>“{들은것.들은말}”</p>
-
-        {고른축.length > 0 && (
-          <div className="flex flex-wrap" style={{ gap: 6, marginBottom: 10 }}>
-            {고른축.map((축) => (
-              <span key={축} style={{
-                fontSize: 13, fontWeight: 500, padding: "4px 11px", borderRadius: RADIUS.pill,
-                backgroundColor: PAPER, color: TEXT_1,
-              }}>
-                {t(축)} {들은것.고른값[축].map(t).join(", ")}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/*
-          못 들은 축을 감추지 않는다. 감추면 사용자는 우리가 뭘 골라 놨는지 모른
-          채로 넘어간다. 무엇이 비었는지 알아야 손으로 채울 수 있다.
-        */}
-        {들은것.못들은축.length > 0 && (
-          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
-            {/* 조사를 자리표시자로 붙이면 "맵기은(는)" 이 된다. 조사가 필요 없는 문장으로 쓴다. */}
-            {tf("못 들은 것 — {축}. 아래에서 골라 주세요.", { 축: 들은것.못들은축.map(t).join(", ") })}
-          </p>
-        )}
-        {/*
-          말은 했는데 못 고른 축은 다르게 말한다. 못 들었다고 하면 사용자는 다시
-          또박또박 말해 보고 같은 답을 받는다. 무엇이 문제였는지 알려 준다.
-        */}
-        {들은것.모호한축.length > 0 && (
-          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
-            {tf("말씀은 들었는데 어느 쪽인지 못 골랐어요 — {축}. 아래에서 골라 주세요.", { 축: 들은것.모호한축.map(t).join(", ") })}
-          </p>
-        )}
-        {고른축.length === 0 && place === null && (
-          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
-            장소를 고르시면 맵기·형태 같은 것도 말로 채울 수 있어요.
-          </p>
-        )}
-
-        <div className="flex" style={{ gap: 8, marginTop: 16 }}>
-          <div style={{ flex: 1 }}>
-            <OutlineBtn onClick={() => {
-              /*
-               * 실제로 채웠을 때만 '말로 채운 사람' 으로 표시한다. 말해 보고
-               * 확인을 안 눌렀거나 장소가 바뀌어 못 채운 경우는 아니다.
-               * 이 값이 계약의 preferredInput 으로 나간다(inputsource.ts).
-               */
-              if (장소그대로) { on받기(들은것); 입력출처.말로채움(); }
-              set상태("쉬는중");
-            }}>
-              {장소그대로 ? "이대로 채우기" : "장소가 바뀌어 못 채워요"}
-            </OutlineBtn>
-          </div>
-          <div style={{ flex: 1 }}>
-            <OutlineBtn onClick={듣기시작}>다시 말하기</OutlineBtn>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  const 고른것 = 값[지금축.label] ?? [];
   return (
-    <div style={상자}>
-      <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 6 }}>말로 채우기</p>
-      <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7, marginBottom: 4 }}>
-        “매운 닭강정 포장으로 두 개” 처럼 말씀하시면 아래 칸이 채워져요.
+    <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
+      <p style={{ ...TYPE.caption, color: TEXT_2 }}>
+        {tf("{n}번째 질문 (전체 {전체}개)", { n: 칸 + 1, 전체: 축들.length })}
       </p>
-      <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7 }}>
-        한 번에 다 말하지 않으셔도 돼요. 들은 것만 채우고, 나머지는 손으로 고르시면 돼요.
+      <h3 style={{ fontSize: 19, fontWeight: 800, color: TEXT_1, margin: "8px 0 4px" }}>{t(지금축.label)}</h3>
+      {/* 첫 보기를 물어본다. 그래야 '네' 가 무엇을 뜻하는지 화면과 소리가 같아진다. */}
+      <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7 }}>
+        {tf("{보기} — 이것으로 할까요? 그렇게 말씀하셔도 되고, 다른 것을 말씀하셔도 돼요.", { 보기: t(지금축.choices[0]) })}
       </p>
-      {/*
-        안 될 때는 왜 안 되는지 말한다. '다시 시도' 만 띄우면 같은 조건에서 또
-        눌러 보게 되고, 권한이 막힌 경우에는 몇 번을 눌러도 같다.
-      */}
+
+      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
+        {지금축.choices.map((c) => (
+          <button
+            key={c}
+            type="button"
+            aria-pressed={고른것.includes(c)}
+            onClick={() => 손으로고르기(c)}
+            style={{
+              minHeight: 44, padding: "10px 14px", borderRadius: 999, fontFamily: FONT, fontSize: 15,
+              cursor: "pointer", border: `1px solid ${고른것.includes(c) ? TEXT_1 : BORDER}`,
+              backgroundColor: 고른것.includes(c) ? TEXT_1 : "transparent",
+              color: 고른것.includes(c) ? PAPER : TEXT_1,
+            }}
+          >
+            {t(c)}
+          </button>
+        ))}
+      </div>
+
       {못들음 !== null && (
-        <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 10, lineHeight: 1.7 }}>
+        <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 12, lineHeight: 1.7 }}>
           {못들음 === "권한없음"
-            ? "마이크를 쓸 수 없어요. 브라우저 설정에서 마이크를 허용해 주시거나, 아래에서 손으로 골라 주세요."
-            : 못들음 === "소리없음"
-              ? "잘 안 들렸어요. 조금 더 크게 다시 말씀해 주세요."
-              : 못들음 === "모델없음"
-                ? "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 아래에서 손으로 골라 주세요."
-                : "지금은 말로 채울 수 없어요. 아래에서 손으로 골라 주세요."}
+            ? "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요."
+            : 못들음 === "모델없음"
+              ? "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 위에서 손으로 골라 주세요."
+              : 못들음 === "못골랐어요"
+                ? "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요."
+                : "잘 안 들렸어요. 다시 말씀해 주세요."}
         </p>
       )}
-      {/* 마이크 그림은 우리 아이콘 묶음에 없다. 글자만으로도 무엇을 하는 단추인지 분명하다. */}
-      <div style={{ marginTop: 16 }}>
-        <OutlineBtn onClick={듣기시작}>말하기</OutlineBtn>
+
+      {/* 모델을 받는 동안. 없으면 단추를 누르고 한참 아무 일도 없는 것처럼 보인다(#102). */}
+      {상태 === "받는중" && (
+        <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+          말을 알아들을 준비를 하고 있어요
+        </p>
+      )}
+
+      <div className="flex" style={{ gap: 8, marginTop: 16 }}>
+        <OutlineBtn onClick={상태 !== "쉬는중" ? 그만듣기 : 듣기시작}>
+          {상태 !== "쉬는중" ? "그만 듣기" : "말하기"}
+        </OutlineBtn>
+        {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
+        <OutlineBtn onClick={건너뛰기}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
       </div>
+    </div>
+  );
+}
+
+function SaveChoiceScreen({ 이름, onChoose, onBack }: {
+  이름: string;
+  onChoose: (남길까: boolean) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
+      <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
+        <BackButton onClick={onBack} />
+      </div>
+      <div style={{ flex: "1 0 auto", padding: `24px ${GAP.screenX}px 24px` }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: TEXT_1, marginBottom: 16 }}>저장할까요?</h2>
+        <p style={{ fontSize: 17, fontWeight: 700, color: TEXT_1, lineHeight: 1.6 }}>
+          {/* 사용자가 적은 이름이다. 옮기지 않는다. */}
+          <span data-원문>{이름}</span>
+        </p>
+        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+          지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때
+          이 기기에서 다시 꺼내 쓸 수 있어요.
+        </p>
+      </div>
+      <StickyFooter>
+        <PrimaryBtn onClick={() => onChoose(false)}>이번만 쓰기</PrimaryBtn>
+        <div style={{ marginTop: 10 }}>
+          <OutlineBtn onClick={() => onChoose(true)}>이 기기에 저장하기</OutlineBtn>
+        </div>
+      </StickyFooter>
     </div>
   );
 }
@@ -1345,10 +1369,15 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
           말로 채우는 길. 손으로 고르는 길은 아래에 그대로 있다 — 이건 대신하는
           길이 아니라 더해 주는 길이다. 마이크가 안 되는 기기에서는 안 보인다.
         */}
-        <말로채우기
+        {/*
+          한 칸씩 묻는다. 예전에는 한 번에 다 말하게 했는데, 무엇을 말해야 하는지
+          모르는 채로 마이크가 켜지면 대부분 아무 말도 못 했다.
+        */}
+        <한칸씩말하기
           place={place}
           언어={영어인가 ? "en-US" : "ko-KR"}
-          on받기={(들은것) => {
+          값={selections}
+          on고르기={(축, 고른것) => {
             /*
              * **고른 값만 넣는다. 들은 말은 어디에도 저장하지 않는다.**
              *
@@ -1359,12 +1388,13 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
              *
              * 지금은 메뉴 이름에도 메모와 같은 개인정보 검사가 걸려 있다(#101 리뷰).
              * 그래도 채우지 않는다 — 검사는 모양이 있는 것만 막고 사람 이름은 못
-             * 가려낸다. 우리가 넣지 않는 것이 첫째 방어다.
-             *
-             * 메뉴 이름은 손으로 적는다. 들은 말은 확인 화면에 보이니 보고 적으면 된다.
+             * 가려낸다. 우리가 넣지 않는 것이 첫째 방어다. 한 칸씩 묻는 지금도
+             * 같다 — 목록에 있는 값만 들어간다.
              */
-            setSelections((prev) => ({ ...prev, ...들은것.고른값 }));
+            setSelections((prev) => ({ ...prev, [축]: 고른것 }));
+            입력출처.말로채움();
           }}
+          onDone={() => {}}
         />
 
         <div style={{ marginBottom: 28 }}>
@@ -3071,12 +3101,11 @@ function ConfirmRow({
   );
 }
 
-function ConfirmCard({ children, badge, badgeTone = "success", photo }: {
+function ConfirmCard({ children, badge, badgeTone = "success" }: {
   children: React.ReactNode; badge?: string;
   // 배지가 늘 초록 체크였다. "확실하지 않아요" 같은 문구가 성공 배지를 달고 나오면
   // 색과 아이콘으로 상태를 알린다는 원칙이 여기서만 거꾸로 작동한다.
   badgeTone?: "success" | "caution" | "neutral";
-  photo?: string | null;
 }) {
   const 배지색 = badgeTone === "success"
     ? { bg: SURFACE, fg: TEXT_1, icon: "checkCircle" as const }
@@ -3090,9 +3119,7 @@ function ConfirmCard({ children, badge, badgeTone = "success", photo }: {
       {/* 키오스크가 오늘 걸어 둔 메뉴 사진. 담기 전 마지막 확인 화면이라 크게 둔다.
           글자를 읽기 어려운 분도 "내가 시키려던 그것"인지 한눈에 알아볼 수 있어야 한다.
           카탈로그에 사진이 없으면 자리를 비운다. */}
-      {photo && (
-        <img src={photo} alt="" aria-hidden="true" style={{ width: "100%", height: 132, objectFit: "cover", display: "block" }} />
-      )}
+
       <div data-confirm-body style={{ padding: "6px 20px" }}>{children}</div>
       {badge && (
         <div style={{ padding: "13px 20px", backgroundColor: 배지색.bg, display: "flex", alignItems: "center", gap: 8 }}>
@@ -3322,10 +3349,9 @@ function InfoBox({ children, variant = "warn" }: { children: React.ReactNode; va
  * 서로 다른 질문의 선택지가 조용히 한 그룹으로 묶인다.
  */
 function OptionCard({
-  name, price, selected, onClick, photo, groupName, matched,
+  name, price, selected, onClick, groupName, matched,
 }: {
-  name: string; price: string; selected: boolean; onClick: () => void;
-  photo?: string | null; groupName: string;
+  name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
   /**
    * 저장해 두신 조건과 이 후보가 한 축도 어긋나지 않는가.
    *
@@ -3339,7 +3365,6 @@ function OptionCard({
   const 속: React.ReactNode = (
     <>
       <span className="flex items-center gap-3" style={{ minWidth: 0, flex: 1 }}>
-        {photo && <img src={photo} alt="" aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />}
         {/*
           배지를 이름 옆에 두면 이름이 밀려 두 줄로 접힌다. 메뉴 이름은 이 줄에서
           가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
@@ -3427,7 +3452,7 @@ function OrderExact({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <ConfirmCard badge="오늘의 메뉴에서 찾았어요" photo={item.imageUrl}>
+      <ConfirmCard badge="오늘의 메뉴에서 찾았어요">
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} />
@@ -3509,7 +3534,6 @@ function OrderClarification({
             selected={selected === i}
             name={c.displayName}
             price={c.priceText}
-            photo={c.imageUrl}
             matched={c.unmatchedLabels?.length === 0}
             onClick={() => setSelected(i)}
           />
@@ -3561,7 +3585,7 @@ function OrderChanged({
   const [checked, setChecked] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <ConfirmCard photo={item.imageUrl}>
+      <ConfirmCard>
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} changed={!o.matched} changeNote={o.note} />
@@ -3627,7 +3651,7 @@ function OrderLowConfidence({
        * 정보가 가장 적었다. exact 와 같은 확인 카드를 그대로 쓴다.
        * 사용자는 포장인지 종이컵인지 몇 개인지 다 보고 나서 짚는다.
        */}
-      <ConfirmCard badge="확실하지 않아요" badgeTone="caution" photo={item.imageUrl}>
+      <ConfirmCard badge="확실하지 않아요" badgeTone="caution">
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} changed={!o.matched} changeNote={o.note ?? "오늘은 이 조합이 없어요"} />
@@ -4869,7 +4893,17 @@ export default function App() {
    * 그 400 은 code 도 message 도 없는 스프링 기본 응답이라 사용자에게 이유를 말해 줄 수 없다.
    * 대신 주문표 화면이 저장하기 전에 미리 알려 준다(아래 OrderSheetScreen 의 안내 한 줄).
    */
-  const 주문표저장 = (p: OrderSheet): void => {
+  /** 물어보는 동안 들고 있을 주문표. 답을 들은 뒤에 목록에 넣는다. */
+  const [물어볼주문표, set물어볼주문표] = useState<OrderSheet | null>(null);
+
+  /**
+   * 주문표를 목록에 넣고 이어서 간다.
+   *
+   * 비로그인이면 여기 오기 전에 남길지 물어본다(주문표저장). 로그인한 사람은
+   * 안 묻는다 — 자기 계정에 저장하는 것이 이미 뜻이 통하고, 지우고 싶으면
+   * 목록에서 지우면 된다.
+   */
+  const 주문표넣기 = (p: OrderSheet): void => {
     /*
      * 고친 것이면 그 자리에 덮고, 새것이면 뒤에 붙인다.
      *
@@ -4887,7 +4921,36 @@ export default function App() {
     setScreen("saved");
     setTab("menu");
     // 못올리는이유() 는 이유 문자열이거나 null 이다. null 일 때만 올린다.
-    if (계정 && 못올리는이유(p) === null) 주문표올리기(계정.userId, p);
+    // 임시 주문표는 안 올린다 — 이 기기에도 안 남기겠다고 한 것을 서버에 두면
+    // 그 선택이 거짓이 된다.
+    if (계정 && p.임시 !== true && 못올리는이유(p) === null) 주문표올리기(계정.userId, p);
+  };
+
+  /**
+   * 주문표 화면에서 저장을 눌렀다.
+   *
+   * 로그인했으면 그대로 넣는다. 아니면 남길지 묻는다 — 가입도 로그인도 없이 들어온
+   * 사람은 자기 정보가 어디에 남는지 확인할 방법이 없어서, 묻지 않고 남기지 않는다.
+   *
+   * 고치는 중일 때는 안 묻는다. 이미 목록에 있는 것을 고치는 길이라, 여기서 '이번만
+   * 쓰기' 를 고르면 있던 주문표가 조용히 사라지는 것처럼 보인다.
+   */
+  const 주문표저장 = (p: OrderSheet): void => {
+    const 있던것 = sheets.find((있던) => 있던.id === p.id);
+    if (guest && !있던것) {
+      set물어볼주문표(p);
+      setScreen("save-choice");
+      return;
+    }
+    /*
+     * 고쳐도 '이번만 쓰기' 표시는 그대로 둔다.
+     *
+     * 주문표 화면의 저장 단추는 { id, menuName, place, selections, memo } 만 만들어서
+     * 임시 표시가 딸려 오지 않는다. 그대로 넣으면 남기지 않겠다고 고른 주문표가
+     * 고치는 순간 이 기기(session.ts)와 서버(주문표올리기)에 남는다. 사용자는
+     * 다시 저장하겠다고 고른 적이 없다.
+     */
+    주문표넣기(있던것?.임시 === true ? { ...p, 임시: true } : p);
   };
 
   /**
@@ -5420,6 +5483,18 @@ export default function App() {
           )}
           {screen === "greeting" && (
             <GreetingScreen name={name} onNext={() => { setScreen("saved"); setTab("menu"); }} />
+          )}
+          {screen === "save-choice" && 물어볼주문표 && (
+            <SaveChoiceScreen
+              이름={물어볼주문표.menuName}
+              onChoose={(남길까) => {
+                주문표넣기(남길까 ? 물어볼주문표 : { ...물어볼주문표, 임시: true });
+                set물어볼주문표(null);
+              }}
+              // 뒤로 가면 아무 일도 없었던 것이 되어야 한다. 고치던 내용은 그대로
+              // 들고 주문표 화면으로 돌아간다.
+              onBack={() => { set고칠주문표(물어볼주문표); set물어볼주문표(null); setScreen("sheet"); }}
+            />
           )}
           {screen === "sheet" && (
             <OrderSheetScreen
