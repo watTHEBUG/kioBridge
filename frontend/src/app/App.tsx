@@ -15,7 +15,7 @@ import type {
 import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, STEPS } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerSheet, unregisterSheet, type Scenario } from "@/api/client";
 import {
-  account, 아이디검사, 비밀번호검사, 못올리는이유, 개인정보같은메모,
+  account, 아이디검사, 비밀번호검사, 못올리는이유, 개인정보같은글,
   LOGIN_ID_MAX, PASSWORD_MIN, MENU_NAME_MAX, MEMO_MAX, type Account,
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
@@ -1289,9 +1289,12 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
              *
              * 예전에는 메뉴 이름 칸을 들은 말로 채웠다. 자유 발화라 "저 김순자인데요
              * 매운 닭강정 주세요" 같은 말이 그대로 주문표에 저장되고, 로그인한
-             * 사람은 서버까지 올라갔다. 메뉴 이름 칸에는 메모와 달리 개인정보
-             * 검사도 없다. 이름·전화번호는 받지도 저장하지도 않는다는 규칙을
-             * 정면으로 어기는 자리였다(#39 리뷰).
+             * 사람은 서버까지 올라갔다. 이름·전화번호는 받지도 저장하지도 않는다는
+             * 규칙을 정면으로 어기는 자리였다(#39 리뷰).
+             *
+             * 지금은 메뉴 이름에도 메모와 같은 개인정보 검사가 걸려 있다(#101 리뷰).
+             * 그래도 채우지 않는다 — 검사는 모양이 있는 것만 막고 사람 이름은 못
+             * 가려낸다. 우리가 넣지 않는 것이 첫째 방어다.
              *
              * 메뉴 이름은 손으로 적는다. 들은 말은 확인 화면에 보이니 보고 적으면 된다.
              */
@@ -1316,6 +1319,16 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
               border: "none", outline: "none", backgroundColor: CANVAS, boxSizing: "border-box",
             }}
           />
+          {/*
+            메모와 같은 검사를 여기에도 건다. 자유롭게 적는 칸이 둘인데 한쪽만
+            막으면, 막힌 칸을 피해 다른 칸에 적는 것을 못 막는다(#101 리뷰).
+            여기서도 지우지는 않는다 — 무엇을 지워야 하는지 말하고 사용자가 고친다.
+          */}
+          {개인정보같은글(menuName) && (
+            <p role="alert" style={{ ...TYPE.caption, color: FAIL, marginTop: 8 }}>
+              메뉴 이름에 전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지워 주시면 저장할 수 있어요.
+            </p>
+          )}
         </div>
 
         <div style={{ marginBottom: 28 }}>
@@ -1416,7 +1429,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
             곤란한 두 가지는 여기서 막힌다. 지우지는 않는다. 사용자가 적은 것을
             앱이 말없이 고치면 화면에 보이는 것과 저장되는 것이 달라진다.
           */}
-          {개인정보같은메모(memo) && (
+          {개인정보같은글(memo) && (
             <p role="alert" style={{ ...TYPE.caption, color: FAIL, marginTop: 8 }}>
               전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지워 주시면 저장할 수 있어요.
             </p>
@@ -1459,7 +1472,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
             menuName: menuName.trim() || "이름 없는 주문표",
             place, selections, memo,
           })}
-          disabled={개인정보같은메모(memo)}
+          disabled={개인정보같은글(memo) || 개인정보같은글(menuName)}
         >
           {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
         </PrimaryBtn>
