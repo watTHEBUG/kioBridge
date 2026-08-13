@@ -94,3 +94,22 @@ describe("만료", () => {
     }
   });
 });
+
+describe("읽기() 를 두 번 부르지 않는다", () => {
+  it("만료 직전이라도 한 번 읽은 값이 헤더까지 그대로 간다", () => {
+    /*
+     * 읽기() 는 만료를 보면서 토큰을 지우기도 한다. 조건과 헤더에서 각각 부르면
+     * 그 사이에 만료된 순간 `Bearer null` 이 나간다(account.ts 에서 값을 한 번만
+     * 읽는 이유).
+     */
+    접근토큰.담기("t", Date.now() + 5);
+    const 토큰 = 접근토큰.읽기();
+    expect(토큰).toBe("t");
+
+    // 이 시점에 만료됐다고 해도, 붙들어 둔 값은 안 바뀐다.
+    접근토큰.비우기();
+    const 헤더 = { ...(토큰 ? { authorization: `Bearer ${토큰}` } : {}) };
+    expect(헤더.authorization).toBe("Bearer t");
+    expect(헤더.authorization).not.toContain("null");
+  });
+});

@@ -174,6 +174,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const t = setTimeout(() => ac.abort(), 15_000);
   try {
     const 본문 = req.method === "GET" || req.method === "HEAD" ? undefined : await 본문읽기(req);
+    const 인증 = 인증헤더(req);
     const 응답 = await fetch(`${base.replace(/\/$/, "")}/${경로}${쿼리문자열 ? `?${쿼리문자열}` : ""}`, {
       method: req.method,
       signal: ac.signal,
@@ -190,7 +191,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
        */
       headers: {
         "content-type": "application/json",
-        ...(인증헤더(req) ? { authorization: 인증헤더(req)! } : {}),
+        // 한 번만 고른다. 두 번 부르고 ! 로 단언하면, 이 함수가 나중에 상태를 보게
+        // 되는 날 조건과 값이 어긋나도 타입 검사가 안 잡는다(account.ts 에서 겪음).
+        ...(인증 ? { authorization: 인증 } : {}),
       },
       ...(본문 === undefined || 본문 === "" ? {} : { body: 본문 }),
     });

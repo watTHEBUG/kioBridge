@@ -413,6 +413,15 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
     const ac = new AbortController();
     const 시계 = setTimeout(() => ac.abort(), 20_000);
 
+    /*
+     * 한 번만 읽어서 붙들어 둔다.
+     *
+     * 읽기() 는 만료 시각을 보면서 지난 토큰을 지우기도 한다(token.ts). 그래서
+     * 조건과 헤더에서 각각 부르면, 두 호출 사이에 만료된 순간 조건은 통과하고
+     * 헤더에는 `Bearer null` 이 실린다. 같은 값을 둘 다 보게 한다.
+     */
+    const 토큰 = 접근토큰.읽기();
+
     let res: Response;
     try {
       res = await fetch(baseUrl + path, {
@@ -424,7 +433,7 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
          */
         headers: {
           "content-type": "application/json",
-          ...(접근토큰.읽기() ? { authorization: `Bearer ${접근토큰.읽기()}` } : {}),
+          ...(토큰 ? { authorization: `Bearer ${토큰}` } : {}),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
