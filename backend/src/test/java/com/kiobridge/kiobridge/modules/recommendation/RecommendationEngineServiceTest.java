@@ -25,7 +25,9 @@ import com.kiobridge.kiobridge.modules.recommendation.engine.CandidateFilterResu
 import com.kiobridge.kiobridge.modules.recommendation.engine.RuleEvaluationResult;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -34,7 +36,23 @@ import static org.assertj.core.data.Offset.offset;
 
 class RecommendationEngineServiceTest {
 
-    private final RecommendationEngineService service = new RecommendationEngineService();
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    // 혼잡도(요일+시간대) 로직과 무관한 기존 테스트들이 실행 시각에 따라 흔들리지 않도록,
+    // 평일이지만 점심 러시(11:30~13:00)가 아닌 고정 시각을 기본 서비스에 사용한다.
+    // 2026-08-12는 수요일, 15:00 KST = 06:00 UTC.
+    private static final Instant NOT_CONGESTED_INSTANT = Instant.parse("2026-08-12T06:00:00Z");
+    // 같은 수요일 12:00 KST = 03:00 UTC (점심 러시 한가운데).
+    private static final Instant CONGESTED_INSTANT = Instant.parse("2026-08-12T03:00:00Z");
+    // 2026-08-15는 토요일, 18:30 KST = 09:30 UTC (저녁 러시 — 평일/주말 공통으로 혼잡 취급).
+    private static final Instant WEEKEND_DINNER_RUSH_INSTANT = Instant.parse("2026-08-15T09:30:00Z");
+    // 같은 토요일 12:00 KST = 03:00 UTC (주말 점심 — 점심 러시는 평일 전용이라 혼잡 아님).
+    private static final Instant WEEKEND_LUNCH_INSTANT = Instant.parse("2026-08-15T03:00:00Z");
+
+    private final RecommendationEngineService service = serviceAt(NOT_CONGESTED_INSTANT);
+
+    private static RecommendationEngineService serviceAt(Instant instant) {
+        return new RecommendationEngineService(Clock.fixed(instant, KST));
+    }
 
     @Test
     void 적격_후보가_없으면_추천ID는_null이고_이유는_최소_1개다() {
@@ -98,6 +116,7 @@ class RecommendationEngineServiceTest {
         assertThat(recommendation.scoreBreakdown().get("spicyLevelMatch")).isEqualTo(0.0);
         assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.0);
         assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
         assertThat(recommendation.recommendationReasons())
             .containsExactly("남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.");
     }
@@ -266,6 +285,87 @@ class RecommendationEngineServiceTest {
             "조건에 맞는 메뉴를 찾지 못해 추천드릴 항목이 없습니다.",
             "직원 도움을 선호하시는 것으로 확인돼, 필요하시면 언제든 직원을 불러드릴게요."
         );
+    }
+
+    @Test
+    void 혼잡_시간대에는_포장_지원_후보에_소폭_가산점과_사유가_붙는다() {
+        // 평일(수요일) 점심 러시(12:00 KST)로 고정한 서비스 — 매장 API 없이 서버 시계만으로 판단한다.
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-OK", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(CONGESTED_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.1);
+        assertThat(recommendation.recommendationReasons())
+            .contains("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 혼잡_시간대여도_포장을_지원하지_않는_후보는_가산점을_받지_않는다() {
+        Candidate dineInOnly = new Candidate(
+            "CHICKEN-DINE-IN-ONLY", "테스트 후보", "chicken-store", true, "SYNTHETIC_MOCK",
+            6000.0, null,
+            Map.of("SERVICE_TYPE", List.of("DINE_IN"), "SPICY_LEVEL", List.of("HOT")),
+            Map.of(), Map.of(), Map.of()
+        );
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(dineInOnly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(CONGESTED_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
+        assertThat(recommendation.recommendationReasons())
+            .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 혼잡_시간대가_아니면_포장_지원_후보라도_가산점과_사유가_없다() {
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-QUIET", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
+        assertThat(recommendation.recommendationReasons())
+            .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 저녁_러시는_주말에도_혼잡으로_판단한다() {
+        // 치맥 시간대는 평일/주말 공통 — 점심 러시(평일 전용)와 달리 요일 제한이 없다.
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-DINNER", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(WEEKEND_DINNER_RUSH_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.1);
+        assertThat(recommendation.recommendationReasons())
+            .contains("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 점심_러시는_주말에는_적용되지_않는다() {
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-WEEKEND-LUNCH", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(WEEKEND_LUNCH_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
+        assertThat(recommendation.recommendationReasons())
+            .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
     }
 
     // ------------------------------------------------------------------

@@ -10,6 +10,11 @@ import com.kiobridge.kiobridge.modules.recommendation.engine.RuleEvaluationResul
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -23,11 +28,31 @@ import java.util.stream.Collectors;
 @Service
 public class RecommendationEngineService {
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    // 점심 러시는 평일에만 (사무실 점심시간 기준). 저녁 러시(치맥 시간대)는 평일/주말 공통으로 혼잡하다고 가정한다.
+    private static final LocalTime LUNCH_RUSH_START = LocalTime.of(11, 30);
+    private static final LocalTime LUNCH_RUSH_END = LocalTime.of(13, 0);
+    private static final LocalTime DINNER_RUSH_START = LocalTime.of(18, 0);
+    private static final LocalTime DINNER_RUSH_END = LocalTime.of(19, 0);
+
+    private final Clock clock;
+
+    public RecommendationEngineService() {
+        this(Clock.system(KST));
+    }
+
+    // 테스트 전용
+    RecommendationEngineService(Clock clock) {
+        this.clock = clock;
+    }
+
     private static final String SERVICE_TYPE_MISMATCH_CODE = "SERVICE_TYPE_MISMATCH";
     private static final String SPICY_LEVEL_MISMATCH_CODE = "SPICY_LEVEL_MISMATCH";
     private static final String BONE_TYPE_MISMATCH_CODE = "BONE_TYPE_MISMATCH";
     private static final String CUP_OPTION_MISMATCH_CODE = "CUP_OPTION_MISMATCH";
     private static final String SPICY_LEVEL_OPTION_KEY = "SPICY_LEVEL";
+    private static final String SERVICE_TYPE_OPTION_KEY = "SERVICE_TYPE";
+    private static final String TAKE_OUT_VALUE = "TAKE_OUT";
 
     private static final String SERVICE_TYPE_PREFERENCE_RULE_ID = "CHICKEN_SERVICE_TYPE_PREFERENCE";
     private static final String SPICY_LEVEL_PREFERENCE_RULE_ID = "CHICKEN_SPICY_LEVEL_PREFERENCE";
@@ -38,6 +63,7 @@ public class RecommendationEngineService {
     private static final String BONE_TYPE_SCORE_KEY = "boneTypeMatch";
     private static final String CUP_OPTION_SCORE_KEY = "cupOptionMatch";
     private static final String PRICE_SCORE_KEY = "priceScore";
+    private static final String CROWDING_SCORE_KEY = "crowdingContextScore";
 
     private static final double PREFERENCE_MATCH_BONUS = 1.0;
     private static final double PREFERENCE_MISMATCH_PENALTY = -0.3;
@@ -47,6 +73,7 @@ public class RecommendationEngineService {
     private static final double BONE_TYPE_MISMATCH_PENALTY = -0.15;
     private static final double CUP_OPTION_MATCH_BONUS = 0.5;
     private static final double CUP_OPTION_MISMATCH_PENALTY = -0.15;
+    private static final double CROWDING_TAKE_OUT_BONUS = 0.1;
     private static final int ADJACENT_SPICY_LEVEL_DISTANCE = 1;
     private static final int UNRESOLVABLE_SPICY_LEVEL_DISTANCE = Integer.MAX_VALUE;
 
@@ -71,6 +98,7 @@ public class RecommendationEngineService {
     private static final String BEST_REMAINING_REASON = "남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.";
     private static final String RECONFIRMATION_REASON = "일부 정보의 확신도가 낮아 다시 확인이 필요합니다.";
     private static final String STAFF_ASSISTANCE_REASON = "직원 도움을 선호하시는 것으로 확인돼, 필요하시면 언제든 직원을 불러드릴게요.";
+    private static final String CROWDING_REASON = "지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.";
     private static final String SERVICE_TYPE_UNMET_TEXT = "선호하신 이용 방식과 다릅니다.";
     private static final String SPICY_LEVEL_UNMET_TEXT = "선호하신 맵기와 다릅니다.";
     private static final String BONE_TYPE_UNMET_TEXT = "선호하신 뼈/순살과 다릅니다.";
@@ -95,7 +123,7 @@ public class RecommendationEngineService {
         }
 
         List<ScoredCandidate> rankedCandidates = filterResult.eligibleCandidates().stream()
-            .map(candidate -> scoreCandidate(candidate, ctx, filterResult))
+            .map(candidate -> scoreCandidate(candidate, ctx, filterResult, clock))
             .sorted(RANKING_COMPARATOR)
             .toList();
 
@@ -108,6 +136,8 @@ public class RecommendationEngineService {
             filterResult.passesByCandidateId().getOrDefault(recommendedCandidateId, List.of());
         boolean recommendedNeedsReconfirmation =
             !filterResult.reconfirmationsByCandidateId().getOrDefault(recommendedCandidateId, List.of()).isEmpty();
+        // 혼잡도 보너스가 실제로 이 후보에 반영됐을 때만 이유를 보여준다 (반영 안 됐으면 언급하지 않는다).
+        boolean crowdingApplied = topCandidate.scoreBreakdown().getOrDefault(CROWDING_SCORE_KEY, 0.0) > 0.0;
 
         double confidence = computeConfidence(rankedCandidates, recommendedNeedsReconfirmation);
         boolean requiresReconfirmation = recommendedNeedsReconfirmation || confidence < LOW_CONFIDENCE_THRESHOLD;
@@ -117,7 +147,7 @@ public class RecommendationEngineService {
             buildAlternativeCandidateIds(rankedCandidates, recommendedCandidateId),
             filterResult.excludedCandidates(),
             topCandidate.scoreBreakdown(),
-            buildRecommendationReasons(recommendedWarnings, recommendedPasses, recommendedNeedsReconfirmation, profile),
+            buildRecommendationReasons(recommendedWarnings, recommendedPasses, recommendedNeedsReconfirmation, profile, crowdingApplied),
             buildUnmetConditions(recommendedWarnings, recommendedNeedsReconfirmation),
             confidence,
             requiresReconfirmation
@@ -143,19 +173,21 @@ public class RecommendationEngineService {
 
     // 점수 계산 (STEP5)
 
-    private static ScoredCandidate scoreCandidate(Candidate candidate, ChickenStoreSessionContext ctx, CandidateFilterResult filterResult) {
+    private static ScoredCandidate scoreCandidate(
+        Candidate candidate, ChickenStoreSessionContext ctx, CandidateFilterResult filterResult, Clock clock
+    ) {
         List<RuleEvaluationResult> warnings =
             filterResult.warningsByCandidateId().getOrDefault(candidate.candidateId(), List.of());
         List<RuleEvaluationResult> passes =
             filterResult.passesByCandidateId().getOrDefault(candidate.candidateId(), List.of());
-        Map<String, Double> scoreBreakdown = buildScoreBreakdown(candidate, ctx, warnings, passes);
+        Map<String, Double> scoreBreakdown = buildScoreBreakdown(candidate, ctx, warnings, passes, clock);
         double totalScore = scoreBreakdown.values().stream().mapToDouble(Double::doubleValue).sum();
         return new ScoredCandidate(candidate, totalScore, scoreBreakdown);
     }
 
     private static Map<String, Double> buildScoreBreakdown(
         Candidate candidate, ChickenStoreSessionContext ctx,
-        List<RuleEvaluationResult> warnings, List<RuleEvaluationResult> passes
+        List<RuleEvaluationResult> warnings, List<RuleEvaluationResult> passes, Clock clock
     ) {
         Map<String, Double> scoreBreakdown = new LinkedHashMap<>();
         scoreBreakdown.put(SERVICE_TYPE_SCORE_KEY, scoreServiceType(warnings, passes));
@@ -163,6 +195,7 @@ public class RecommendationEngineService {
         scoreBreakdown.put(BONE_TYPE_SCORE_KEY, scoreBoneType(warnings, passes));
         scoreBreakdown.put(CUP_OPTION_SCORE_KEY, scoreCupOption(warnings, passes));
         scoreBreakdown.put(PRICE_SCORE_KEY, scorePrice(candidate, ctx));
+        scoreBreakdown.put(CROWDING_SCORE_KEY, scoreCrowding(candidate, clock));
         return Map.copyOf(scoreBreakdown);
     }
 
@@ -238,6 +271,39 @@ public class RecommendationEngineService {
         return PRICE_SCORE_WEIGHT * clamp(remainingBudgetRatio, 0.0, 1.0);
     }
 
+    // hardConstraints/facts/preferences보다 항상 아래 우선순위이므로, 매칭/비매칭 페널티보다 작은
+    // 보너스만 주고(CROWDING_TAKE_OUT_BONUS), 순위를 뒤집지 않고 동점권에서만 순서를 조정한다.
+    private static double scoreCrowding(Candidate candidate, Clock clock) {
+        if (!isCongestedNow(clock)) {
+            return PREFERENCE_UNKNOWN_SCORE;
+        }
+        return candidateSupportsTakeOut(candidate) ? CROWDING_TAKE_OUT_BONUS : PREFERENCE_UNKNOWN_SCORE;
+    }
+
+    private static boolean isCongestedNow(Clock clock) {
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        LocalTime time = now.toLocalTime();
+
+        if (isWithin(time, DINNER_RUSH_START, DINNER_RUSH_END)) {
+            return true;
+        }
+        boolean isWeekday = !isWeekend(now.getDayOfWeek());
+        return isWeekday && isWithin(time, LUNCH_RUSH_START, LUNCH_RUSH_END);
+    }
+
+    private static boolean isWithin(LocalTime time, LocalTime startInclusive, LocalTime endExclusive) {
+        return !time.isBefore(startInclusive) && time.isBefore(endExclusive);
+    }
+
+    private static boolean isWeekend(DayOfWeek dayOfWeek) {
+        return dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY;
+    }
+
+    private static boolean candidateSupportsTakeOut(Candidate candidate) {
+        return candidate.supportedOptions() != null
+            && candidate.supportedOptions().getOrDefault(SERVICE_TYPE_OPTION_KEY, List.of()).contains(TAKE_OUT_VALUE);
+    }
+
     private static boolean hasWarning(List<RuleEvaluationResult> warnings, String errorCode) {
         return warnings.stream().anyMatch(warning -> errorCode.equals(warning.errorCode()));
     }
@@ -279,7 +345,7 @@ public class RecommendationEngineService {
 
     private static List<String> buildRecommendationReasons(
         List<RuleEvaluationResult> recommendedWarnings, List<RuleEvaluationResult> recommendedPasses,
-        boolean needsReconfirmation, CanonicalProfile profile
+        boolean needsReconfirmation, CanonicalProfile profile, boolean crowdingApplied
     ) {
         List<String> reasons = new ArrayList<>();
         if (hasPass(recommendedPasses, SERVICE_TYPE_PREFERENCE_RULE_ID)) {
@@ -296,6 +362,9 @@ public class RecommendationEngineService {
         }
         if (reasons.isEmpty()) {
             reasons.add(BEST_REMAINING_REASON);
+        }
+        if (crowdingApplied) {
+            reasons.add(CROWDING_REASON);
         }
         if (needsReconfirmation) {
             reasons.add(RECONFIRMATION_REASON);
