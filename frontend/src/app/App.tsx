@@ -1072,6 +1072,27 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set못들음(null);
   };
 
+  /*
+   * 손으로 고르거나 건너뛸 때도 듣던 것을 먼저 끊는다.
+   *
+   * 안 끊으면 인식이 계속 돌다가 늦게 답한다. 그 콜백이 쥔 이축은 지금 축이 아니라
+   * 말하기를 누르던 때의 축이라, 방금 건너뛴 축에 값이 들어가고 손으로 고른 칸은
+   * 말한 적 없는 값으로 덮인다.
+   *
+   * 칸도 한 번 더 넘어간다. 콜백이 부르는 다음으로() 는 옛 칸으로 만들어진
+   * 마지막인가 를 보고 있어서, 이미 넘어간 자리에서 set칸 이 또 올라간다 —
+   * 물어본 적 없는 축이 그대로 지나간다.
+   */
+  const 손으로고르기 = (고른값: string) => {
+    if (상태 === "듣는중") 그만듣기();
+    넣기(고른값);
+  };
+
+  const 건너뛰기 = () => {
+    if (상태 === "듣는중") 그만듣기();
+    다음으로();
+  };
+
   const 고른것 = 값[지금축.label] ?? [];
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
@@ -1090,7 +1111,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
             key={c}
             type="button"
             aria-pressed={고른것.includes(c)}
-            onClick={() => 넣기(c)}
+            onClick={() => 손으로고르기(c)}
             style={{
               minHeight: 44, padding: "10px 14px", borderRadius: 999, fontFamily: FONT, fontSize: 15,
               cursor: "pointer", border: `1px solid ${고른것.includes(c) ? TEXT_1 : BORDER}`,
@@ -1118,7 +1139,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
           {상태 === "듣는중" ? "그만 듣기" : "말하기"}
         </OutlineBtn>
         {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
-        <OutlineBtn onClick={다음으로}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
+        <OutlineBtn onClick={건너뛰기}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
       </div>
     </div>
   );
