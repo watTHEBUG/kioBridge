@@ -336,49 +336,42 @@ export function createApi(
         return 이름 ? `${이름} — ${글}` : 글;
       };
       /*
-       * 서버가 축을 부르는 말 → 우리 주문표의 축.
+       * 고른 값을 이유 문장에 붙이지 않는다.
        *
-       * 대부분 같은 말인데 형태만 다르다. 서버는 "뼈/순살" 이라 부르고 우리
-       * 주문표의 축 이름은 "형태" 다.
+       * 예전에는 서버 문장에 축 이름이 들어 있으면("컵", "맵기") 그 축에서 사용자가
+       * 고른 값을 찾아 "(고르신 값: 종이컵)" 으로 이어 붙였다. 부분 문자열이라
+       * **선택 근거가 아닌 문장에도 붙었다** — 서버가 재고 안내에서 "컵" 을 한 번
+       * 쓰기만 해도, 사용자가 고른 컵이 추천 근거인 것처럼 화면에 떴다(#101 리뷰).
+       *
+       * 정확히 붙이려면 그 문장이 어느 축 얘기인지 알아야 하는데, 계약에 그 값이
+       * 없다. `recommendationReasons` 는 `string[]` 이고 킷 계약의 정의도
+       * "<사용자가 읽을 이유>" 라 축 식별자가 없다(킷 5.1.6 examples/ 의 표준 문장은
+       * "사용자 조건에 맞는 항목입니다." 로 축 단어가 아예 없다). 알려진 문장과
+       * 정확 일치로 바꾸는 길도 비교할 문장 표가 없어서 못 쓴다.
+       *
+       * 그래서 **짐작하지 않는다.** 이유 문장은 서버가 준 그대로 두고, 사용자가 고른
+       * 값은 조건표가 따로 보여 준다. 틀린 근거를 보여 주는 것보다 근거를 덜 보여
+       * 주는 쪽이 낫다 — 이 앱이 말 안 한 것을 고르지 않는 것과 같은 판단이다.
+       *
+       * 서버가 이유마다 축 식별자(킷의 SERVICE_TYPE·SPICY_LEVEL·BONE_TYPE·CUP)를
+       * 같이 주면 그때 다시 붙일 수 있다. RecommendationReason 의 고른값 칸이 그
+       * 자리다. docs/BACKEND_INTEGRATION.md 에 요청으로 적어 두었다.
        */
-      const 서버가부르는축: [string, string][] = [
-        ["이용 방식", "이용 방식"], ["맵기", "맵기"], ["뼈/순살", "형태"], ["컵", "컵"], ["수량", "수량"],
-      ];
-      const 고른값찾기 = (글: string): string | undefined => {
-        for (const [서버말, 축] of 서버가부르는축) {
-          if (!글.includes(서버말)) continue;
-          const 값 = profile?.selections?.[축]?.[0];
-          if (값) return 값;
-        }
-        return undefined;
-      };
-      const 고른값붙이기 = (글: string): string => {
-        const 값 = 고른값찾기(글);
-        return 값 ? `${글} (고르신 값: ${값})` : 글;
-      };
       const reasons: MappingResponse["reasons"] = [
         ...rec.recommendationReasons.map((text) => ({
           kind: "used" as const,
-          /*
-           * 축은 **서버 원문에서** 본다. 이름을 먼저 붙이면 메뉴 이름에 "컵" 이나
-           * "맵기" 가 들어 있을 때 서버가 말하지도 않은 축이 걸린다 — "종이컵
-           * 세트" 같은 이름이면 컵 얘기가 아닌 문장에 컵 값이 붙는다. 사용자에게
-           * 틀린 근거를 보여 주는 셈이다(#41 리뷰).
-           */
           text: rec.recommendedCandidateId
-            ? 이름붙이기(rec.recommendedCandidateId, 고른값붙이기(text))
-            : 고른값붙이기(text),
+            ? 이름붙이기(rec.recommendedCandidateId, text)
+            : text,
           문장: text,
           ...(rec.recommendedCandidateId && 이름찾기(rec.recommendedCandidateId)
             ? { 메뉴: 이름찾기(rec.recommendedCandidateId) }
             : {}),
-          ...(고른값찾기(text) ? { 고른값: 고른값찾기(text) } : {}),
         })),
         ...rec.unmetConditions.map((text) => ({
           kind: "unmet" as const,
-          text: 고른값붙이기(text),
+          text,
           문장: text,
-          ...(고른값찾기(text) ? { 고른값: 고른값찾기(text) } : {}),
         })),
         /*
          * 사람이 읽는 문장은 reasonText 다. explanation 은 규칙 추적용 문자열이라
