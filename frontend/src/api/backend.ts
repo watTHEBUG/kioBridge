@@ -52,7 +52,13 @@ export interface Backend {
    */
   filterCandidates(input: { environmentId: string; profileId: string; profile?: OrderSheet }): Promise<{
     survivingCandidateIds: string[];
-    excluded: { candidateId: string; reasonCode: string; explanation: string }[];
+    /**
+     * menuName 은 품절·차단처럼 **display 에 못 실리는 후보**의 이름이다.
+     * 그런 후보는 이름찾기() 가 못 찾아서, 문장에 이름을 섞으면 영어 화면에서
+     * 통째로 못 옮긴다(#101 리뷰). 문장은 옮길 수 있는 고정문으로 두고
+     * 이름은 여기로 따로 나른다.
+     */
+    excluded: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[];
     /** 후보 표시 정보. 서버가 이름·가격을 함께 주면 여기 실린다. */
     display?: Record<string, { displayName: string; priceText: string; price?: number; imageUrl?: string }>;
   }>;
@@ -102,7 +108,8 @@ export interface Backend {
 export interface RecommendationResult {
   recommendedCandidateId: string | null;
   alternativeCandidateIds: string[];
-  excludedCandidates: { candidateId: string; reasonCode: string; explanation: string }[];
+  // menuName 은 후보 필터가 실어 준 이름이다(Backend.filterCandidates 주석).
+  excludedCandidates: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[];
   recommendationReasons: string[];
   /**
    * 서버가 맞추지 못한 조건.
@@ -385,12 +392,17 @@ export function createApi(
         ...제외
           .map((e) => ({ e, 글: 뺀사유(e) }))
           .filter(({ 글 }) => 글 !== "")
-          .map(({ e, 글 }) => ({
-            kind: "excluded" as const,
-            text: 이름붙이기(e.candidateId, 글),
-            문장: 글,
-            ...(이름찾기(e.candidateId) ? { 메뉴: 이름찾기(e.candidateId) } : {}),
-          })),
+          .map(({ e, 글 }) => {
+            // 품절·차단 후보는 display 에 없어서 이름찾기() 가 못 찾는다.
+            // 후보 필터가 menuName 으로 실어 준 이름이 그 빈자리를 채운다(#101 리뷰).
+            const 메뉴 = 이름찾기(e.candidateId) ?? e.menuName;
+            return {
+              kind: "excluded" as const,
+              text: 메뉴 ? `${메뉴} — ${글}` : 글,
+              문장: 글,
+              ...(메뉴 ? { 메뉴 } : {}),
+            };
+          }),
       ].filter((r) => 보여도되나(r.text));
       /*
        * 서버가 점수를 매길 때 본 축들. 담을 것이 정해진 뒤에만 뜻이 있어서
@@ -1145,12 +1157,6 @@ function 고른것반영(rec: RecommendationResponse, 고른: string | undefined
   return { ...rec, recommendedCandidateId: 고른, alternativeCandidateIds: 대안 };
 }
 
-const 은는 = (w: string) => {
-  const c = w.charCodeAt(w.length - 1);
-  if (c < 0xac00 || c > 0xd7a3) return "는";
-  return (c - 0xac00) % 28 === 0 ? "는" : "은";
-};
-
 export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 보내기 = async <T>(path: string, body?: unknown): Promise<T> => {
     const 방법 = body === undefined ? "GET" : "POST";
@@ -1643,15 +1649,24 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         pass: r.passesByCandidateId ?? {},
       });
 
-      const 뺀것 = (r.excludedCandidates ?? []).map((e) => ({
-        candidateId: e.candidateId,
-        reasonCode: e.reasonCode ?? "EXCLUDED",
-        explanation: 사유문장(e),
-      })).filter((e) => e.explanation);
-      // 품절이라 뺀 것도 사용자에게 말해 준다. 조용히 사라지면 "왜 없지?" 가 된다.
+      const 뺀것: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[] =
+        (r.excludedCandidates ?? []).map((e) => ({
+          candidateId: e.candidateId,
+          reasonCode: e.reasonCode ?? "EXCLUDED",
+          explanation: 사유문장(e),
+        })).filter((e) => e.explanation);
+      /*
+       * 품절이라 뺀 것도 사용자에게 말해 준다. 조용히 사라지면 "왜 없지?" 가 된다.
+       *
+       * 이름은 문장에 넣지 않고 menuName 으로 따로 나른다. 품절·차단 후보는
+       * display 에 안 실려서 요청 매핑의 이름찾기() 가 못 찾는데, 예전처럼
+       * "품절 닭강정은 지금 팔지 않아서 뺐어요" 로 붙여 두면 매번 다른 문장이
+       * 되어 영어 화면에서 통째로 못 옮겼다(#101 리뷰). 문장은 표로 옮길 수
+       * 있는 고정문만 남긴다.
+       */
       for (const c of (r.eligibleCandidates ?? [])) {
         if (c?.available === false && c.name) {
-          뺀것.push({ candidateId: c.candidateId, reasonCode: "UNAVAILABLE", explanation: `${c.name}${은는(c.name)} 지금 팔지 않아서 뺐어요` });
+          뺀것.push({ candidateId: c.candidateId, reasonCode: "UNAVAILABLE", explanation: "지금 팔지 않아서 뺐어요", menuName: c.name });
         } else if (c?.candidateId && 막힌후보(c.candidateId) && c.name) {
           // 우리가 뺐으면 뺐다고 말한다. 어느 축 때문인지는 서버가 준 errorCode 로 짚는다.
           const 축 = (r.warningsByCandidateId?.[c.candidateId] ?? [])
@@ -1659,8 +1674,9 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
           뺀것.push({
             candidateId: c.candidateId, reasonCode: "BLOCKED",
             explanation: 축
-              ? `${c.name}${은는(c.name)} ${축}이(가) 맞지 않아서 뺐어요`
-              : `${c.name}${은는(c.name)} 조건에 맞지 않아서 뺐어요`,
+              ? `${축}이(가) 맞지 않아서 뺐어요`
+              : "조건에 맞지 않아서 뺐어요",
+            menuName: c.name,
           });
         }
       }

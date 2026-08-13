@@ -58,6 +58,14 @@ export const EN: Record<string, string> = {
   "선택하신 조건과 맞지 않아 제외됐어요.": "Removed — it doesn't match your choices.",
   // 팀 백엔드의 알레르기 제외 문장. 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
   "{알레르기} 알레르기와 겹쳐서 제외됐어요.": "Removed — contains {알레르기}, which you cannot eat.",
+  /*
+   * 프론트가 직접 만드는 제외 문장(api/backend.ts 의 filterCandidates).
+   * 메뉴 이름은 문장에 안 넣고 menuName 으로 따로 나르므로 여기엔 고정문만 있다.
+   * 축 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
+   */
+  "지금 팔지 않아서 뺐어요": "Removed — not being sold right now",
+  "조건에 맞지 않아서 뺐어요": "Removed — it doesn't match your conditions",
+  "{축}이(가) 맞지 않아서 뺐어요": "Removed — {축} doesn't match",
   // 백엔드는 EGG 를 '달걀' 로 부른다(프론트 목록은 '계란'). 그 이름 그대로 온다.
   "달걀": "Egg",
   "조건에 맞는 메뉴가 오늘은 없어요. 알레르기나 이용 방식 때문에 모두 빠졌어요.":
