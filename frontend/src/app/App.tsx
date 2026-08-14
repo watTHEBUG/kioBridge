@@ -2565,6 +2565,21 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
     const 제목 = 패널.current?.querySelector<HTMLElement>("h1, h2");
     if (!제목) return;
     if (!제목.hasAttribute("tabindex")) 제목.setAttribute("tabindex", "-1");
+    /*
+     * 보이게 한 다음에 포커스를 준다.
+     *
+     * 이 패널은 overflow-y-auto 다(바로 아래 주석). 앞 단계에서 아래로 내려가
+     * 있었다면 스크롤 위치가 그대로 남아, 포커스만 옮기면 **화면 밖에 있는
+     * 제목에 포커스가 가 있는** 상태가 된다. 키보드로 쓰는 사람은 자기가 어디에
+     * 있는지 보이지 않고, 다음 Tab 이 어디서 이어질지도 알 수 없다.
+     *
+     * 그 패널이 넘치는 것은 글씨를 더 키운 사람에게서 실제로 일어난다 —
+     * 이 PR 이 돕는 바로 그 사람이다.
+     *
+     * nearest 로 최소한만 굴린다. 화면이 통째로 튀지 않고, 이미 보이면
+     * 아무것도 안 한다. 굴린 뒤라 focus 의 preventScroll 은 그대로 둔다.
+     */
+    제목.scrollIntoView({ block: "nearest", inline: "nearest" });
     제목.focus({ preventScroll: true });
   }, [phase]);
 
