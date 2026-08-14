@@ -26,9 +26,7 @@ public record ClientReviewSnapshot(
 
                     BigDecimal price = toDecimal(item.get("price"));
 
-                    int quantity = item.get("quantity") instanceof Number value
-                            ? value.intValue()
-                            : 0;
+                    int quantity = toQuantity(item.get("quantity"));
 
                     items.add(new CartItem(name, price, quantity));
                 }
@@ -45,6 +43,17 @@ public record ClientReviewSnapshot(
         return value instanceof Number number
                 ? new BigDecimal(number.toString())
                 : null;
+    }
+
+    private static int toQuantity(Object value) {
+        if (!(value instanceof Number number)) {
+            return 0;
+        }
+        try {
+            return new BigDecimal(number.toString()).intValueExact();
+        } catch (NumberFormatException | ArithmeticException e) {
+            return 0;
+        }
     }
 
     public record CartItem(

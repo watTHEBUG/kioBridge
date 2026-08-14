@@ -33,4 +33,20 @@ class ClientReviewSnapshotTest {
         assertThat(result.cartItems().getFirst().price()).isEqualByComparingTo("6000");
         assertThat(result.cartItems().getFirst().quantity()).isEqualTo(2);
     }
+
+    @Test
+    void 수량이_정수가_아니거나_int_범위를_벗어나면_0으로_처리한다() {
+        assertThat(quantityFrom(1.5)).isZero();
+        assertThat(quantityFrom(2_147_483_648L)).isZero();
+        assertThat(quantityFrom(Double.NaN)).isZero();
+        assertThat(quantityFrom("2")).isZero();
+        assertThat(quantityFrom(2.0)).isEqualTo(2);
+    }
+
+    private int quantityFrom(Object quantity) {
+        ClientReviewSnapshot result = ClientReviewSnapshot.from(Map.of(
+                "cartItems", List.of(Map.of("quantity", quantity))
+        ));
+        return result.cartItems().getFirst().quantity();
+    }
 }
