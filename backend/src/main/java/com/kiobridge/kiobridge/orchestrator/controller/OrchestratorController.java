@@ -5,6 +5,7 @@ import com.kiobridge.kiobridge.contracts.RunResult;
 import com.kiobridge.kiobridge.contracts.client.dto.ExecuteResult;
 import com.kiobridge.kiobridge.modules.stateevidence.service.ApprovalResult;
 import com.kiobridge.kiobridge.modules.stateevidence.service.ClientExecutionResult;
+import com.kiobridge.kiobridge.modules.stateevidence.service.ClientReviewSnapshot;
 import com.kiobridge.kiobridge.modules.stateevidence.service.EvidenceParsingService;
 import com.kiobridge.kiobridge.modules.stateevidence.service.EvidenceSummary;
 import com.kiobridge.kiobridge.modules.stateevidence.service.EvidenceSummaryService;
@@ -88,7 +89,7 @@ public class OrchestratorController {
                         evidence.stopType(),
                         evidence.stopReason(),
                         evidence.executedActions() == null ? 0 : evidence.executedActions().size(),
-                        evidence.reviewSnapshot()
+                        ClientReviewSnapshot.from(evidence.reviewSnapshot())
                     );
                 } catch (Exception e) {
                     summary = new EvidenceSummary("결과를 처리하는 중 문제가 발생했습니다.", null, null);
