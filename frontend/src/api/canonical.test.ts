@@ -126,9 +126,16 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
   });
 
   it("보관 정책이 화면의 실제 동작과 같다", () => {
-    // 주문표는 이 탭이 살아 있는 동안만 남고 창을 닫으면 사라진다. SESSION_ONLY 가 사실이다.
-    // 새로고침을 넘겨 이어 쓰는 것은 세션이 끝나는 것이 아니라 이 값과 어긋나지 않는다.
-    expect(toCanonicalProfile(주문표({})).consent.retentionPolicy).toBe("SESSION_ONLY");
+    /*
+     * 주문표는 창을 닫아도 이 기기에 남는다(session.ts 의 localStorage). 사라지는
+     * 때는 '이 기기에서 정보 지우기' 를 누르거나 브라우저 사이트 데이터를 비울
+     * 때뿐이라, 계약에서 그것을 뜻하는 값은 UNTIL_USER_DELETES 다.
+     *
+     * 예전에는 SESSION_ONLY 였고 그때는 그게 사실이었다. 이 시험이 지키는 것은
+     * 어느 한 값이 아니라 **저장소와 계약이 같은 말을 하는가** 다 — 저장소를
+     * 되돌리면 여기도 같이 되돌아와야 한다.
+     */
+    expect(toCanonicalProfile(주문표({})).consent.retentionPolicy).toBe("UNTIL_USER_DELETES");
   });
 
   it("안 켠 접근성 항목을 true 로 보내지 않는다", () => {

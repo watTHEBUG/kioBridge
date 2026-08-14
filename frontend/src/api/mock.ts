@@ -108,6 +108,25 @@ const 저장하신 = (p: OrderSheet | undefined, 받침있음: string, 받침없
 const 고른값 = (p: OrderSheet | undefined, 축: string) => p?.selections?.[축]?.[0];
 const 고른값들 = (p: OrderSheet | undefined, 축: string) => p?.selections?.[축] ?? [];
 
+/**
+ * "상관없음"을 실제로 고른 값과 똑같이 비교하면 안 된다.
+ *
+ * 어떤 후보도 맵기·형태 값으로 문자열 "상관없음"을 갖고 있지 않다. 그래서 그대로
+ * 비교하면 모든 후보가 어긋난 것으로 잡히고(안맞는축 → 확인표 matched=false),
+ * 전용 메뉴는 절대조건에서 통째로 빠진다(절대조건으로거르기) — 사용자는 분명히
+ * "아무거나 괜찮다"고 밝혔는데도 정반대로 취급되는 셈이다.
+ *
+ * 실제 백엔드(canonical.ts/RecommendationEngineService)는 이 값을 NO_PREFERENCE로
+ * 보내 중립 취급한다. 목도 같은 결과를 내야 한다 — 비교에서는 안 고른 것과
+ * 같게, 즉 "제약이 없다"로 다룬다. 확인표에 실제로 보여 줄 값(고른값/고른값들)은
+ * 그대로 "상관없음"을 쓴다 — 무엇을 골랐는지는 사실대로 말해야 한다.
+ */
+const 상관없음값 = "상관없음";
+const 제약값 = (p: OrderSheet | undefined, 축: string): string | undefined => {
+  const v = 고른값(p, 축);
+  return v === 상관없음값 ? undefined : v;
+};
+
 const 알레르기축 = "알레르기 (꼭 빼주세요)";
 
 /**
@@ -139,6 +158,9 @@ const 카탈로그 = (p: OrderSheet | undefined) => (p?.place ? (장소별카탈
 function 절대조건으로거르기(p: OrderSheet | undefined) {
   const 알레르기 = 고른값들(p, 알레르기축);
   const 이용방식 = 고른값(p, "이용 방식");
+  // "상관없음"을 명시적으로 골랐으면 전용 메뉴도 괜찮다는 뜻이다 — 정말 안 고른
+  // 경우(아래 주석의 "장담할 수 없다")와는 다르다. 안 고른 경우엔 여전히 보수적으로 뺀다.
+  const 이용방식제약없음 = 이용방식 === 상관없음값;
   const 남은: 후보[] = [];
   const 뺀이유: RecommendationReason[] = [];
 
@@ -158,7 +180,8 @@ function 절대조건으로거르기(p: OrderSheet | undefined) {
     // 전용 메뉴는 그 이용 방식이 아니면 담을 수 없다.
     // 사용자가 이용 방식을 안 골랐으면 담을 수 있다고 장담할 수 없으므로 이때도 뺀다.
     // 남겨 두면 아무 조건도 안 맞는 전용 메뉴가 1순위로 올라올 수 있다.
-    if (c.이용방식 && c.이용방식 !== 이용방식) {
+    // "상관없음"을 골랐으면 이 보수적 배제를 적용하지 않는다 — 제약이 없다고 밝혔으니까.
+    if (c.이용방식 && !이용방식제약없음 && c.이용방식 !== 이용방식) {
       뺀이유.push({
         kind: "excluded",
         text: 이용방식
@@ -198,7 +221,8 @@ const 비교축: { label: string; 값: (c: 후보) => string | undefined; 무게
 function 안맞는축(c: 후보, p: OrderSheet | undefined): string[] {
   return 비교축
     .filter(({ label, 값 }) => {
-      const 고른 = 고른값(p, label);
+      // "상관없음"은 안 고른 것과 같게 다룬다 — 제약값() 참고.
+      const 고른 = 제약값(p, label);
       return Boolean(고른) && 값(c) !== 고른;
     })
     .map(({ label }) => label);
@@ -208,9 +232,12 @@ function 안맞는축(c: 후보, p: OrderSheet | undefined): string[] {
 function 점수순(남은: 후보[], p: OrderSheet | undefined) {
   // 사용자가 고르지 않은 축은 점수에 넣지 않는다. 안 고른 것을 맞혔다고
   // 계산하면 아무 조건도 안 맞는 후보가 1순위가 될 수 있다.
+  // "상관없음"도 같은 이유로 넣지 않는다 — 어느 값과도 일치할 수 없는 문자열이라
+  // 그대로 두면 그 축에서 절대 점수를 못 받는데, 그건 보너스를 안 주는 게 아니라
+  // 감춰진 감점처럼 작동한다.
   const 점수 = (c: 후보) =>
     비교축.reduce((합, { label, 값, 무게 }) => {
-      const 고른 = 고른값(p, label);
+      const 고른 = 제약값(p, label);
       return 합 + (고른 && 값(c) === 고른 ? 무게 : 0);
     }, 0);
   return [...남은].sort((a, b) => 점수(b) - 점수(a));
@@ -219,9 +246,12 @@ function 점수순(남은: 후보[], p: OrderSheet | undefined) {
 /** 무엇을 써서 골랐는지 사용자의 말로 적는다. 고른 적 없는 축은 말하지 않는다. */
 function 반영한이유(p: OrderSheet | undefined, 고름: 후보 | undefined): RecommendationReason[] {
   const out: RecommendationReason[] = [];
-  const 이용방식 = 고른값(p, "이용 방식");
-  const 맵기 = 고른값(p, "맵기");
-  const 형태 = 고른값(p, "형태");
+  // "상관없음"은 실제로 후보를 좁히거나 맞춘 데 쓰인 게 없다는 뜻이라, 안 고른 것과
+  // 똑같이 이 이유 목록에서 빠진다. 제약값()으로 바꾸지 않으면 "상관없음을 고르셔서
+  // 상관없음이 되는 메뉴만 남겼어요" 같은 문장이 그대로 나간다.
+  const 이용방식 = 제약값(p, "이용 방식");
+  const 맵기 = 제약값(p, "맵기");
+  const 형태 = 제약값(p, "형태");
 
   if (이용방식) out.push({ kind: "used", text: `${을를(이용방식)} 고르셔서 ${이가(이용방식)} 되는 메뉴만 남겼어요` });
   if (맵기) {

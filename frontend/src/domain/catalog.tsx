@@ -25,14 +25,11 @@ export const DETAIL_OPTIONS: Record<NonNullable<PlaceType>, DetailOption[]> = {
   // 매핑의 일이지 앱이 목록에서 고르게 할 일이 아니다.
   음식점: [
     // chicken-store: SERVICE_TYPE / SPICY_LEVEL / BONE_TYPE / CUP / QUANTITY
-    // required 는 킷 option-groups.json 을 그대로 옮긴 것이다. 컵만 false 다.
-    { label: "이용 방식", multi: false, choices: ["먹고 가기", "포장하기"], required: true },
-    { label: "맵기", multi: false, choices: ["순한맛", "보통맛", "매운맛"], required: true },
-    { label: "형태", multi: false, choices: ["뼈", "순살"], required: true },
-    // 컵은 '추가 옵션' 다중선택 안에 묻어 두지 않는다. fixture 에서 독립된 축이고,
-    // 확인 카드에 반드시 보여야 하는 다섯 항목 중 하나라 따로 묻는다.
-    // 킷에서 유일하게 required: false 인 축이라, 안 골라도 주문을 막지 않는다.
-    { label: "컵", multi: false, choices: ["종이컵", "일반컵"] },
+    // 상관없음 선택지 추가.
+    { label: "이용 방식", multi: false, choices: ["먹고 가기", "포장하기", "상관없음"], required: true },
+    { label: "맵기", multi: false, choices: ["순한맛", "보통맛", "매운맛", "상관없음"], required: true },
+    { label: "형태", multi: false, choices: ["뼈", "순살", "상관없음"], required: true },
+    { label: "컵", multi: false, choices: ["종이컵", "일반컵", "상관없음"] },
     { label: "수량", multi: false, choices: ["1개", "2개", "3개"], required: true },
     /*
      * 알레르기는 여기서 묻지 않는다. 가입 직후에 한 번 묻고 모든 주문에 쓴다

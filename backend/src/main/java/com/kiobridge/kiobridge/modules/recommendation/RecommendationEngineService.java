@@ -317,6 +317,19 @@ public class RecommendationEngineService {
         return Math.max(min, Math.min(max, value));
     }
 
+    /**
+     * double 연산(예: 0.5 + 0.39 * 0.5)은 이진 부동소수점이라 0.695 같은 값이
+     * 0.6950000000000001 처럼 미세한 오차 꼬리를 달고 나올 수 있다. 그 자체로는
+     * 계산에 문제가 없지만, JSON으로 직렬화되면 "6950000000000001" 같은 16자리
+     * 연속 숫자가 생겨 킷의 개인정보 탐지 정규식(카드번호: 15~16자리 연속 숫자)에
+     * 우연히 걸려 PERSONAL_DATA_NOT_ALLOWED 로 제출 전체가 거부된다.
+     * 소수 4자리로 반올림해 그 꼬리를 없앤다 — confidence 는 애초에 그 이상의
+     * 정밀도가 의미를 갖지 않는 값이다.
+     */
+    private static double round4(double value) {
+        return Math.round(value * 10_000.0) / 10_000.0;
+    }
+
     // confidence / requiresReconfirmation
 
     private static double computeConfidence(List<ScoredCandidate> rankedCandidates, boolean recommendedNeedsReconfirmation) {
@@ -328,7 +341,7 @@ public class RecommendationEngineService {
             ? Math.min(baseConfidence, RECONFIRMATION_CONFIDENCE_CAP)
             : baseConfidence;
 
-        return clamp(effectiveConfidence, MIN_CONFIDENCE, MAX_CONFIDENCE);
+        return round4(clamp(effectiveConfidence, MIN_CONFIDENCE, MAX_CONFIDENCE));
     }
 
     private static double computeSingleCandidateConfidence(ScoredCandidate onlyCandidate) {

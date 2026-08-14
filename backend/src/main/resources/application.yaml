@@ -3,9 +3,30 @@ spring:
     name: kiobridge
   profiles:
     default: local
+  servlet:
+    multipart:
+      # 음성 답변 하나(몇 초짜리 webm/opus)가 넉넉히 들어갈 크기. 기본값(1MB)은
+      # 너무 작아 살짝만 길게 말해도 413 이 난다.
+      max-file-size: 8MB
+      max-request-size: 8MB
 
 server:
   port: ${SERVER_PORT:8080}
+
+# Whisper 음성 인식(STT)에 쓴다 — modules/voice/service/VoiceTranscriptionService.
+# api-key 는 기본값을 빈 문자열로 둔다. 없어도 앱은 뜨고, 그 상태로 음성 인식을
+# 부르면 그때 서비스가 명확한 에러(STT_NOT_CONFIGURED)로 답한다. application-vector.yaml
+# 의 openai.api-key(EmbeddingService 용, 기본값 없음)는 이 값을 그대로 덮어써서
+# vector 프로필에서는 지금처럼 필수로 남는다.
+#
+# 타임아웃은 EmbeddingService 것(openai.connect-timeout-ms 등)과 이름을 나눴다 —
+# 같은 이름을 쓰면 이 파일의 기본값이 vector 프로필의 임베딩 타임아웃까지
+# 조용히 바꿔 버린다.
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  stt:
+    connect-timeout-ms: ${OPENAI_STT_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${OPENAI_STT_READ_TIMEOUT_MS:15000}
 
 kiobridge:
   team-id: ${KIOBRIDGE_TEAM_ID:WHATTHEBUG}

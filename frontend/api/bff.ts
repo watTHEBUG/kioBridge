@@ -38,6 +38,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 // 여기 없는 경로는 백엔드에 닿지 않는다. 백엔드가 사내망에 있을 때
 // 이 함수가 통로가 되어 아무 데나 부를 수 있으면 안 된다.
 const 허용경로 = [
+  /*
+   * 음성 인식(팀 #116). 여기만 multipart 다.
+   *
+   * 이 함수는 나머지 전부가 작은 JSON 이라는 전제 위에 서 있었다 — 본문을
+   * 문자열로 읽고, content-type 을 application/json 으로 박고, 상한을 1MB 로
+   * 뒀다. 그 셋이 각각 오디오를 막는다. 그래서 이 경로만 아래에서 따로 다룬다.
+   */
+  /^api\/v1\/voice\/transcribe$/,
   // 승인 한 번으로 조립·제출·검증·실행까지. 프론트가 실제로 쓰는 경로다.
   /^internal\/orchestrator\/approve$/,
   // 추천 계열 (RecommendationController)
@@ -176,11 +184,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   쿼리.delete("p");
   const 쿼리문자열 = 쿼리.toString();
 
-  // 브라우저가 오래 매달리지 않게 여기서도 끊는다. 화면 쪽 타임아웃과 같은 이유다.
+  /*
+   * 이 경로만 multipart 다(팀 #116의 음성 인식). 본문·헤더·상한·시간이 전부
+   * 다르게 가야 해서 한 번만 판단하고 아래에서 나눠 쓴다.
+   */
+  const 멀티파트인가 = 멀티파트경로.test(경로);
+
+  /*
+   * 브라우저가 오래 매달리지 않게 여기서도 끊는다. 화면 쪽 타임아웃과 같은 이유다.
+   *
+   * 음성만 길게 준다. 백엔드가 OpenAI 를 부르는 데 읽기 제한이 15초라
+   * (openai.stt.read-timeout-ms), 여기도 15초면 백엔드가 답하기 직전에 우리가
+   * 먼저 끊는다 — 사용자는 성공했을 수도 있는 인식을 매번 실패로 본다.
+   */
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 15_000);
+  const t = setTimeout(() => ac.abort(), 멀티파트인가 ? 30_000 : 15_000);
   try {
-    const 본문 = req.method === "GET" || req.method === "HEAD" ? undefined : await 본문읽기(req);
+    const 본문 = req.method === "GET" || req.method === "HEAD"
+      ? undefined
+      : await 본문읽기(req, 멀티파트인가 ? 최대오디오 : 최대본문);
     const 인증 = 인증헤더(req);
     const 응답 = await fetch(`${base.replace(/\/$/, "")}/${경로}${쿼리문자열 ? `?${쿼리문자열}` : ""}`, {
       method: req.method,
@@ -197,12 +219,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
        * 백엔드가 Bearer 만 받으므로 다른 방식은 여기서 떨어뜨린다.
        */
       headers: {
-        "content-type": "application/json",
+        /*
+         * 평소에는 박아 둔다. 클라이언트가 준 값을 그대로 실어 보내면 이 함수가
+         * 헤더 통로가 되기 때문이다(바로 아래 Authorization 과 같은 이유).
+         *
+         * 음성만 예외다. multipart 는 `multipart/form-data; boundary=...` 로
+         * **boundary 가 헤더에 들어 있어야** 서버가 본문을 쪼갤 수 있다. 박아
+         * 두면 boundary 가 통째로 사라져서 백엔드의 MultipartFile 이 아무것도
+         * 못 읽는다. 그래서 이 경로에서만, 그리고 모양이 맞을 때만 넘긴다.
+         */
+        "content-type": 넘길타입(멀티파트인가, req.headers["content-type"]),
         // 한 번만 고른다. 두 번 부르고 ! 로 단언하면, 이 함수가 나중에 상태를 보게
         // 되는 날 조건과 값이 어긋나도 타입 검사가 안 잡는다(account.ts 에서 겪음).
         ...(인증 ? { authorization: 인증 } : {}),
       },
-      ...(본문 === undefined || 본문 === "" ? {} : { body: 본문 }),
+      ...(본문 === undefined || 본문.length === 0 ? {} : { body: 본문 }),
     });
     const text = await 응답.text();
     return 보내기(응답.status, text, 응답.headers.get("content-type") ?? "application/json");
@@ -230,7 +261,48 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
  */
 const 최대본문 = 1_000_000;
 
-function 본문읽기(req: IncomingMessage): Promise<string> {
+/**
+ * 오디오만 따로 받는 상한. 백엔드의 multipart 설정(8MB)과 맞춘다.
+ *
+ * 실제로 오가는 것은 훨씬 작다 — 화면이 최대 15초만 녹음하므로 webm/opus 는
+ * 50KB 안팎, m4a 라도 250KB 남짓이다. 그래도 백엔드보다 좁게 잡으면 여기서
+ * 먼저 413 이 나서, 서버가 받아 줄 수 있는 것을 우리가 막는 꼴이 된다.
+ *
+ * (배포 플랫폼이 이보다 먼저 끊을 수 있다. 그건 여기서 못 정한다.)
+ */
+const 최대오디오 = 8_000_000;
+
+/** multipart 로 받는 경로. 본문·헤더·상한·시간이 다 달라서 한 곳에 적어 둔다. */
+const 멀티파트경로 = /^api\/v1\/voice\/transcribe$/;
+
+/**
+ * 백엔드로 넘길 content-type 을 고른다.
+ *
+ * multipart 경로가 아니면 무조건 JSON 이다 — 클라이언트가 준 값을 그대로 실어
+ * 보내면 이 함수가 헤더 통로가 된다.
+ *
+ * multipart 경로여도 **모양을 본다.** `multipart/form-data` 로 시작하지 않으면
+ * 안 받고, 길이도 자른다. boundary 는 짧은 토큰이라 이 정도면 넉넉하다.
+ */
+const 넘길타입 = (멀티파트인가: boolean, 받은값: string | string[] | undefined): string => {
+  if (!멀티파트인가) return "application/json";
+  const v = Array.isArray(받은값) ? 받은값[0] : 받은값;
+  if (typeof v !== "string" || v.length > 200) return "application/json";
+  return v.startsWith("multipart/form-data") ? v : "application/json";
+};
+
+/**
+ * 본문을 **바이트 그대로** 돌려준다.
+ *
+ * 예전에는 여기서 UTF-8 문자열로 바꿔서 돌려줬다. JSON 만 오갈 때는 문제가
+ * 없었지만 오디오가 오면서 그 한 줄이 치명적이 됐다 — 유효하지 않은 바이트가
+ * 전부 U+FFFD 로 바뀌어 **되돌릴 수 없게 망가진다.** 경로를 열고 헤더를 고쳐도
+ * 여기가 남아 있으면 소리는 끝내 서버에 닿지 않는다.
+ *
+ * 바꾸지 않으니 "조각 경계에서 한글이 잘린다" 는 걱정도 같이 사라진다.
+ * fetch 는 Buffer 를 그대로 본문으로 받는다.
+ */
+function 본문읽기(req: IncomingMessage, 상한: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     // 글자 수가 아니라 바이트로 센다. 한글은 UTF-8 로 한 글자가 3바이트라,
     // 글자 수로 재면 100만 자 = 약 3MB 까지 통과한다. 상한이 셋 배가 되는 셈이다.
@@ -238,15 +310,15 @@ function 본문읽기(req: IncomingMessage): Promise<string> {
     let 바이트 = 0;
     req.on("data", (c: Buffer) => {
       바이트 += c.length;
-      if (바이트 > 최대본문) {
+      if (바이트 > 상한) {
         req.destroy();
         reject(Object.assign(new Error("BODY_TOO_LARGE"), { name: "BodyTooLarge" }));
         return;
       }
       조각.push(c);
     });
-    // 여기서 한 번에 문자열로 만든다. 조각 경계에서 한글이 잘리는 일이 없다.
-    req.on("end", () => resolve(Buffer.concat(조각).toString("utf8")));
+    // 바꾸지 않고 그대로 잇는다. 위 주석 참고.
+    req.on("end", () => resolve(Buffer.concat(조각)));
     req.on("error", reject);
   });
 }

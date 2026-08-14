@@ -21,7 +21,7 @@ import {
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
-import { 들을수있나, 들어보기, 모델있나, 모델받아두기, type 못들은이유 } from "@/api/listen";
+import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
 import { 말에서고르기, 예아니오 } from "@/api/voice";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
@@ -238,18 +238,20 @@ function PrimaryBtn({
   );
 }
 
-function OutlineBtn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function OutlineBtn({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         width: "100%", height: BTN_H, borderRadius: RADIUS.button,
         fontSize: 17, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.02em",
         backgroundColor: SURFACE,
         color: TEXT_BTN,
         border: "none",
-        cursor: "pointer",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.6 : 1,
         transition: "background-color 0.15s",
       }}
     >
@@ -1017,21 +1019,27 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    * 지나가는 자리인데, 없으면 단추를 누르고 한참 아무 일도 안 일어나는 것처럼
    * 보인다. 말로채우기가 한칸씩말하기로 바뀌면서 그 상태를 여기로 옮겨 왔다.
    */
-  const [상태, set상태] = useState<"쉬는중" | "받는중" | "듣는중">("쉬는중");
+  /*
+   * '처리중' 은 그만 듣기를 눌러 녹음을 서버로 보내고 응답을 기다리는 동안이다.
+   * 듣는중과 갈라 둔 이유는 회차 때문이다(아래 그만듣기() 주석 참고) — 여기서
+   * 상태만 바꾸고 회차는 안 올려야, 서버가 돌려준 결과를 시작하기() 콜백이
+   * 제대로 받는다.
+   */
+  const [상태, set상태] = useState<"쉬는중" | "듣는중" | "처리중">("쉬는중");
   const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
-  const 듣던것 = useRef<{ 그만두기: () => void } | null>(null);
+  const 듣던것 = useRef<{ 그만두기: (보내기?: boolean) => void } | null>(null);
   const 회차 = useRef(0);
 
   /*
    * 화면을 떠나면 듣던 것을 멈춘다. 안 멈추면 마이크가 계속 켜져 있다.
    *
-   * 회차도 같이 올린다. 모델을 보고 받는 동안에는 듣던것 이 아직 null 이라
-   * 그만두기() 로 막을 수 있는 것이 없다 — 그대로 두면 화면을 떠난 뒤에 받기가
-   * 끝나면서 마이크가 켜지고, 그때는 이 컴포넌트가 없어서 끌 사람도 없다(#102).
+   * false 를 준다 — 화면을 떠나며 하던 녹음은 버린다. 안 그러면 필요 없어진
+   * 녹음도 서버로 나가 Whisper 호출만 낭비된다(listen.ts 그만두기 주석 참고).
+   * 회차도 올려서, 이미 서버로 나간 요청이 뒤늦게 돌아와도 무시된다.
    */
   useEffect(() => () => {
     회차.current += 1;
-    듣던것.current?.그만두기();
+    듣던것.current?.그만두기(false);
   }, []);
 
   /*
@@ -1044,7 +1052,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    */
   useEffect(() => {
     회차.current += 1;
-    듣던것.current?.그만두기();
+    듣던것.current?.그만두기(false);
     듣던것.current = null;
     set칸(0);
     set상태("쉬는중");
@@ -1070,41 +1078,20 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   };
 
   const 듣기시작 = () => {
+    /*
+     * 듣기 시작하는 순간 스피커부터 조용히 시킨다.
+     *
+     * voiceGuide 를 켜 둔 사람은 화면 안내를 계속 듣고 있다. 안 끊으면 읽던
+     * 안내가 마이크가 켜진 뒤에도 계속 흘러나오고, 그 소리를 마이크가 그대로
+     * 주워듣는다 — 스피커와 마이크가 가까운 기기에서는 특히 그렇다.
+     */
+    그만읽기();
     set못들음(null);
     set상태("듣는중");
     회차.current += 1;
-    const 내회차 = 회차.current;
-    const 이축 = 지금축;
-
-    /*
-     * 듣기 전에 기기 안 모델부터 본다.
-     *
-     * processLocally 를 켜면(listen.ts) 모델이 깔려 있어야 듣기가 시작된다.
-     * 예전에는 이걸 안 보고 바로 시작해서, 없는 기기에서는 단추를 눌러도 아무
-     * 일이 안 일어났다. 사용자에게는 앱이 고장 난 것으로 보였다(#102).
-     *
-     * 받아야 하면 여기서 받는다. **단추를 누른 자리라 받을 수 있다** — 브라우저는
-     * 사람이 누르지 않으면 받기를 시작하지 않는다. 나중에 조용히 받아 두려 하면
-     * 그때는 못 받는다.
-     */
-    void (async () => {
-      const 상태값 = await 모델있나(언어);
-      if (내회차 !== 회차.current) return;
-      if (상태값 === "안됨") { set못들음("모델없음"); set상태("쉬는중"); return; }
-      if (상태값 === "받아야함" || 상태값 === "받는중") {
-        set상태("받는중");
-        const 됐나 = await 모델받아두기(언어);
-        if (내회차 !== 회차.current) return;
-        if (!됐나) { set못들음("모델없음"); set상태("쉬는중"); return; }
-        set상태("듣는중");
-      }
-      /*
-       * 준비하는 동안 장소가 바뀌었거나 화면을 떠났으면 여기 오기 전에 회차가
-       * 올라가 위의 내회차 검사에서 이미 걸러졌다(place useEffect · 언마운트 정리).
-       * 말로채우기 시절의 장소 재확인이 그 두 곳으로 옮겨 온 셈이다(#102).
-       */
-      시작하기(내회차, 이축);
-    })();
+    // 단추를 누른 바로 이 자리에서 듣기 시작한다 — 브라우저는 사람이 누른 자리가
+    // 아니면 마이크를 안 열어 준다.
+    시작하기(회차.current, 지금축);
   };
 
   const 시작하기 = (내회차: number, 이축: DetailOption) => {
@@ -1132,41 +1119,52 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   };
 
   /*
-   * 스스로 멈춘 것은 못 들은 것이 아니다.
+   * '그만 듣기' 단추 — 지금까지 녹음한 것을 서버로 보내 인식을 끝낸다.
    *
-   * 그만두기() 는 인식 엔진을 멈추고, 그때 listen.ts 의 onend 가 "소리없음" 으로
-   * 답한다. 회차를 안 올리면 그 답이 그대로 통과해서, 사용자가 직접 멈췄는데
-   * "잘 안 들렸어요" 가 뜨고 소리로도 읽힌다.
+   * 회차를 여기서 올리면 안 된다. 시작하기() 콜백은 회차가 그때와 같을 때만
+   * 결과를 받아 준다(#118 이후의 경쟁 상태 방지 장치) — 그런데 서버 응답은
+   * 네트워크를 한 번 오가야 와서, 이 함수가 끝난 한참 뒤에야 도착한다. 예전
+   * 브라우저 인식 시절에는 그만 듣기가 "포기" 버튼이라 결과를 일부러 버렸지만,
+   * 지금은 그만 듣기가 결과를 만드는 유일한 길이라 여기서 회차를 올리면 스스로
+   * 만든 결과를 스스로 버리는 셈이 된다(직접 겪은 버그 — 눌러도 아무 일도 안
+   * 일어나는 것처럼 보였다).
+   *
+   * 대신 '처리중' 으로만 바꿔 둔다. 실제 정리(회차 소비, 상태를 쉬는중으로)는
+   * 결과가 도착했을 때 시작하기() 콜백이 한다.
    */
   const 그만듣기 = () => {
+    set상태("처리중");
+    듣던것.current?.그만두기(true);
+  };
+
+  /*
+   * 손으로 고르거나 건너뛸 때는 듣던 녹음을 버린다(보내지 않는다).
+   *
+   * 안 끊으면 녹음이 계속 돌다가 늦게 서버 응답이 온다. 그 콜백이 쥔 이축은
+   * 지금 축이 아니라 말하기를 누르던 때의 축이라, 방금 건너뛴 축에 값이
+   * 들어가고 손으로 고른 칸은 말한 적 없는 값으로 덮인다 — 게다가 이미 손으로
+   * 골랐으니 그 녹음의 인식 결과 자체가 필요 없다. 그래서 그만듣기() 가 아니라
+   * false 로 직접 끊는다.
+   *
+   * 칸도 한 번 더 넘어간다. 콜백이 부르는 다음으로() 는 옛 칸으로 만들어진
+   * 마지막인가 를 보고 있어서, 이미 넘어간 자리에서 set칸 이 또 올라간다 —
+   * 물어본 적 없는 축이 그대로 지나간다.
+   */
+  const 듣기취소 = () => {
     회차.current += 1;
-    듣던것.current?.그만두기();
+    듣던것.current?.그만두기(false);
     듣던것.current = null;
     set상태("쉬는중");
     set못들음(null);
   };
 
-  /*
-   * 손으로 고르거나 건너뛸 때도 듣던 것을 먼저 끊는다.
-   *
-   * 안 끊으면 인식이 계속 돌다가 늦게 답한다. 그 콜백이 쥔 이축은 지금 축이 아니라
-   * 말하기를 누르던 때의 축이라, 방금 건너뛴 축에 값이 들어가고 손으로 고른 칸은
-   * 말한 적 없는 값으로 덮인다.
-   *
-   * 칸도 한 번 더 넘어간다. 콜백이 부르는 다음으로() 는 옛 칸으로 만들어진
-   * 마지막인가 를 보고 있어서, 이미 넘어간 자리에서 set칸 이 또 올라간다 —
-   * 물어본 적 없는 축이 그대로 지나간다.
-   *
-   * '쉬는중이 아니면' 끊는다. 모델을 받는 동안(받는중)도 준비가 끝나면 옛 축을
-   * 듣기 시작하므로 같은 문제다 — 그만듣기 의 회차 올리기가 그 예약을 버린다.
-   */
   const 손으로고르기 = (고른값: string) => {
-    if (상태 !== "쉬는중") 그만듣기();
+    if (상태 !== "쉬는중") 듣기취소();
     넣기(고른값, false);
   };
 
   const 건너뛰기 = () => {
-    if (상태 !== "쉬는중") 그만듣기();
+    if (상태 !== "쉬는중") 듣기취소();
     다음으로();
   };
 
@@ -1201,31 +1199,50 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
         ))}
       </div>
 
-      {못들음 !== null && (
-        <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 12, lineHeight: 1.7 }}>
-          {못들음 === "권한없음"
-            ? "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요."
-            : 못들음 === "모델없음"
-              ? "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 위에서 손으로 골라 주세요."
+      {/*
+       * data-소리조용 — 이 안의 글은 '새로 붙은 줄' 읽기에서 빠진다(speech.ts).
+       *
+       * 못들음 문구, 받는중 문구, 말하기/그만 듣기 단추 이름이 모두 상태를 따라
+       * 바뀐다. 안 막으면 voiceGuide 를 켠 사람이 단추를 누를 때마다 "그만듣기"
+       * 를 스피커로 듣고, 그 소리를 마이크가 다시 주워듣는다 — 듣기시작() 에서
+       * 그만읽기() 로 그 순간 것은 끊지만, 여기서 막지 않으면 350ms 뒤 감시가
+       * 바뀐 단추 이름을 새로 읽을 것을 또 예약한다.
+       */}
+      <div data-소리조용>
+        {못들음 !== null && (
+          <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 12, lineHeight: 1.7 }}>
+            {못들음 === "권한없음"
+              ? "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요."
               : 못들음 === "못골랐어요"
                 ? "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요."
                 : "잘 안 들렸어요. 다시 말씀해 주세요."}
-        </p>
-      )}
+          </p>
+        )}
 
-      {/* 모델을 받는 동안. 없으면 단추를 누르고 한참 아무 일도 없는 것처럼 보인다(#102). */}
-      {상태 === "받는중" && (
-        <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
-          말을 알아들을 준비를 하고 있어요
-        </p>
-      )}
+        {/*
+         * 녹음은(브라우저 인식과 달리) 말이 끝난 걸 스스로 못 알아챈다. 눌러야
+         * 끝난다는 걸 여기서 알려 준다 — data-소리조용 안이라 소리로는 안 읽힌다.
+         * 듣기시작() 이 부르는 그만읽기() 와 같은 이유로, 녹음 중에 스피커가
+         * 뭔가를 읽으면 그 소리가 녹음에 그대로 실려 인식을 망친다.
+         */}
+        {상태 === "듣는중" && (
+          <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+            듣고 있어요. 말씀하신 뒤 "그만 듣기"를 눌러 주세요.
+          </p>
+        )}
+        {상태 === "처리중" && (
+          <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+            알아듣는 중이에요…
+          </p>
+        )}
 
-      <div className="flex" style={{ gap: 8, marginTop: 16 }}>
-        <OutlineBtn onClick={상태 !== "쉬는중" ? 그만듣기 : 듣기시작}>
-          {상태 !== "쉬는중" ? "그만 듣기" : "말하기"}
-        </OutlineBtn>
-        {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
-        <OutlineBtn onClick={건너뛰기}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
+        <div className="flex" style={{ gap: 8, marginTop: 16 }}>
+          <OutlineBtn onClick={상태 === "듣는중" ? 그만듣기 : 듣기시작} disabled={상태 === "처리중"}>
+            {상태 === "듣는중" ? "그만 듣기" : 상태 === "처리중" ? "인식 중…" : "말하기"}
+          </OutlineBtn>
+          {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
+          <OutlineBtn onClick={건너뛰기} disabled={상태 === "처리중"}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
+        </div>
       </div>
     </div>
   );
@@ -2547,6 +2564,42 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
   };
   const handleRescan = () => setPhase("scan");
 
+  /*
+   * 단계가 바뀌면 그 패널의 제목으로 포커스를 옮긴다.
+   *
+   * App 의 화면 전환 효과는 screen·tab 이 바뀔 때만 돈다. 여기서 일어나는 것은
+   * **같은 화면 안의 단계 변화**라 그 효과가 안 닿는다. 그래서 스캐너가 사라지는
+   * 순간 포커스가 <body> 로 떨어졌고, QR 을 막 찍어 연결에 성공한 사람이
+   * '주문표 선택하기' 까지 문서 맨 위에서부터 Tab 을 눌러 내려와야 했다.
+   *
+   * 읽어 주는 일은 아래 그릇의 aria-live 가 이미 한다. 여기는 포커스만 옮긴다.
+   * 제목이 없는 단계에서는 아무것도 하지 않는다 — 엉뚱한 곳을 잡느니 그대로 둔다.
+   */
+  const 패널 = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // 스캐너는 제 포커스를 스스로 잡는다(QrScannerModal).
+    if (phase === "scan") return;
+    const 제목 = 패널.current?.querySelector<HTMLElement>("h1, h2");
+    if (!제목) return;
+    if (!제목.hasAttribute("tabindex")) 제목.setAttribute("tabindex", "-1");
+    /*
+     * 보이게 한 다음에 포커스를 준다.
+     *
+     * 이 패널은 overflow-y-auto 다(바로 아래 주석). 앞 단계에서 아래로 내려가
+     * 있었다면 스크롤 위치가 그대로 남아, 포커스만 옮기면 **화면 밖에 있는
+     * 제목에 포커스가 가 있는** 상태가 된다. 키보드로 쓰는 사람은 자기가 어디에
+     * 있는지 보이지 않고, 다음 Tab 이 어디서 이어질지도 알 수 없다.
+     *
+     * 그 패널이 넘치는 것은 글씨를 더 키운 사람에게서 실제로 일어난다 —
+     * 이 PR 이 돕는 바로 그 사람이다.
+     *
+     * nearest 로 최소한만 굴린다. 화면이 통째로 튀지 않고, 이미 보이면
+     * 아무것도 안 한다. 굴린 뒤라 focus 의 preventScroll 은 그대로 둔다.
+     */
+    제목.scrollIntoView({ block: "nearest", inline: "nearest" });
+    제목.focus({ preventScroll: true });
+  }, [phase]);
+
   if (phase === "scan") {
     return <QrScannerModal onClose={() => setPhase("idle")} onDetected={handleScanned} />;
   }
@@ -2565,7 +2618,7 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
        * 사용자가 브라우저·OS 글씨 크기를 더 키우면 1.6배 근처부터 넘친다(측정값 102px).
        * auto 로 두면 넘칠 때만 스크롤이 생기고, 넘치지 않으면 지금과 똑같이 보인다.
        */}
-      <div className="flex-1 flex flex-col overflow-y-auto" style={{ minHeight: 0 }} role="status" aria-live="polite">
+      <div ref={패널} className="flex-1 flex flex-col overflow-y-auto" style={{ minHeight: 0 }} role="status" aria-live="polite">
         {phase === "idle" && <PairingIdle onScan={handleRescan} />}
         {phase === "connecting" && <PairingConnecting />}
         {phase === "connected" && pairing && (
@@ -2601,7 +2654,9 @@ function AccountScreen({
   // 목록에 올린 항목은 전부 실제로 열린다. 눌러도 아무 일이 없는 줄은 두지 않는다.
   const items = guest
     ? [
-        { label: "저장된 주문표 관리", sub: "이번 이용에만 쓰는 메뉴 주문표예요", action: onSheets, danger: false },
+        // 주문표는 이제 창을 닫아도 남는다(api/session.ts). 여기가 "이번 이용에만
+        // 쓰는" 이라고 말하고 있으면 화면이 사실이 아닌 것을 말하는 것이 된다.
+        { label: "저장된 주문표 관리", sub: "지우실 때까지 이 휴대폰에 남는 메뉴 주문표예요", action: onSheets, danger: false },
         { label: "접근성 설정", sub: "큰 글씨", action: onA11y, danger: false },
         { label: "개인정보 안내", sub: "무엇을 저장하고 무엇을 저장하지 않는지", action: onPrivacy, danger: false },
         /*
@@ -2629,7 +2684,20 @@ function AccountScreen({
               : <span style={{ fontFamily: SERIF, fontSize: 24, color: PAPER }}>{name ? name[0] : "?"}</span>}
           </div>
           <div>
-            <p style={{ ...TYPE.title, color: TEXT_1 }}>{guest ? "게스트로 이용 중" : `${name || "사용자"}님`}</p>
+            {/*
+              이 화면의 제목이다. p 였는데 h1 으로 바꿨다.
+
+              화면이 바뀌면 포커스를 제목으로 옮기는 효과가 h1·h2·[data-screen-title]
+              을 찾는다(아래 '화면이 바뀌면 포커스가' 효과). 계정 화면에는 그 셋이
+              하나도 없어서 대상을 못 찾고 그냥 돌아갔고, 포커스는 사라진 버튼과
+              함께 <body> 로 떨어졌다 — 키보드 사용자는 탭 탐색을 문서 처음부터
+              다시 해야 했고, 스크린리더 사용자는 화면이 바뀐 것도 듣지 못했다.
+              개인정보 겹을 닫고 이 화면으로 돌아올 때도 같았다.
+
+              보이는 모양은 그대로다(TYPE.title). 바뀐 것은 이 글이 제목이라고
+              말해 주는 것뿐이다.
+            */}
+            <h1 style={{ ...TYPE.title, color: TEXT_1 }}>{guest ? "게스트로 이용 중" : `${name || "사용자"}님`}</h1>
             <p style={{ fontSize: 14, color: TEXT_2, marginTop: 2 }}>
               {guest ? "로그인 없이 모든 기능을 쓰고 있어요" : "키오브릿지 회원"}
             </p>
@@ -2901,6 +2969,172 @@ function 도움목록({ 항목들, 설정, onChange }: {
 }
 
 /**
+ * 도움 설정을 말로 채운다.
+ *
+ * 접근성 일곱 칸 중 이 앱이 화면을 바로 바꾸는 다섯 개(바로바꾸는것에서
+ * voiceGuide 를 뺀 것)만 묻는다 — 전부 켬/끔 둘 중 하나라 예아니오() 하나로
+ * 충분하고, 한칸씩말하기 가 쓰는 말에서고르기() 의 보기 목록 매칭은 필요 없다.
+ *
+ * voiceGuide 는 안 묻는다. 이미 소리로 묻고 있는 화면이라 "소리로 읽어 드릴까요"
+ * 는 스스로 답이 정해진 질문이다. visualGuidance·hearingSupport 도 안 묻는다 —
+ * 도움목록 의 '전해드릴것' 무리와 같은 이유로, 지금 환경(chicken-store)에서는
+ * 켜도 결과가 달라지지 않는다.
+ *
+ * 알레르기는 여기 없다. 음성으로 절대 받지 않기로 정한 축이라(VOICE_PROFILE_
+ * BUILD_SPEC.md 5번) 이 화면에도 안 올린다 — 눈으로만 고른다.
+ *
+ * 골격은 한칸씩말하기 와 같다(듣기 → 받기, 회차로 경쟁 상태 정리). 다른 것은
+ * 판정뿐이다 — 이쪽은 늘 예아니오() 다.
+ */
+function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
+  언어: string;
+  설정: 도움설정;
+  onChange: (한칸: Partial<도움설정>) => void;
+  onDone: () => void;
+}) {
+  const 축들 = 쓸수있는것(바로바꾸는것).filter((r) => r.key !== "voiceGuide");
+  const [칸, set칸] = useState(0);
+  // '처리중' — 한칸씩말하기 와 같은 이유로 갈라 둔다(그만듣기() 주석 참고).
+  const [상태, set상태] = useState<"쉬는중" | "듣는중" | "처리중">("쉬는중");
+  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
+  const 듣던것 = useRef<{ 그만두기: (보내기?: boolean) => void } | null>(null);
+  const 회차 = useRef(0);
+
+  // 화면을 떠나면 듣던 녹음을 버린다 — 한칸씩말하기 의 같은 정리와 같은 이유다.
+  useEffect(() => () => {
+    회차.current += 1;
+    듣던것.current?.그만두기(false);
+  }, []);
+
+  if (!들을수있나() || 축들.length === 0) return null;
+  const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
+  const 마지막인가 = 칸 >= 축들.length - 1;
+
+  const 다음으로 = () => {
+    set못들음(null);
+    if (마지막인가) { onDone(); return; }
+    set칸((n) => n + 1);
+  };
+
+  const 넣기 = (켬: boolean) => {
+    onChange({ [지금축.key]: 켬 });
+    다음으로();
+  };
+
+  const 듣기시작 = () => {
+    // 스피커부터 조용히 시킨다 — 한칸씩말하기 의 같은 자리와 같은 이유다.
+    그만읽기();
+    set못들음(null);
+    set상태("듣는중");
+    회차.current += 1;
+    시작하기(회차.current);
+  };
+
+  const 시작하기 = (내회차: number) => {
+    듣던것.current = 들어보기(언어, (r) => {
+      if (내회차 !== 회차.current) return;
+      듣던것.current = null;
+      set상태("쉬는중");
+      if (!("들은말" in r)) { set못들음(r.못들은이유); return; }
+      // 이 화면은 늘 켬/끔 둘 중 하나다. 목록 매칭이 필요 없어 예아니오() 하나로 끝낸다.
+      const 답 = 예아니오(r.들은말, 언어 === "en-US");
+      if (답 === null) { set못들음("못골랐어요"); return; }
+      넣기(답);
+    });
+  };
+
+  // '그만 듣기' 단추 — 지금까지 녹음한 것을 서버로 보내 인식을 끝낸다.
+  // 회차를 여기서 올리면 안 된다 — 한칸씩말하기 의 같은 함수 주석에 이유를 적어 뒀다.
+  const 그만듣기 = () => {
+    set상태("처리중");
+    듣던것.current?.그만두기(true);
+  };
+
+  // 손으로 답하거나 건너뛸 때는 듣던 녹음을 버린다 — 한칸씩말하기 의 듣기취소() 와 같은 이유다.
+  const 듣기취소 = () => {
+    회차.current += 1;
+    듣던것.current?.그만두기(false);
+    듣던것.current = null;
+    set상태("쉬는중");
+    set못들음(null);
+  };
+
+  const 손으로답하기 = (켬: boolean) => {
+    if (상태 !== "쉬는중") 듣기취소();
+    넣기(켬);
+  };
+
+  const 건너뛰기 = () => {
+    if (상태 !== "쉬는중") 듣기취소();
+    다음으로();
+  };
+
+  return (
+    <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
+      <p style={{ ...TYPE.caption, color: TEXT_2 }}>
+        {tf("{n}번째 질문 (전체 {전체}개)", { n: 칸 + 1, 전체: 축들.length })}
+      </p>
+      <h3 style={{ fontSize: 19, fontWeight: 800, color: TEXT_1, margin: "8px 0 4px" }}>{지금축.label}</h3>
+      <p style={{ ...TYPE.caption, color: TEXT_2, lineHeight: 1.7 }}>
+        {지금축.sub} — 켜 드릴까요? "네" 또는 "아니요" 로 말씀해 주세요.
+      </p>
+
+      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
+        {([{ label: "켜기", 값: true }, { label: "끄기", 값: false }] as const).map(({ label, 값 }) => (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={설정[지금축.key] === 값}
+            onClick={() => 손으로답하기(값)}
+            style={{
+              minHeight: 44, padding: "10px 14px", borderRadius: 999, fontFamily: FONT, fontSize: 15,
+              cursor: "pointer", border: `1px solid ${설정[지금축.key] === 값 ? TEXT_1 : BORDER}`,
+              backgroundColor: 설정[지금축.key] === 값 ? TEXT_1 : "transparent",
+              color: 설정[지금축.key] === 값 ? PAPER : TEXT_1,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* data-소리조용 — 한칸씩말하기 의 같은 자리와 같은 이유(위 주석 참고). */}
+      <div data-소리조용>
+        {못들음 !== null && (
+          <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 12, lineHeight: 1.7 }}>
+            {못들음 === "권한없음"
+              ? "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요."
+              : 못들음 === "못골랐어요"
+                ? '"네" 또는 "아니요" 로 다시 말씀해 주시거나 위에서 골라 주세요.'
+                : "잘 안 들렸어요. 다시 말씀해 주세요."}
+          </p>
+        )}
+
+        {/* 녹음은 스스로 안 끝난다 — 한칸씩말하기 의 같은 안내와 같은 이유. */}
+        {상태 === "듣는중" && (
+          <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+            듣고 있어요. 말씀하신 뒤 "그만 듣기"를 눌러 주세요.
+          </p>
+        )}
+        {상태 === "처리중" && (
+          <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
+            알아듣는 중이에요…
+          </p>
+        )}
+
+        <div className="flex" style={{ gap: 8, marginTop: 16 }}>
+          <OutlineBtn onClick={상태 === "듣는중" ? 그만듣기 : 듣기시작} disabled={상태 === "처리중"}>
+            {상태 === "듣는중" ? "그만 듣기" : 상태 === "처리중" ? "인식 중…" : "말하기"}
+          </OutlineBtn>
+          {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다(한칸씩말하기 와 같은 이유). */}
+          <OutlineBtn onClick={건너뛰기} disabled={상태 === "처리중"}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 가입 직후 한 번 묻는 도움 설정. 회원가입 → 호칭 → **여기** → 환영합니다.
  *
  * 예전에는 계정 화면 깊숙한 곳에만 있었다. 큰 글씨가 필요한 사람이 그걸 찾으려면
@@ -2930,6 +3164,15 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
    */
   진행표시?: boolean;
 }) {
+  /*
+   * 말로 답할지 손으로 고를지. 기본은 손으로 고르기다 — 이미 켜져 있던 방식이고,
+   * 말로 채우는 쪽은 이 기기에서 될 때만 문을 보여 준다(들을수있나()).
+   *
+   * 도움설정말로채우기 가 끝나면(onDone) 다시 손으로 고르는 목록으로 돌아온다.
+   * 여기서 답한 값이 스위치에 그대로 반영돼 있으니, 말로 답한 뒤에도 눈으로
+   * 확인하고 손으로 고칠 수 있다 — "음성 없이도 다 된다" 는 같은 원칙이다.
+   */
+  const [음성모드, set음성모드] = useState(false);
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -2947,7 +3190,31 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
         />
 
         <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
-        <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
+        {음성모드 ? (
+          <도움설정말로채우기
+            언어={설정.language}
+            설정={설정}
+            onChange={onChange}
+            onDone={() => set음성모드(false)}
+          />
+        ) : (
+          <>
+            <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
+            {들을수있나() && (
+              <button
+                type="button"
+                onClick={() => set음성모드(true)}
+                style={{
+                  minHeight: 44, marginTop: 4, padding: "8px 0", background: "none", border: "none",
+                  fontFamily: FONT, fontSize: 14, fontWeight: 700, color: TEXT_1, textDecoration: "underline",
+                  cursor: "pointer", textAlign: "left",
+                }}
+              >
+                말로 답할게요
+              </button>
+            )}
+          </>
+        )}
         {/*
           '키오스크에 전해 드려요' 제목은 뺐다. 그 무리(전해드릴것)가 비면서 제목과
           "지금은 전해 주기만 해요" 안내만 남아 있었다 — 아래에 스위치가 하나도 없는
@@ -3047,7 +3314,7 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
     {
       title: "저장하는 것",
       body: guest
-        ? "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요. 실수로 새로고침해도 다시 적지 않으셔도 되게 이 창 안에 남겨 두고, 창을 닫으면 지워요."
+        ? "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요. 창을 닫아도 이 휴대폰에 남아 있어서, 다음에 오시면 만들어 두신 주문표를 그대로 쓰실 수 있어요. 지우고 싶으시면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요."
         // 전부 올라간다고 적으면 사실이 아니다. 장소를 안 고른 주문표는 서버가
         // 받아 주지 않아서(place 가 필수) 이 기기에만 남는다.
         : "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 로그인하고 계셔서, 장소를 정해 두신 주문표는 서버에도 올라가요 — 다음에 로그인하면 다시 불러오기 위해서예요. 장소를 안 고르신 주문표는 이 기기에만 있어요.",
@@ -3055,6 +3322,14 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
     {
       title: "저장하지 않는 것",
       body: "실제 이름·주소·전화번호·주민등록번호는 받지도, 저장하지도 않아요. 결제 정보도 다루지 않아요. 부르는 호칭은 화면에 띄우는 데만 쓰고 이 기기 밖으로 나가지 않아요.",
+    },
+    {
+      title: "음성으로 답할 때",
+      // 브라우저 내장 인식 대신 서버로 오디오를 보내 인식한다(listen.ts,
+      // VoiceTranscriptionService) — 그 이유(브라우저 인식이 일부 기기·언어에서
+      // 응답이 아예 없었던 것)도 listen.ts 에 적어 뒀다. 여기서는 실제로 오디오가
+      // 우리 서버를 거친다는 것과, 저장하지 않는다는 것을 그대로 적는다.
+      body: "\"그만 듣기\"를 누르면 그때까지 녹음한 음성이 저희 서버로 전달되고, 서버가 그 음성을 글로 바꿔 알아들은 결과(예: '네')만 그 자리에서 써서 화면을 바꿔요. 보낸 음성은 인식하는 동안만 쓰고 저장하지 않고, 인식된 문장도 남기지 않아요. 말하기가 불편하시면 언제든 버튼을 눌러 손으로 답하실 수 있어요.",
     },
     {
       title: "로그인은 어떻게 하나요",
@@ -3071,7 +3346,7 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
       // 서버에 지우기 경로가 아직 없다. 지운다고 적어 두면 그 문장이 거짓이 된다.
       // 주문표만이 아니라 키오스크에 보낸 승인·거절 기록도 서버에 남는다.
       body: guest
-        ? "지금은 로그인 없이 쓰고 계셔서 이 창을 닫으면 이 기기에 남지 않아요. 바로 지우시려면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요."
+        ? "만들어 두신 주문표는 지우실 때까지 이 휴대폰에 남아요. 계정 화면의 ‘이 기기에서 정보 지우기’를 누르시면 바로 사라져요. 이름·도움 설정·알레르기처럼 나머지 적어 두신 것은 창을 닫으면 그때 사라져요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요."
         // 둘을 뭉뚱그려 "다 지워져요" 라고 쓰면 그게 거짓말이 된다.
         // 주문표는 지워지고(팀 #79 의 DELETE), 주문 기록은 여전히 남는다.
         : "계정 화면의 ‘이 기기에서 정보 지우기’를 누르면 이 기기에 있는 내용이 모두 사라지고, 서버에 올라간 주문표도 함께 지워요. 서버 쪽이 잘 안 되면 그때 화면으로 알려 드리고 다시 시도하실 수 있어요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 그건 아직 지우는 길이 없어서요.",
@@ -4642,9 +4917,14 @@ export default function App() {
    * 로그인한 계정. null 이면 게스트다.
    *
    * 이 탭이 살아 있는 동안만 남는다(api/session.ts 의 sessionStorage). 새로고침해도
-   * 풀리지 않고, 탭을 닫으면 사라진다 — 개인정보 안내 화면이 약속한 "이번 이용이
-   * 끝나면 남지 않아요" 가 그 말이다. localStorage 로 옮기면 다음에 이 기기를 켠
-   * 사람이 앞사람 계정으로 들어가 있게 되므로 옮기지 말 것.
+   * 풀리지 않고, 탭을 닫으면 사라진다 — 개인정보 안내 화면의 "로그인 상태는
+   * 새로고침해도 그대로지만, 이 창을 닫으면 풀립니다" 가 그 말이다.
+   *
+   * **주문표가 localStorage 로 간 뒤에도 이것은 안 간다.** 옮기면 다음에 이
+   * 기기를 켠 사람이 앞사람 계정으로 들어가 있게 되고, 토큰은 메모리뿐이라
+   * 되살려 봐야 아무 요청도 못 한다 — 로그인한 것처럼 보이는데 아무것도 안 되는
+   * 상태가 된다. 서버에서 불러온 주문표를 로그아웃 상태에서 걸러 내는 처리가
+   * session.ts 에 있는 것도 이것 때문이다.
    *
    * 비밀번호는 어디에도 남기지 않는다. 여기 있는 것은 { userId, loginId } 뿐이다.
    *
@@ -5109,9 +5389,18 @@ export default function App() {
     // 입력 방식도 이 사람 것이다. 남겨 두면 다음 사람이 말한 적도 없는데
     // 키오스크에 "말로 넣는 사람" 이라고 전해진다.
     입력출처.비우기();
-    // 적어 둔 것도 같이 지운다. 안 지우면 새로고침 한 번에 로그아웃이 되돌아간다.
-    // 위의 setState 들이 끝나면 저장 효과가 한 번 더 도는데, 그때는 담을 것이
-    // 남아 있지 않아서 다시 쓰이지 않는다(session.ts 의 남길것이있나).
+    /*
+     * 적어 둔 것도 같이 지운다. 안 지우면 새로고침 한 번에 로그아웃이 되돌아간다.
+     *
+     * 두 자리를 다 지우고 나면(session.ts 의 비우기), 위의 setState 들이 끝나는
+     * 대로 저장 효과가 한 번 더 돌면서 **남은 상태만** 다시 적힌다. 계정·동의·
+     * 알레르기는 방금 비웠으니 안 적히고, 이 사람이 이 기기에서 직접 만든
+     * 주문표는 setSheets 에 남아 있으니 다시 적힌다.
+     *
+     * 그게 맞다. 로그아웃은 계정을 나가는 것이지 만들어 둔 주문표를 버리겠다는
+     * 뜻이 아니고, 버리는 자리는 계정 화면의 '이 기기에서 정보 지우기' 로 따로
+     * 있다. 서버에서 받아 온 것만 위에서 이미 뺐다.
+     */
     이어쓰기.비우기();
   };
 
@@ -5407,8 +5696,14 @@ export default function App() {
       {로그모드 === "겹" && <BackendLog onClose={() => set로그모드("닫힘")} />}
       {/*
         큰 글씨 모드. 화면 크기(휴대폰 틀)는 그대로 두고 안쪽 내용만 키운다.
-        바깥 틀은 실제 크기(FRAME_W × FRAME_H)를 잡고, 안쪽은 그 크기를 배율로 나눠 잡는다.
-        zoom 이 다시 배율을 곱하므로 최종 렌더 크기는 틀과 정확히 같아진다.
+        안쪽은 **바깥이 실제로 차지한 만큼**을 배율로 나눠 잡는다. zoom 이 다시
+        배율을 곱하므로 최종 렌더 크기는 바깥과 정확히 같아진다.
+
+        예전에는 FRAME_W 를 그대로 나눠 썼다. 바깥은 width:100% 라 화면이 좁으면
+        390 보다 작아지는데 안쪽은 늘 390 으로 렌더돼서, **390px 보다 좁은 화면에서
+        큰 글씨를 켜면 가로 스크롤이 생겼다.** 375px 휴대폰이 그렇고, 200% 로 확대해
+        폭이 절반이 되면 문서가 창의 두 배가 넘었다 — 글씨를 키워야 하는 사람이
+        가로로도 밀어 가며 읽어야 했다.
       */}
       <div style={{ width: "100%", maxWidth: FRAME_W, height: FRAME_H }}>
         <div
@@ -5426,8 +5721,8 @@ export default function App() {
           className="kb-paper overflow-hidden flex flex-col"
           style={{
             zoom: largeText ? LARGE_TEXT_SCALE : 1,
-            width: largeText ? FRAME_W / LARGE_TEXT_SCALE : "100%",
-            height: largeText ? FRAME_H / LARGE_TEXT_SCALE : FRAME_H,
+            width: largeText ? `${100 / LARGE_TEXT_SCALE}%` : "100%",
+            height: largeText ? `${100 / LARGE_TEXT_SCALE}%` : FRAME_H,
 
             // absolute 로 띄우는 것들(확인 시트·QR 스캐너)이 이 안에 갇히려면
             // 여기가 컨테이닝 블록이어야 한다. overflow-hidden 만으로는

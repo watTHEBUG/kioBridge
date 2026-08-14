@@ -1,5 +1,7 @@
 package com.kiobridge.kiobridge.modules.recommendation;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
 import com.kiobridge.kiobridge.contracts.Recommendation;
@@ -366,6 +368,53 @@ class RecommendationEngineServiceTest {
         assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
         assertThat(recommendation.recommendationReasons())
             .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 확신도의_부동소수점_오차_꼬리가_반올림으로_사라져_개인정보_탐지_오탐을_막는다() throws Exception {
+        /*
+         * 재현(2026-08-14 실제 운영): computeRankingGapConfidence 는
+         * CONFIDENCE_BASE_FLOOR(0.5) + scoreGap * CONFIDENCE_GAP_SCALE(0.3) 를 double로 계산한다.
+         * scoreGap 이 정확히 0.65 일 때 이 연산의 원시 결과는 이진 부동소수점 오차로
+         * 0.6950000000000001 이 된다(0.695가 아니다). 그 값을 그대로 JSON으로 직렬화하면
+         * "6950000000000001" 이라는 16자리 연속 숫자가 생기고, 킷의 개인정보 탐지 정규식
+         * (카드번호: 15~16자리 연속 숫자)에 걸려 PERSONAL_DATA_NOT_ALLOWED 로 제출 전체가
+         * 거부된다 — round4()가 이 꼬리를 없앤다.
+         *
+         * gap=0.65 만들기: top은 boneType PASS(+0.5)+cupOption PASS(+0.5)=1.0,
+         * second는 boneType PASS(+0.5)+cupOption WARN(-0.15)=0.35. 1.0-0.35=0.65.
+         */
+        Candidate top = candidate("CHICKEN-GAP-A", 6000.0, List.of("HOT"));
+        Candidate second = candidate("CHICKEN-GAP-B", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> passes = Map.of(
+            top.candidateId(), List.of(boneTypePass(), cupOptionPass()),
+            second.candidateId(), List.of(boneTypePass())
+        );
+        Map<String, List<RuleEvaluationResult>> warnings = Map.of(
+            second.candidateId(), List.of(cupOptionMismatch())
+        );
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(top, second), List.of(), warnings, Map.of(), passes);
+
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
+
+        // 허용 오차(offset)를 쓰면 반올림 전 원시값(0.6950000000000001)도 통과해버려
+        // 이번 수정을 실질적으로 검증하지 못한다 — 정확히 같은 값인지 그대로 비교한다.
+        assertThat(recommendation.confidence()).isEqualTo(0.695);
+
+        // PR의 진짜 목적은 "허용 오차 안에 든다"가 아니라 "직렬화된 JSON에 15~16자리
+        // 연속 숫자가 없다"이다 — 킷의 detectPersonalData가 정확히 이 문자열을 스캔한다.
+        // 전체 문자열에 대한 정규식 부재 확인만으로는 confidence 필드 자체가 빠지거나
+        // 값이 달라져도 통과해버린다 — JSON을 파싱해서 그 필드를 직접 짚어 확인한다.
+        ObjectMapper mapper = new ObjectMapper();
+        String json = mapper.writeValueAsString(recommendation);
+        JsonNode root = mapper.readTree(json);
+        assertThat(root.has("confidence")).isTrue();
+        assertThat(root.get("confidence").isNumber()).isTrue();
+        assertThat(root.get("confidence").doubleValue()).isEqualTo(0.695);
+        assertThat(json).doesNotContainPattern("\\b(?:\\d[ -]?){15,16}\\b");
     }
 
     // ------------------------------------------------------------------
