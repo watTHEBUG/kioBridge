@@ -307,6 +307,9 @@ export const EN: Record<string, string> = {
   "저장한 주문표와 호칭이 모두 사라지고 처음 화면으로 돌아가요. 되돌릴 수 없어요.":
     "Your saved order cards and nickname will be erased, then you'll return to the start. This cannot be undone.",
   "서버의 계정까지는 지우지 못했어요": "We could not delete the account on the server",
+  "계정을 지우다 실패했어요": "Deleting the account failed",
+  "이 기기의 정보는 지워졌고 로그아웃도 됐어요. 서버가 잠시 응답하지 못했어요 — 나중에 다시 로그인해서 계정 삭제를 눌러 주세요.":
+    "Everything on this device was erased and you were signed out. The server did not respond — please log in again later and press Delete account.",
   "이 기기의 정보와 서버 주문표는 지워졌고 로그아웃도 됐어요. 계정을 지우는 길이 아직 서버에 없어서 아이디는 남아 있어요.":
     "Everything on this device and your server order cards were erased, and you were signed out. The server cannot delete accounts yet, so the ID itself remains.",
 

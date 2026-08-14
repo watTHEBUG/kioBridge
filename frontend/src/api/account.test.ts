@@ -647,3 +647,35 @@ describe("팀 백엔드 — 실제 로그인 계약(accessToken)", () => {
     expect(접근토큰.읽기()).toBeNull();
   });
 });
+
+describe("계정 삭제 — 실패의 종류를 가른다", () => {
+  it("목은 계정과 딸린 것을 지우고, 같은 아이디로 다시 가입할 수 있다", async () => {
+    const a = await mockAccount.signup("할머니1", "1234");
+    await mockAccount.saveSheet(a.userId, 주문표());
+    expect(await mockAccount.deleteAccount(a.userId)).toBe("지웠음");
+    expect(await mockAccount.listSheets(a.userId)).toEqual([]);
+    // 지워졌으면 아이디가 풀린다. 이게 '계정 삭제' 가 실제로 뜻하는 것이다.
+    await expect(mockAccount.signup("할머니1", "5678")).resolves.toBeTruthy();
+  });
+
+  it("404 는 '경로없음' — 서버에 아직 기능이 없는 것이다", async () => {
+    globalThis.fetch = vi.fn(async () => 응답({ message: "not found" }, 404)) as unknown as typeof fetch;
+    expect(await createTeamAccount().deleteAccount(7)).toBe("경로없음");
+  });
+
+  it("옛 배포본 BFF 의 NOT_ALLOWED 도 '경로없음' 이다", async () => {
+    // 허용 목록에 이 경로가 없던 배포본은 BFF 가 code: NOT_ALLOWED 로 404 를 준다.
+    globalThis.fetch = vi.fn(async () => 응답({ code: "NOT_ALLOWED", message: "허용되지 않은 경로예요" }, 404)) as unknown as typeof fetch;
+    expect(await createTeamAccount().deleteAccount(7)).toBe("경로없음");
+  });
+
+  it("서버 오류는 '못지움' — 기능이 없다고 말하면 안 된다", async () => {
+    /*
+     * 이 구분이 이 기능의 핵심이다(#106 리뷰). 일시 장애를 '경로없음' 으로
+     * 뭉치면 화면이 "아직 못 지우는 기능" 이라고 잘못 말하고, 사용자는
+     * 다시 시도할 생각을 못 한다.
+     */
+    globalThis.fetch = vi.fn(async () => 응답({ message: "boom" }, 500)) as unknown as typeof fetch;
+    expect(await createTeamAccount().deleteAccount(7)).toBe("못지움");
+  });
+});
