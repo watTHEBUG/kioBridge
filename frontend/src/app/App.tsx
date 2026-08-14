@@ -2901,20 +2901,26 @@ function 도움목록({ 항목들, 설정, onChange }: {
  * 둘이 똑같은 일(다음 화면으로 가기)을 하게 되고, 무엇을 눌러야 하는지 묻는
  * 화면이 하나 더 생긴다. 이 화면은 통째로 선택이라 그 말을 글로 적는다.
  */
-function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, onBack }: {
+function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, onBack, 진행표시 = true }: {
   설정: 도움설정;
   onChange: (한칸: Partial<도움설정>) => void;
   알레르기: AllergenId[];
   on알레르기: (id: AllergenId) => void;
   onNext: () => void;
   onBack: () => void;
+  /**
+   * 가입 흐름(호칭 → 도움 설정)일 때만 단계를 보여 준다. '바로 시작하기' 로 들어온
+   * 게스트에게 "3단계 중 3단계" 는 밟은 적 없는 단계다 — role="progressbar" 라
+   * 스크린리더가 그 틀린 단계를 그대로 읽는다.
+   */
+  진행표시?: boolean;
 }) {
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
         <BackButton onClick={onBack} />
         <div className="flex-1 flex justify-center" style={{ marginRight: 34 }}>
-          <ProgressBar step={3} total={3} />
+          {진행표시 && <ProgressBar step={3} total={3} />}
         </div>
       </div>
 
@@ -5447,7 +5453,13 @@ export default function App() {
                *
                * 뒤로 가면 목록으로 나간다. 만들지 않고 나가는 길은 막지 않는다.
                */
-              onStart={() => { setName(""); set고칠주문표(null); setScreen("sheet"); setTab("menu"); }}
+              /*
+               * 바로 시작해도 도움 설정·알레르기부터 지난다. 예전에는 곧장 주문표
+               * 화면으로 보냈는데, 그러면 큰 글씨가 필요한 분이 작은 글씨로 주문표를
+               * 만들고, 알레르기는 주문표 축에만 기대게 된다 — 빠뜨리면 안 걸러진다.
+               * 안 고르고 계속하기만 눌러도 되니 막는 단계는 아니다.
+               */
+              onStart={() => { setName(""); set고칠주문표(null); setScreen("setup"); setTab("menu"); }}
               // 선택적 로그인: 고른 사람만 계정 경로로 간다. 여기서 뒤로 가면
               // 아무 일도 없었던 것이 되어야 하므로 계정 상태는 아직 건드리지 않는다.
               onLogin={() => setScreen("login")}
@@ -5494,10 +5506,16 @@ export default function App() {
               // 계정 화면의 접근성 설정과 같은 저장소에 쓴다. 여기서 켠 것이
               // 거기서도 켜져 있어야 한다 — 두 화면이 같은 스위치를 다루므로.
               onChange={(한칸) => 접근성설정.바꾸기(한칸)}
-              onNext={() => setScreen("greeting")}
-              // 호칭 화면으로 되돌아간다. 여기까지 왔으면 호칭은 이미 적었고,
-              // 고쳐 적고 싶을 수 있는 유일한 앞 단계다.
-              onBack={() => setScreen("name")}
+              /*
+               * 어느 문으로 들어왔는지는 호칭으로 가른다. 가입 흐름은 호칭을 적고
+               * 왔고(name 있음 → 인사로), '바로 시작하기' 는 호칭 없이 왔다
+               * (name 없음 → 곧장 주문표 만들기로).
+               */
+              onNext={() => setScreen(name ? "greeting" : "sheet")}
+              // 가입 흐름이면 호칭 화면으로 — 고쳐 적고 싶을 수 있는 유일한 앞
+              // 단계다. 게스트면 첫 화면으로 되돌아간다.
+              onBack={() => setScreen(name ? "name" : "welcome")}
+              진행표시={Boolean(name)}
             />
           )}
           {screen === "greeting" && (
