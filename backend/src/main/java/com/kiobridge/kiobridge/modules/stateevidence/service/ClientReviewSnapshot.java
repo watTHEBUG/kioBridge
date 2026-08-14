@@ -50,7 +50,8 @@ public record ClientReviewSnapshot(
             return 0;
         }
         try {
-            return new BigDecimal(number.toString()).intValueExact();
+            int quantity = new BigDecimal(number.toString()).intValueExact();
+            return quantity < 0 ? 0 : quantity;
         } catch (NumberFormatException | ArithmeticException e) {
             return 0;
         }

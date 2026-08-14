@@ -36,6 +36,7 @@ class ClientReviewSnapshotTest {
 
     @Test
     void 수량이_정수가_아니거나_int_범위를_벗어나면_0으로_처리한다() {
+        assertThat(quantityFrom(-1)).isZero();
         assertThat(quantityFrom(1.5)).isZero();
         assertThat(quantityFrom(2_147_483_648L)).isZero();
         assertThat(quantityFrom(Double.NaN)).isZero();
