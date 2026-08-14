@@ -60,17 +60,17 @@ public class OrchestratorController {
     /** POST /internal/orchestrator/approve — STEP9 조립부터 실행까지 전체 승인 플로우. */
     @PostMapping("/approve")
     public ApprovalResult approve(@RequestBody OrchestratorRunRequest request) {
-        PairingRegistry.Reservation reservation = pairingRegistry.reserveForExecution( // 검증을 마친 실제 RC5 실행 권한
-            request.pairingId(), request.profile(), request.sessionContext()
-        );
-
         try {
+            PairingRegistry.Reservation reservation = pairingRegistry.reserveForExecution( // 검증을 마친 실제 RC5 실행 권한
+                    request.pairingId(), request.profile(), request.sessionContext()
+            );
+
             ExecuteResult result = submissionOrchestrator.runApprovalFlow( // RC5 제출·검증·실행 원본 결과
-                reservation.rc5SessionId(),
-                request.profile(),
-                request.sessionContext(),
-                request.recommendation(),
-                request.userDecision()
+                    reservation.rc5SessionId(),
+                    request.profile(),
+                    request.sessionContext(),
+                    request.recommendation(),
+                    request.userDecision()
             );
 
             EvidenceSummary summary = null;                  // 성공 결과를 설명하는 사용자용 요약
