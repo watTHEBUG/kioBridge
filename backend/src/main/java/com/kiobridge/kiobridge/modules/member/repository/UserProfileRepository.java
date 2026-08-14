@@ -22,4 +22,6 @@ public interface UserProfileRepository
             Long userId,
             String profileId
     );
+
+    long deleteAllByUser_Id(Long userId);
 }

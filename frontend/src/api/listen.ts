@@ -1,158 +1,108 @@
 /**
  * 말을 듣는다.
  *
- * ── 기기 안에서 처리될 때만 듣는다 ──────────────────────────────────────────
+ * ── 브라우저 내장 인식(SpeechRecognition)을 걷어낸 이유 ─────────────────────
  *
- * 브라우저의 SpeechRecognition 을 쓴다. **다만 이것만으로는 소리가 기기 밖으로
- * 안 나간다고 말할 수 없다.**
+ * 한동안 브라우저의 SpeechRecognition 을 그대로 썼다(처음엔 processLocally=true
+ * 로 기기 안 처리를 강제했고, 그게 크롬 macOS 빌드에서 깨져 있는 걸 확인한 뒤
+ * 브라우저 기본(클라우드) 경로로 되돌렸었다).
  *
- * 처음에 그렇게 적었는데 틀렸다. 표준의 `processLocally` 는 기본값이 false 이고,
- * 그 상태에서는 브라우저가 기기 안에서 처리할지 **제 서버로 보낼지 마음대로
- * 고른다.** 크롬 계열은 실제로 구글 서버로 보낸다. 개인정보 화면이 "이 기기
- * 밖으로 나가지 않아요" 라고 말하고 있는데, 목소리는 그 자체로 사람을 알아볼 수
- * 있는 값이라 그 문장을 어긴 셈이 됐다(#39 리뷰).
+ * 그런데 기본 경로도 특정 기기에서 한국어만 응답이 없었다 — 영어는 되고,
+ * 같은 코드로 언어만 ko-KR/ko 로 바꾸면 몇 번을 다시 시도해도 100% 실패했다.
+ * 외부 데모 페이지에서는 그 브라우저의 같은 계정으로 한국어도 잘 됐으니, 이
+ * 페이지·이 앱에서만 걸리는 무언가였다 — 확장 프로그램·마이크 권한·CSP·
+ * Permissions-Policy·타임아웃 길이·continuous/interimResults 조합을 전부
+ * 확인했지만 코드로는 원인을 못 좁혔다(자세한 재현 기록은 #124 참고).
  *
- * 그래서 두 가지를 한다.
+ * 그래서 브라우저의 인식 엔진 자체를 포기했다. 대신 `MediaRecorder` 로 음성을
+ * 녹음해 우리 백엔드(`POST /api/v1/voice/transcribe`)로 보내고, 백엔드가
+ * OpenAI Whisper 로 인식한 글만 돌려받는다. 이 우회는 브라우저의 SpeechRecognition
+ * 구현이 무엇을 하든 상관없다 — 우리가 통제하는 서버가 인식을 하기 때문이다.
  *
- *   1. `processLocally = true` 를 켠다. 기기 안에서 처리하라고 명시한다.
- *   2. **그 스위치가 있는 브라우저에서만 단추를 내민다.** 없는 브라우저에서는
- *      소리가 어디로 가는지 우리가 알 수 없으므로 아예 안 듣는다.
+ * 오디오는 저장하지 않는다. 킷 문서(PARTICIPANT_IDEA_CATALOG.md "음성 주문"
+ * 항목)의 "음성 원본을 서버에 저장하지 마세요. 인식 결과만 씁니다" 를 그대로
+ * 지킨다 — 백엔드는 받은 바이트를 메모리에서 Whisper 로 바로 넘기고 어디에도
+ * 쓰지 않는다(VoiceTranscriptionService 주석 참고). 개인정보 화면의 "음성으로
+ * 답할 때" 항목도 이 경로에 맞춰 적어 뒀다(App.tsx 의 개인정보항목).
  *
- * 쓸 수 있는 사람이 줄어드는 것은 안다. 그래도 "안 나간다" 고 말해 놓고 나가는
- * 것보다 낫다. 손으로 고르는 길은 그대로 있다.
+ * ── '그만 듣기' 가 이제는 꼭 있어야 하는 단추다 ─────────────────────────────
  *
- * 서버로 보내 STT 를 돌리는 길은 그쪽이 훨씬 잘 알아듣는다. 그렇게 하려면 고칠
- * 것이 이 파일 하나가 아니다 — 개인정보 화면 문구, 동의 받는 자리, 오디오를 안
- * 남긴다는 약속까지 같이 간다. 그때 볼 것은 docs/VOICE_PROFILE_BUILD_SPEC.md 다.
+ * 브라우저 인식은 말이 끝난 것을 스스로 알아챘다(무음 감지). 녹음은 그렇지
+ * 않다 — 사용자가 "그만 듣기" 를 눌러야 녹음이 끝나고 그때 서버로 보낸다.
+ * 화면 문구에 이 안내를 넣어 뒀다(한칸씩말하기·도움설정말로채우기). 그래도
+ * 안 누르는 경우를 대비해 최대 녹음 시간(아래 참고)을 뒤에 걸어 둔다.
  *
  * ── 되는지 먼저 보고 내민다 ─────────────────────────────────────────────────
  *
- * 안 되는 기기에서는 단추 자체를 안 보여 준다. 눌렀는데 아무 일도 안 일어나면
- * 사용자는 앱이 고장 났다고 생각한다. speech.ts 의 `소리를낼수있나` 와 같은
- * 판단이다 — 못 하는 것을 한다고 말하지 않는다.
+ * getUserMedia 나 MediaRecorder 가 없는 브라우저에서는 단추를 안 보여 준다.
+ * 눌렀는데 아무 일도 안 일어나면 사용자는 앱이 고장 났다고 생각한다.
+ * speech.ts 의 `소리를낼수있나` 와 같은 판단이다.
  */
 
-interface 듣기엔진 {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  maxAlternatives: number;
-  /** 기기 안에서 처리하라. 표준 기본값은 false 라 반드시 켜서 보낸다. */
-  processLocally: boolean;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: ((e: { error?: string }) => void) | null;
-  onend: (() => void) | null;
-}
+export type 못들은이유 = "권한없음" | "소리없음" | "안됨";
+
+/** 이 기기에서 마이크를 녹음할 수 있는가. 화면이 단추를 내밀지 말지 이걸로 정한다. */
+export const 들을수있나 = (): boolean =>
+  typeof navigator !== "undefined"
+  && !!navigator.mediaDevices
+  && typeof navigator.mediaDevices.getUserMedia === "function"
+  && typeof MediaRecorder !== "undefined";
+
+/** 브라우저가 실제로 만들 수 있는 형식 중, 서버(Whisper)가 아는 것을 고른다. */
+const 녹음형식 = (): string | undefined => {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return undefined;
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]
+    .find((형식) => MediaRecorder.isTypeSupported(형식));
+};
+
+const 확장자 = (mime: string): string =>
+  mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
 
 /**
- * 만들기 함수에 딸린 것들. 기기 안 음성 모델이 있는지 묻고, 없으면 받아 둔다.
+ * 녹음한 것을 서버로 보내 글로 받는다.
  *
- * processLocally 를 켜면 **모델이 깔려 있어야** 듣기가 시작된다. 없으면 start()
- * 가 오류로 끝난다. 예전에는 이걸 안 봐서, 단추는 보이는데 누르면 아무 일도 안
- * 일어났다. 사용자에게는 앱이 고장 난 것으로 보였다.
+ * `/api/bff` 는 vite.config.ts 의 개발 서버 프록시(운영에서는 Vercel BFF 함수)를
+ * 그대로 탄다 — backend.ts 의 createTeamBackend 와 같은 경로다. 다만 이 호출은
+ * KioBridgeApi 목/실서버 전환 스위치와 무관하게 늘 실제 백엔드로 간다 — 음성
+ * 인식은 목으로 흉내 낼 게 없는 기능이다.
  */
-interface 모델관리 {
-  available?: (opt: { langs: string[]; processLocally: boolean }) => Promise<string>;
-  install?: (opt: { langs: string[]; processLocally: boolean }) => Promise<boolean>;
-}
+const 서버로보내기 = async (
+  오디오: Blob, 언어: string,
+): Promise<{ 들은말: string } | { 못들은이유: 못들은이유 }> => {
+  const 폼 = new FormData();
+  폼.append("audio", 오디오, `clip.${확장자(오디오.type)}`);
+  폼.append("language", 언어);
 
-const 만들기찾기 = (): ((new () => 듣기엔진) & 모델관리) | null => {
+  let res: Response;
   try {
-    const g = globalThis as unknown as {
-      SpeechRecognition?: (new () => 듣기엔진) & 모델관리;
-      webkitSpeechRecognition?: (new () => 듣기엔진) & 모델관리;
-    };
-    return g.SpeechRecognition ?? g.webkitSpeechRecognition ?? null;
+    res = await fetch("/api/bff/api/v1/voice/transcribe", { method: "POST", body: 폼 });
   } catch {
-    return null;
+    return { 못들은이유: "안됨" };
   }
-};
-
-/** 기기 안 모델 상태. 화면이 무엇을 말해 줄지 이걸로 정한다. */
-export type 모델상태 = "됨" | "받아야함" | "받는중" | "안됨";
-
-/**
- * 이 언어를 기기 안에서 알아들을 수 있는가.
- *
- * 브라우저가 available 을 안 주면 "됨" 으로 본다 — 물어볼 방법이 없는데 미리
- * 막으면, 되는 브라우저에서도 단추가 죽는다. 실제로 안 되면 start() 가 오류로
- * 알려 주고, 그 오류를 이유별로 옮긴다(들어보기).
- */
-export const 모델있나 = async (언어: string): Promise<모델상태> => {
-  const 만들기 = 만들기찾기();
-  if (!만들기 || typeof 만들기.available !== "function") return "됨";
-  try {
-    const r = await 만들기.available({ langs: [언어], processLocally: true });
-    if (r === "available") return "됨";
-    if (r === "downloadable") return "받아야함";
-    if (r === "downloading") return "받는중";
-    return "안됨";
-  } catch {
-    // 물어보다 실패했으면 막지 않는다. start() 가 진짜 답을 준다.
-    return "됨";
+  if (!res.ok) {
+    return { 못들은이유: res.status === 401 || res.status === 403 ? "권한없음" : "안됨" };
   }
+  const 본문 = await res.json().catch(() => null) as { text?: string } | null;
+  const 글 = (본문?.text ?? "").trim();
+  return 글 ? { 들은말: 글 } : { 못들은이유: "소리없음" };
 };
 
 /**
- * 모델을 받아 둔다. **사용자가 단추를 누른 자리에서** 불러야 한다 — 브라우저가
- * 사람의 동작 없이는 받기를 시작하지 않는다.
- */
-export const 모델받아두기 = async (언어: string): Promise<boolean> => {
-  const 만들기 = 만들기찾기();
-  if (!만들기 || typeof 만들기.install !== "function") return false;
-  try {
-    return await 만들기.install({ langs: [언어], processLocally: true });
-  } catch {
-    return false;
-  }
-};
-
-const 엔진만들기 = (): 듣기엔진 | null => {
-  const 만들기 = 만들기찾기();
-  try {
-    return 만들기 ? new 만들기() : null;
-  } catch {
-    return null;
-  }
-};
-
-/**
- * 이 기기에서 말을 들을 수 있는가. 화면이 단추를 내밀지 말지 이걸로 정한다.
- *
- * 인식기가 있는 것만으로는 부족하다. **기기 안에서 처리하라고 말할 수 있는
- * 브라우저인지**까지 본다. 그 스위치가 없으면 소리가 어디로 가는지 우리가 알 수
- * 없고, 모르는 채로 마이크를 켜면 개인정보 화면의 약속을 어기게 된다.
- *
- * 스위치가 있는지는 프로토타입에 그 이름이 있는지로 본다. 없는 브라우저에 그냥
- * 대입하면 아무 일도 안 일어나고 조용히 서버로 나간다 — 그게 제일 나쁘다.
- */
-export const 들을수있나 = (): boolean => {
-  const 만들기 = 만들기찾기();
-  return 만들기 !== null && "processLocally" in 만들기.prototype;
-};
-
-export type 못들은이유 = "권한없음" | "소리없음" | "모델없음" | "안됨";
-
-/**
- * 한 번 듣는다.
+ * 한 번 듣는다(녹음 → 그만두기 → 서버 인식).
  *
  * 성공하면 들은 글, 실패하면 왜 못 들었는지를 준다. 던지지 않는다 — 음성은
  * 더해 주는 길이고, 안 되면 손으로 고르는 길이 그대로 있다.
  *
- * `그만두기` 를 부르면 지금까지 들은 것으로 끝낸다. 말을 마쳤는데 앱이 계속
- * 듣고 있으면 사용자는 언제 끝나는지 알 수 없다.
+ * `그만두기(보내기)` — 기본(true)은 지금까지 녹음한 것을 서버로 보내 끝낸다.
+ * `false` 로 부르면 보내지 않고 버린다 — 화면을 떠나거나 손으로 다른 답을
+ * 고를 때처럼 "이 녹음은 필요 없어졌다" 는 자리에서 쓴다. 여기서 나뉘지 않으면
+ * 버릴 녹음도 매번 서버로 나가 Whisper 호출만 낭비된다.
  */
 export const 들어보기 = (
   언어: string,
   받기: (결과: { 들은말: string } | { 못들은이유: 못들은이유 }) => void,
-): { 그만두기: () => void } => {
-  // 들을수있나() 를 한 번 더 본다. 화면이 안 물어보고 부를 수도 있고, 그때
-  // 조용히 서버로 나가는 것보다 안 듣는 쪽이 맞다.
-  const 엔진 = 들을수있나() ? 엔진만들기() : null;
-  if (!엔진) {
+): { 그만두기: (보내기?: boolean) => void } => {
+  if (!들을수있나()) {
     받기({ 못들은이유: "안됨" });
     return { 그만두기: () => {} };
   }
@@ -161,49 +111,78 @@ export const 들어보기 = (
   const 한번만 = (결과: { 들은말: string } | { 못들은이유: 못들은이유 }) => {
     if (끝났나) return;
     끝났나 = true;
+    clearTimeout(최대시간표);
     받기(결과);
   };
 
-  엔진.lang = 언어;
-  // 기기 안에서 처리하라. 이 줄이 이 파일에서 제일 중요하다 — 안 켜면 브라우저가
-  // 제 서버로 보내도 되고, 그러면 "이 기기 밖으로 나가지 않아요" 가 거짓이 된다.
-  엔진.processLocally = true;
-  // 한 번 말하고 끝낸다. 계속 듣게 두면 옆 사람 말까지 들어간다.
-  엔진.continuous = false;
-  엔진.interimResults = false;
-  엔진.maxAlternatives = 1;
+  let 레코더: MediaRecorder | null = null;
+  let 스트림: MediaStream | null = null;
+  let 취소됨 = false;
+  let 보낼지 = true;
+  const 조각들: BlobPart[] = [];
+  let 최대시간표: ReturnType<typeof setTimeout> | undefined;
 
-  엔진.onresult = (e) => {
-    const 글 = e.results?.[0]?.[0]?.transcript ?? "";
-    한번만(글.trim() ? { 들은말: 글.trim() } : { 못들은이유: "소리없음" });
+  const 마이크끄기 = () => {
+    스트림?.getTracks().forEach((트랙) => 트랙.stop());
   };
-  엔진.onerror = (e) => {
-    const 코드 = e?.error ?? "";
-    한번만({
-      /*
-       * 이유를 갈라 놓는다. 예전에는 모델이 없을 때도 "안됨" 하나로 뭉뚱그려서,
-       * 사용자는 무엇을 하면 되는지 알 수 없었다. 받아 두면 되는 것과 아예 안
-       * 되는 것은 할 일이 다르다.
-       */
-      못들은이유:
-        코드 === "not-allowed" || 코드 === "service-not-allowed" ? "권한없음"
-          : 코드 === "no-speech" ? "소리없음"
-            : 코드 === "language-not-supported" ? "모델없음"
-              : "안됨",
-    });
-  };
-  // 아무 결과 없이 끝나는 경우가 있다(조용히 시간이 다 간 때). 그때도 답한다.
-  엔진.onend = () => 한번만({ 못들은이유: "소리없음" });
 
-  try {
-    엔진.start();
-  } catch {
-    한번만({ 못들은이유: "안됨" });
-  }
+  void (async () => {
+    try {
+      스트림 = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      한번만({ 못들은이유: "권한없음" });
+      return;
+    }
+    // 마이크를 여는 동안 이미 그만두기() 가 불렸다 — 켠 김에 바로 끈다.
+    if (취소됨 || 끝났나) { 마이크끄기(); return; }
+
+    const 형식 = 녹음형식();
+    try {
+      레코더 = 형식 ? new MediaRecorder(스트림, { mimeType: 형식 }) : new MediaRecorder(스트림);
+    } catch {
+      마이크끄기();
+      한번만({ 못들은이유: "안됨" });
+      return;
+    }
+
+    레코더.ondataavailable = (e) => { if (e.data.size > 0) 조각들.push(e.data); };
+    레코더.onerror = () => {
+      마이크끄기();
+      한번만({ 못들은이유: "안됨" });
+    };
+    레코더.onstop = () => {
+      마이크끄기();
+      if (끝났나) return;
+      if (!보낼지) { 한번만({ 못들은이유: "소리없음" }); return; }
+      const 오디오 = new Blob(조각들, { type: 레코더?.mimeType || 형식 || "audio/webm" });
+      if (오디오.size === 0) { 한번만({ 못들은이유: "소리없음" }); return; }
+      void 서버로보내기(오디오, 언어).then(한번만);
+    };
+
+    레코더.start();
+    /*
+     * 안 누르고 계속 말해도 무한정 녹음하지 않는다. 15초면 접근성 설정의
+     * 예/아니오 하나, 주문표 한 축을 답하기에 넉넉하고, Whisper 호출 하나가
+     * 지나치게 길어지는 것도 막는다.
+     */
+    최대시간표 = setTimeout(() => {
+      try { 레코더?.stop(); } catch { /* 이미 끝났다 */ }
+    }, 15000);
+  })();
 
   return {
-    그만두기: () => {
-      try { 엔진.stop(); } catch { /* 이미 끝났다 */ }
+    그만두기: (보내기 = true) => {
+      보낼지 = 보내기;
+      if (레코더 && 레코더.state !== "inactive") {
+        레코더.stop();
+        return;
+      }
+      if (!레코더) {
+        // 마이크 권한이 아직 안 끝났다. 녹음된 것 자체가 없으니 보낼지와
+        // 무관하게 못 들은 것으로 접는다 — 스트림이 도착하면 위에서 바로 끈다.
+        취소됨 = true;
+        한번만({ 못들은이유: "소리없음" });
+      }
     },
   };
 };
