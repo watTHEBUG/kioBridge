@@ -1250,6 +1250,8 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [menuName, setMenuName] = useState("");
   const 이름칸id = useId();
+  // 끝내기를 누르면 여기로 포커스를 옮긴다(아래 onDone). ref 로 잡아 둔다.
+  const 이름칸ref = useRef<HTMLInputElement | null>(null);
   // 저장은 모든 축이 채워져야 열린다 — 터치 화면과 같은 규칙(catalog.tsx 의 못채운축).
   const 빠진것 = 못채운축(place, selections);
   return (
@@ -1276,7 +1278,12 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
               // '음성으로 넣는 사람'(preferredInput: VOICE) 으로 나간다(#106 리뷰).
               if (말로) 입력출처.말로채움();
             }}
-            onDone={() => {}}
+            /*
+             * 마지막 질문의 '끝내기'. 다음 할 일(이름 적기 또는 저장)로 포커스를
+             * 옮긴다 — 빈 함수면 키보드·스크린리더 사용자가 눌러도 아무 일이
+             * 없어서, 끝난 건지 고장 난 건지 알 수 없다(#106 리뷰).
+             */
+            onDone={() => 이름칸ref.current?.focus()}
           />
         ) : (
           // 여기까지 들어왔는데 못 듣는 기기다(문 앞의 단추는 들을수있나 로 가리지만,
@@ -1287,6 +1294,7 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
         <div style={{ marginBottom: 28 }}>
           <SectionLabel text="주문표 이름" 칸id={이름칸id} />
           <input
+            ref={이름칸ref}
             id={이름칸id}
             type="text"
             value={menuName}
@@ -4877,14 +4885,14 @@ export default function App() {
    * **다 지웠다고 말하지 않는다** - 화면이 "서버에 올라간 주문표도 함께
    * 지워요" 라고 약속했으므로, 못 지킨 것은 못 지켰다고 말해야 한다.
    */
-  const 서버주문표모두지우기 = (userId: number, 아는것: string[]): void => {
+  // 끝나는 시점을 돌려준다. '정보 지우기' 가 토큰을 이 뒤에 지워야 해서다(아래 주석).
+  const 서버주문표모두지우기 = (userId: number, 아는것: string[]): Promise<void> =>
     account.listSheets(userId).then(
       (목록) => 서버주문표지우기(userId, [...new Set([...아는것, ...목록.map((p) => p.id)])]),
       // 목록을 못 받았다는 사실을 아래로 넘긴다. 여기서 확인창을 따로 띄우면
       // 삭제가 끝난 뒤 뜨는 창이 그걸 덮어쓴다 - 확인창 자리가 하나뿐이다.
       () => 서버주문표지우기(userId, 아는것, true),
     );
-  };
 
   /**
    * @param 목록못봄 서버 목록을 못 받은 채로 지우는 중인가.
@@ -4896,9 +4904,9 @@ export default function App() {
    * 다시 시도도 갈래가 다르다. 목록을 못 봤으면 목록부터 다시 받아야 한다 -
    * 못 지운 것만 다시 지우면, 처음 조회에서 빠진 서버 주문표는 영영 안 지워진다.
    */
-  const 서버주문표지우기 = (userId: number, ids: string[], 목록못봄 = false): void => {
-    if (ids.length === 0 && !목록못봄) return;
-    void Promise.all(
+  const 서버주문표지우기 = (userId: number, ids: string[], 목록못봄 = false): Promise<void> => {
+    if (ids.length === 0 && !목록못봄) return Promise.resolve();
+    return Promise.all(
       ids.map((id) => account.deleteSheet(userId, id).then(() => null, () => id)),
     ).then((결과) => {
       const 못지운것 = 결과.filter((x): x is string => x !== null);
@@ -5637,18 +5645,19 @@ export default function App() {
                    * 파생 발견). 부르기() 가 토큰을 호출 시점에 읽으므로, 여기서
                    * 먼저 걸어 두면 아래에서 토큰을 지워도 이 요청들은 살아 있다.
                    */
+                  const 서버정리: Promise<unknown>[] = [];
                   if (계정) {
                     // 서버 주문표(팀 #79 의 DELETE). 없는 것을 지워도 204 라, 서버에
                     // 안 올라간 것이 섞여 있어도 문제가 없다. 실패해도 붙잡지 않는다 —
                     // 나가려는 사람에게 오류 화면을 들이밀지 않는다(아래 알림만).
-                    서버주문표모두지우기(계정.userId, sheets.map((p) => p.id));
+                    서버정리.push(서버주문표모두지우기(계정.userId, sheets.map((p) => p.id)));
                     /*
                      * 계정 자체도 지우려 든다. 결과 셋을 가려서 말한다(account.ts) —
                      * '계정 삭제' 라고 이름 붙여 놓고 아이디가 남는 것을 조용히
                      * 넘기면 그 이름이 거짓이 된다. 경로 없음(아직 서버에 기능이
                      * 없음)과 이번 실패(다음에 되는 일)는 하는 말이 달라야 한다.
                      */
-                    void account.deleteAccount(계정.userId).then((결과) => {
+                    서버정리.push(account.deleteAccount(계정.userId).then((결과) => {
                       if (결과 === "지웠음") return;
                       set확인대기(결과 === "경로없음"
                         ? {
@@ -5663,7 +5672,7 @@ export default function App() {
                             confirmLabel: "확인",
                             run: () => {},
                           });
-                    });
+                    }));
                   }
                   // 목 전용 함수가 아니라 계약의 삭제 메서드를 부른다.
                   // 실제 client 로 바꿔도 서버에 남은 것까지 함께 지워진다.
@@ -5674,7 +5683,6 @@ export default function App() {
                   // 가격 한도도 내가 정한 값이다. 남겨 두면 다음 사람이 앞사람의 한도로
                   // 걸러진 목록을 보게 되고, 왜 메뉴가 적게 나오는지 알 수 없다.
                   가격한도.비우기();
-                  접근토큰.비우기();
                   입력출처.비우기();
                   // 동의도 되돌린다. 이 기기를 다음에 쓰는 사람이 앞사람의 동의로
                   // 앱에 들어가면 그건 동의를 받은 것이 아니다.
@@ -5682,6 +5690,15 @@ export default function App() {
                   // 알레르기도 지운다. 남겨 두면 다음 사람이 앞사람의 알레르기로
                   // 걸러진 목록을 보게 되고, 정작 자기 것은 안 걸러진다.
                   알레르기설정.비우기();
+                  /*
+                   * 토큰은 서버 정리가 **끝난 뒤에** 지운다. 주문표 삭제는 목록을
+                   * 받아 온 뒤에야 DELETE 를 보내는 체인이라, 여기서 동기로 지우면
+                   * 그 늦은 요청들이 전부 토큰 없이 나가 401 로 죽는다(#106 리뷰) —
+                   * "서버 주문표도 지워져요" 가 거짓이 된다. 실패 후 '다시 시도' 는
+                   * 이미 토큰이 지워진 뒤라 안 될 수 있다 — 그때는 창이 알려 준
+                   * 개수를 보고 다시 로그인해 목록에서 지우면 된다.
+                   */
+                  void Promise.allSettled(서버정리).then(() => 접근토큰.비우기());
                   서버까지지우기();
                   setSheets([]); setName("");
                   // 계정도 함께 푼다. 안 풀면 주문표를 다 지운 화면에 회원으로 남아
