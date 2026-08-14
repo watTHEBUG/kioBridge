@@ -313,12 +313,28 @@ export function createApi(
        * 의 bindPairing). 승인할 때 서버가 bind 당시 값과 같은지 비교하므로,
        * 매핑에 쓴 것과 같은 값이어야 한다 — 같은 캐시를 쓰는 이유다.
        *
-       * 실패해도 여기서 던지지 않는다. 화면은 이미 추천을 받아 보여 줄 수 있고,
-       * 바인딩이 없으면 승인 시점에 서버가 막는다 — 그 자리에서 QR 을 다시
-       * 찍으라고 말하는 편이, 메뉴를 보기도 전에 오류를 띄우는 것보다 낫다.
+       * 실패하면 여기서 멈춘다.
+       *
+       * 처음에는 삼켰다. "화면은 이미 추천을 받았으니 보여 주고, 막히면 승인
+       * 시점에 말하면 된다" 고 적어 두었는데, 그 자리가 가장 나쁜 자리였다.
+       * 서버의 reserveForExecution 은 고정 안 된 연결을 PAIRING_INPUT_NOT_BOUND
+       * 로 거절하고, 승인이 한 번 실패하면 이 연결은 끝난 것이 된다(연결끝남).
+       * 즉 삼키면 사용자는 추천을 다 읽고 승인까지 누른 뒤에 QR 부터 다시
+       * 찍으라는 말을 듣는다 — 되돌릴 수 없는 자리에서 처음 알게 된다.
+       *
+       * 지금 던지면 연결은 아직 살아 있다. bind 는 실패해도 pairing 을 소모하지
+       * 않고 같은 입력이면 멱등해서(PairingRegistry.bindInput), 다시 시도가
+       * 실제로 통한다. 만료·소실이면 서버가 recoverable=false 로 알려 준다.
        */
       if (backend.bindPairing && profile) {
-        await backend.bindPairing({ pairingId, profileId: profile.id }).catch(() => {});
+        try {
+          await backend.bindPairing({ pairingId, profileId: profile.id });
+        } catch (e) {
+          // 고정 안 된 연결의 추천을 들고 있어 봐야 승인에서 막힌다.
+          // 지워 두면 다시 매핑할 때 bind 부터 새로 한다.
+          세션.delete(pairingId);
+          throw e;
+        }
       }
 
       // 무엇을 왜 뺐는지는 후보 필터와 추천 양쪽에서 온다. 둘 다 사용자에게 보여 준다.
@@ -1671,10 +1687,29 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       // 승인 때 서버가 비교하는 값과 갈라져 그 자리에서 거절당한다.
       const 키 = 마지막키.get(profileId);
       const 정 = 키 ? 정규화됨.get(키) : undefined;
-      if (!정) return;
-      await 보내기<{ bound: boolean }>("/internal/simulation/pairing/bind", {
+      /*
+       * 보낼 값이 없으면 조용히 넘어가지 않는다.
+       *
+       * 예전에는 return 이었다. 그러면 '고정했다' 와 '아무것도 안 했다' 가
+       * 호출부에서 구분되지 않는다 — 성공으로 읽히고, 사용자는 승인 버튼에서야
+       * 막힌다. requestMapping 이 filterCandidates·recommend 를 먼저 거치므로
+       * 정상 흐름에서는 캐시가 반드시 있다. 없다는 건 우리 쪽이 틀렸다는 뜻이다.
+       */
+      if (!정) {
+        throw new KioBridgeError("BIND_FAILED", "주문 조건을 키오스크에 고정하지 못했어요", true);
+      }
+      const r = await 보내기<{ bound: boolean }>("/internal/simulation/pairing/bind", {
         pairingId, profile: 정.profile, sessionContext: 정.sessionContext,
       });
+      /*
+       * 지금 서버는 고정에 성공하면 늘 true 를 주고, 아니면 던진다
+       * (ExecutionPlanController.bindPairing). 그래도 본다 — 계약에 있는 칸이고,
+       * 서버가 나중에 '못 고정했지만 200' 을 쓰기 시작하면 이 검사가 없을 때
+       * 아무도 모르게 승인까지 간다.
+       */
+      if (r?.bound !== true) {
+        throw new KioBridgeError("BIND_FAILED", "주문 조건을 키오스크에 고정하지 못했어요", true);
+      }
     },
 
     /**

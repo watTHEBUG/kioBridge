@@ -210,6 +210,60 @@ describe("상품 ID 를 화면으로 내보내지 않는다", () => {
   });
 });
 
+describe("주문 입력을 pairing 에 고정하지 못하면 승인까지 가지 않는다 (팀 #108)", () => {
+  const 이주문표: OrderSheet = { id: "p1", menuName: "닭강정", place: "음식점", selections: {}, memo: "" };
+  const 차림 = (bindPairing: Backend["bindPairing"]) => {
+    const execute = vi.fn(async () => ({ planId: "pln_1" }));
+    const b = 가짜백엔드({ bindPairing, execute });
+    return { execute, api: createApi(b, "chicken-store", () => 이주문표) };
+  };
+
+  it("고정이 실패하면 매핑이 거기서 멈춘다", async () => {
+    /*
+     * 삼키면 안 되는 이유가 이것이다.
+     *
+     * 고정 안 된 연결은 승인에서 서버가 PAIRING_INPUT_NOT_BOUND 로 막고
+     * (PairingRegistry.reserveForExecution), 승인이 한 번 실패하면 그 연결은
+     * 끝난 것이 된다. 삼키면 사용자는 추천을 다 읽고 승인을 누른 뒤에야
+     * "QR 을 다시 찍으세요" 를 듣는다 — 되돌릴 수 없는 자리에서 처음 안다.
+     *
+     * 여기서 멈추면 연결은 아직 살아 있어서, 다시 시도가 실제로 통한다.
+     */
+    const { api } = 차림(async () => { throw new Error("network"); });
+    await api.claimPairing("kb");
+    await expect(api.requestMapping("s1", "p1")).rejects.toThrow();
+  });
+
+  it("고정에 실패한 연결로는 승인이 나가지 않는다", async () => {
+    const { api, execute } = 차림(async () => { throw new Error("network"); });
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1").catch(() => {});
+    // 매핑 캐시를 지워 두었으므로 승인은 '메뉴를 먼저 찾아야 해요' 에서 막힌다.
+    await expect(
+      api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" }),
+    ).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("고정에 성공하면 평소대로 승인까지 간다", async () => {
+    // 위 두 개가 '항상 막힌다' 로 통과해 버리면 아무것도 지키지 못한다.
+    const { api, execute } = 차림(async () => {});
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    expect(execute).toHaveBeenCalled();
+  });
+
+  it("bindPairing 이 없는 옛 백엔드는 그냥 지나간다", async () => {
+    // 목(mockApi)과 #108 이전 서버에는 이 경로가 없다. 없다고 멈추면 안 된다.
+    const { api, execute } = 차림(undefined);
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    expect(execute).toHaveBeenCalled();
+  });
+});
+
 describe("승인은 제출 → 검증 → 실행 순서를 지킨다", () => {
   it("세 단계가 이 순서로 불린다", async () => {
     const 순서: string[] = [];
@@ -547,6 +601,8 @@ const 경로별응답 = (over: Record<string, unknown> = {}) => (url: string, bo
   if (url.includes("profile-normalizations")) return 정규화응답.주문표;
   if (url.includes("session-context-normalizations")) return 정규화응답.맥락;
   if (url.includes("canonical-inputs/validate")) return 정규화응답.통합;
+  // 서버는 고정에 성공하면 bound: true 를 주고, 아니면 던진다.
+  if (url.includes("pairing/bind")) return { bound: true };
   if (url.includes("candidate-filters")) return { eligibleCandidates: [], excludedCandidates: [] };
   if (url.includes("recommendations")) return 목추천;
   if (body.userDecision) return 실행성공;
@@ -1668,6 +1724,26 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     expect(bind.url).toBe("/api/bff/internal/simulation/pairing/bind");
     expect(bind.body.pairingId).toBe("s1");
     for (const k of ["profile", "sessionContext"]) expect(bind.body).toHaveProperty(k);
+  });
+
+  it("bound 가 true 가 아니면 고정에 실패한 것으로 본다", async () => {
+    /*
+     * 지금 서버는 성공이면 늘 true 를 주고 아니면 던진다
+     * (ExecutionPlanController.bindPairing). 그래도 본다 — 계약에 있는 칸이라,
+     * 서버가 나중에 '못 고정했지만 200' 을 쓰기 시작했을 때 이 검사가 없으면
+     * 아무도 모르게 승인까지 간다.
+     */
+    const { b } = 캡처({ "pairing/bind": { bound: false } });
+    await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    await expect(b.bindPairing!({ pairingId: "s1", profileId: "p1" })).rejects.toThrow();
+  });
+
+  it("보낼 정규화 결과가 없으면 조용히 넘어가지 않는다", async () => {
+    // 예전에는 return 이었다. 그러면 '고정했다' 와 '아무것도 안 했다' 가
+    // 호출부에서 구분되지 않아, 사용자는 승인 버튼에서야 막힌다.
+    const { b, calls } = 캡처();
+    await expect(b.bindPairing!({ pairingId: "s1", profileId: "안한주문표" })).rejects.toThrow();
+    expect(calls.find((c) => c.url.includes("pairing/bind"))).toBeUndefined();
   });
 
   it("세션 응답의 environmentId 를 그대로 올린다", async () => {
