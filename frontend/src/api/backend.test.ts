@@ -210,6 +210,62 @@ describe("상품 ID 를 화면으로 내보내지 않는다", () => {
   });
 });
 
+describe("일회용 연결 (팀 #108)", () => {
+  it("정보 지우기 뒤에는 다 쓴 연결 목록도 남지 않는다", () => {
+    /*
+     * pairingId 는 키오스크를 움직일 수 있는 열쇠다. '모두 지워요' 를 누른 뒤에도
+     * 이 계층이 그 값들을 들고 있으면 화면이 한 말이 사실이 아니게 된다.
+     *
+     * 같은 pairingId 를 다시 받아 승인이 되는지로 본다 — 목의 createSession 은
+     * 늘 "s1" 을 주므로, 안 지워졌으면 두 번째 승인이 CLAIM_EXPIRED 로 막힌다.
+     */
+    const execute = vi.fn(async () => ({ planId: "pln_1" }));
+    const api = createApi(가짜백엔드({ execute }));
+    return (async () => {
+      await api.claimPairing("kb");
+      await api.requestMapping("s1", "p1");
+      await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+
+      await api.forgetAll();
+
+      await api.claimPairing("kb");
+      await api.requestMapping("s1", "p1");
+      await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+      expect(execute).toHaveBeenCalledTimes(2);
+    })();
+  });
+
+  it("승인이 개발자 오류로 터져도 사람 말로 바꿔 올린다", async () => {
+    /*
+     * 화면은 잡은 것을 KioBridgeError 로 보고 e.message 를 그대로 띄운다
+     * (App.tsx 의 approve). 그물을 빠져나온 것이 fetch 의 TypeError 면
+     * "Failed to fetch" 가 어르신 화면에 뜬다.
+     */
+    const api = createApi(가짜백엔드({ submit: async () => { throw new TypeError("Failed to fetch"); } }));
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    const e = await api
+      .approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" })
+      .then(() => null, (err: unknown) => err);
+    expect(e).toBeInstanceOf(KioBridgeError);
+    expect((e as KioBridgeError).message).not.toContain("Failed to fetch");
+    expect((e as KioBridgeError).recoverable).toBe(false);
+  });
+
+  it("한 번 쓴 연결로 다시 승인하면 QR 부터 다시 찍으라고 한다", async () => {
+    // 이 연결은 서버가 이미 소모했다. 되돌려 두면 사용자는 눌러도 안 되는
+    // 버튼을 계속 누른다.
+    const api = createApi(가짜백엔드());
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    const e = await api
+      .approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" })
+      .then(() => null, (err: KioBridgeError) => err);
+    expect(e?.code).toBe("CLAIM_EXPIRED");
+  });
+});
+
 describe("주문 입력을 pairing 에 고정하지 못하면 승인까지 가지 않는다 (팀 #108)", () => {
   const 이주문표: OrderSheet = { id: "p1", menuName: "닭강정", place: "음식점", selections: {}, memo: "" };
   const 차림 = (bindPairing: Backend["bindPairing"]) => {

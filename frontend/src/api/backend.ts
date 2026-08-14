@@ -620,13 +620,32 @@ export function createApi(
          * 지금은 승인 요청이 서버에서 pairing 을 소모하므로 그 재시도가 무조건
          * 거절당한다 — 되돌려 두면 사용자는 눌러도 안 되는 버튼을 계속 누른다.
          *
-         * 이 연결을 끝난 것으로 표시하고 넘긴다. 화면은 recoverable=false 를 보고
-         * '다시 시도' 대신 QR 로 되돌리는 길을 낸다(client.ts 의 오류 처리).
+         * 이 연결을 끝난 것으로 표시하고 넘긴다. 다시 누르면 위의 연결끝남 검사에
+         * 걸려서 "이 연결은 이미 사용했어요. QR 을 다시 찍어 주세요" 가 뜬다.
+         *
+         * (recoverable=false 를 같이 붙이지만, **지금 이 값을 읽는 화면은 없다.**
+         * 처음에 여기 "화면이 recoverable 을 보고 QR 로 되돌린다" 고 적어 두었는데
+         * 사실이 아니었다. 실제로 되돌리는 것은 위의 연결끝남 검사다.)
          */
         연결끝남.add(input.pairingId);
-        throw e instanceof KioBridgeError
-          ? new KioBridgeError(e.code, e.message, false, e.details)
-          : e;
+        if (e instanceof KioBridgeError) {
+          throw new KioBridgeError(e.code, e.message, false, e.details);
+        }
+        /*
+         * KioBridgeError 가 아닌 것은 그대로 올리지 않는다.
+         *
+         * 화면은 잡은 것을 KioBridgeError 로 보고 e.message 를 그대로 띄운다
+         * (App.tsx 의 approve). 그물을 빠져나온 것이 fetch 의 TypeError 면
+         * "Failed to fetch" 가, JSON 오류면 "Unexpected token '<'" 가 어르신
+         * 화면에 뜬다 — 부르기() 에서 이미 한 번 막아 둔 것과 같은 종류다.
+         *
+         * 여기서 사람 말로 바꾼다. 무엇이 터졌는지는 연동 기록에 남아 있다.
+         */
+        throw new KioBridgeError(
+          "APPROVE_FAILED",
+          "주문을 담지 못했어요. QR 을 다시 찍어 주세요",
+          false,
+        );
       }
       // 성공해도 이 연결은 끝난다. 같은 pairingId 로 한 번 더 담을 수 없다.
       연결끝남.add(input.pairingId);
@@ -677,6 +696,18 @@ export function createApi(
       세션.clear();
       만료.clear();
       환경.clear();
+      /*
+       * 다 쓴 연결 목록도 지운다. 이 PR 에서 만들어 놓고 여기 빠뜨렸다.
+       *
+       * pairingId 는 키오스크를 움직일 수 있는 열쇠다. '모두 지워요' 를 누른 뒤에도
+       * 이 계층이 그 값들을 들고 있으면 화면이 한 말이 사실이 아니게 된다 — 바로
+       * 위 세션·기록을 지우는 것과 같은 이유다. 안 지우면 쓸수록 늘기만 한다.
+       *
+       * 지워도 일회용 보장은 안 깨진다. 그건 서버가 한다(PairingRegistry) —
+       * 이 Set 은 서버가 어차피 거절할 요청을 사람 말로 먼저 막는 자리일 뿐이고,
+       * 어차피 세션도 방금 비웠으니 승인은 그 앞에서 걸린다.
+       */
+      연결끝남.clear();
       // 화면이 주문에 쓰라고 등록해 둔 주문표 사본. 여기 남으면 '모두 지워요' 가
       // 사실이 아니다. 목(mockApi)은 이미 지우고 있었고 이 경로만 빠져 있었다.
       clearSheets();
