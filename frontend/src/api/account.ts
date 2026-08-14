@@ -56,6 +56,14 @@ export interface AccountApi {
    * 거기서 오류가 나면 지우는 도중에 멈춘다.
    */
   deleteSheet(userId: number, profileId: string): Promise<void>;
+  /**
+   * 계정을 지운다. 지웠으면 true.
+   *
+   * **false 는 '못 지웠다' 다 — 던지지 않는다.** 서버에 이 경로가 아직 없다
+   * (docs/BACKEND_INTEGRATION.md 요청). 화면은 false 를 받으면 사실대로 말한다 —
+   * '계정 삭제' 라고 해 놓고 아이디가 남는 것을 조용히 넘기지 않는다.
+   */
+  deleteAccount(userId: number): Promise<boolean>;
 }
 
 // ─── 입력 규칙 — 백엔드 제약을 그대로 옮긴다 ──────────────────────────────────
@@ -335,6 +343,16 @@ export const mockAccount: AccountApi = {
     // 없는 것을 지워도 오류로 두지 않는다. 서버가 204 라 목도 같게 둔다.
     서버주문표.get(userId)?.delete(profileId);
   },
+
+  async deleteAccount(userId) {
+    await delay(목지연);
+    // 계정과 그 계정에 딸린 것을 전부 지운다. 같은 아이디로 다시 가입할 수 있어진다.
+    for (const [아이디, 계정] of 계정들) {
+      if (계정.userId === userId) 계정들.delete(아이디);
+    }
+    서버주문표.delete(userId);
+    return true;
+  },
 };
 
 /** 테스트가 목 저장소를 비운다. 앱은 부르지 않는다. */
@@ -550,6 +568,20 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         "DELETE",
         `/api/v1/users/${encodeURIComponent(userId)}/profiles/${encodeURIComponent(profileId)}`,
       );
+    },
+
+    async deleteAccount(userId) {
+      /*
+       * 서버에 아직 없는 경로다(docs/BACKEND_INTEGRATION.md 요청). 실패는
+       * false 로 돌려주고 화면이 사실대로 말한다 — 여기서 던지면 기기 정리까지
+       * 끝난 마당에 오류 화면이 떠서, 나가려는 사람을 붙잡는다.
+       */
+      try {
+        await 부르기<void>("DELETE", `/api/v1/users/${encodeURIComponent(userId)}`);
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }

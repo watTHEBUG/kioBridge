@@ -12,7 +12,7 @@ import type {
   MappingResponse, MappedItem, MappedOption, MappingCandidate, ApproveInput, RecommendationReason,
   PlanStatus, CartResult, AbortInfo, DetailOption,
 } from "@/domain/types";
-import { DETAIL_OPTIONS, PLACE_LIST, PLACE_ICONS, STEPS, 못채운필수축 } from "@/domain/catalog";
+import { DETAIL_OPTIONS, PLACE_ICONS, STEPS, 못채운필수축 } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerSheet, unregisterSheet, type Scenario } from "@/api/client";
 import {
   account, 아이디검사, 비밀번호검사, 못올리는이유, 개인정보같은글,
@@ -1226,6 +1226,100 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   );
 }
 
+/**
+ * 말로만 채우는 주문표 만들기 화면.
+ *
+ * 터치 주문표(OrderSheetScreen)에 음성 카드가 끼어 있던 것을 화면으로 분리했다.
+ * 터치로 만들 사람에게는 음성 카드가 소음이고, 말로 만들 사람에게는 긴 터치
+ * 화면이 소음이다 — 들어오는 문에서 갈라 준다.
+ *
+ * 채우는 값은 터치와 완전히 같다(한칸씩말하기 → selections). 메뉴 이름만
+ * 손으로 적는다 — 자유 발화를 저장하지 않는 규칙은 여기서도 그대로다.
+ */
+function VoiceSheetScreen({ 언어, onNext, onBack }: {
+  언어: string;
+  onNext: (p: OrderSheet) => void;
+  onBack: () => void;
+}) {
+  const place: PlaceType = "음식점";
+  const [selections, setSelections] = useState<Record<string, string[]>>({});
+  const [menuName, setMenuName] = useState("");
+  const 이름칸id = useId();
+  const 빠진필수 = 못채운필수축(place, selections);
+  return (
+    <div className="flex flex-col h-full kb-paper">
+      <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
+        <BackButton onClick={onBack} />
+        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>말로 만드는 주문표</h1>
+        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+          한 칸씩 여쭤볼게요. 말씀하셔도 되고, 보기를 눌러 고르셔도 돼요
+        </p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        {들을수있나() ? (
+          <한칸씩말하기
+            place={place}
+            언어={언어}
+            값={selections}
+            on고르기={(축, 고른것) => {
+              // 고른 값만 넣는다. 들은 말은 저장하지 않는다(한칸씩말하기 주석).
+              setSelections((prev) => ({ ...prev, [축]: 고른것 }));
+              입력출처.말로채움();
+            }}
+            onDone={() => {}}
+          />
+        ) : (
+          // 여기까지 들어왔는데 못 듣는 기기다(문 앞의 단추는 들을수있나 로 가리지만,
+          // 새로고침 복원 등으로 올 수 있다). 막다른 화면을 만들지 않는다.
+          <InfoBox>이 기기에서는 말로 채울 수 없어요. 뒤로 가서 터치로 만들어 주세요.</InfoBox>
+        )}
+
+        <div style={{ marginBottom: 28 }}>
+          <SectionLabel text="주문표 이름" 칸id={이름칸id} />
+          <input
+            id={이름칸id}
+            type="text"
+            value={menuName}
+            onChange={(e) => setMenuName(e.target.value)}
+            maxLength={MENU_NAME_MAX}
+            placeholder="비워 두면 '이름 없는 주문표' 로 저장돼요"
+            style={{
+              width: "100%", ...TYPE.body, color: TEXT_1, fontFamily: FONT,
+              padding: "15px 16px", borderRadius: RADIUS.input,
+              border: "none", outline: "none", backgroundColor: CANVAS, boxSizing: "border-box",
+            }}
+          />
+          {/* 메뉴 이름 검사는 터치 화면과 같다(#101 리뷰). 말로 온 사람이라고 예외가 아니다. */}
+          {개인정보같은글(menuName) && (
+            <p role="alert" style={{ ...TYPE.caption, color: FAIL, marginTop: 8 }}>
+              이름에 전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지워 주시면 저장할 수 있어요.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <StickyFooter>
+        {빠진필수.length > 0 && (
+          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+            {tf("주문하려면 {빠진것}도 고르셔야 해요", { 빠진것: 빠진필수.map(t).join(", ") })}
+          </p>
+        )}
+        <PrimaryBtn
+          onClick={() => onNext({
+            id: newSheetId(),
+            menuName: menuName.trim() || "이름 없는 주문표",
+            place, selections, memo: "",
+          })}
+          disabled={개인정보같은글(menuName)}
+        >
+          저장하고 시작하기
+        </PrimaryBtn>
+      </StickyFooter>
+    </div>
+  );
+}
+
 function SaveChoiceScreen({ 이름, onChoose, onBack }: {
   이름: string;
   onChoose: (남길까: boolean) => void;
@@ -1280,7 +1374,16 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   로그인함?: boolean;
 }) {
   const [menuName, setMenuName] = useState(고칠것?.menuName ?? "");
-  const [place, setPlace] = useState<PlaceType>(고칠것?.place ?? null);
+  /*
+   * 장소는 음식점(닭강정집) 고정이다. 묻지 않는다.
+   *
+   * 이번 시나리오의 키오스크가 닭강정집 하나뿐이라 고를 것이 없는데도 묻고
+   * 있었고, 안 고른 사람은 목록 화면에서 "장소를 아직 안 고르셨어요" 에 막혔다 —
+   * 답이 하나뿐인 질문으로 주문을 막은 셈이다. 저장된 옛 주문표(병원 등)를
+   * 고칠 때만 그 장소를 그대로 둔다. 장소 고르기가 돌아와야 하면 git 에서
+   * handlePlaceChange(장소별선택 되돌리기 포함)를 되살리면 된다.
+   */
+  const place: PlaceType = 고칠것?.place ?? "음식점";
   // 고른 값을 그대로 물려받되 **새 객체로** 담는다. 저장된 주문표의 selections 를
   // 그대로 쥐고 고치면, 저장을 안 누르고 나가도 목록의 주문표가 이미 바뀌어 있다.
   const [selections, setSelections] = useState<Record<string, string[]>>(
@@ -1331,20 +1434,6 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
     });
   };
 
-  // 장소를 바꾼다고 고른 것을 버리지 않는다. 예전에는 setSelections({}) 라
-  // 손이 미끄러져 장소를 잘못 누르면 채워 둔 답이 경고도 없이 전부 사라졌다.
-  // 장소마다 따로 기억해 두면, 잘못 눌러도 도로 누르면 그대로 돌아온다.
-  // 확인 창을 띄우지 않아도 되돌릴 수 있으니 되묻는 것보다 조용하고 안전하다.
-  const 장소별선택 = useRef<Record<string, Record<string, string[]>>>({});
-  const handlePlaceChange = (p: PlaceType) => {
-    // 다시 누르면 해제한다. 아래 칩들은 재탭으로 풀리는데 장소만 안 풀리면
-    // 같은 화면 안에서 상호작용 규칙이 두 개가 된다. 라벨도 '선택'이다.
-    if (p === place) { if (place) 장소별선택.current[place] = selections; setSelections({}); setPlace(null); return; }
-    if (place) 장소별선택.current[place] = selections;
-    setSelections(p ? (장소별선택.current[p] ?? {}) : {});
-    setPlace(p);
-  };
-
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -1366,37 +1455,10 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
 
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
         {/*
-          말로 채우는 길. 손으로 고르는 길은 아래에 그대로 있다 — 이건 대신하는
-          길이 아니라 더해 주는 길이다. 마이크가 안 되는 기기에서는 안 보인다.
+          음성 카드는 뺐다. 말로 만드는 길은 별도 화면(VoiceSheetScreen)으로 갈랐다 —
+          터치로 만들 사람에게 음성 카드는 소음이었다. 들은 말을 저장하지 않는 규칙과
+          그 사연(#39 리뷰)은 그 화면과 한칸씩말하기 주석에 있다.
         */}
-        {/*
-          한 칸씩 묻는다. 예전에는 한 번에 다 말하게 했는데, 무엇을 말해야 하는지
-          모르는 채로 마이크가 켜지면 대부분 아무 말도 못 했다.
-        */}
-        <한칸씩말하기
-          place={place}
-          언어={영어인가 ? "en-US" : "ko-KR"}
-          값={selections}
-          on고르기={(축, 고른것) => {
-            /*
-             * **고른 값만 넣는다. 들은 말은 어디에도 저장하지 않는다.**
-             *
-             * 예전에는 메뉴 이름 칸을 들은 말로 채웠다. 자유 발화라 "저 김순자인데요
-             * 매운 닭강정 주세요" 같은 말이 그대로 주문표에 저장되고, 로그인한
-             * 사람은 서버까지 올라갔다. 이름·전화번호는 받지도 저장하지도 않는다는
-             * 규칙을 정면으로 어기는 자리였다(#39 리뷰).
-             *
-             * 지금은 메뉴 이름에도 메모와 같은 개인정보 검사가 걸려 있다(#101 리뷰).
-             * 그래도 채우지 않는다 — 검사는 모양이 있는 것만 막고 사람 이름은 못
-             * 가려낸다. 우리가 넣지 않는 것이 첫째 방어다. 한 칸씩 묻는 지금도
-             * 같다 — 목록에 있는 값만 들어간다.
-             */
-            setSelections((prev) => ({ ...prev, [축]: 고른것 }));
-            입력출처.말로채움();
-          }}
-          onDone={() => {}}
-        />
-
         <div style={{ marginBottom: 28 }}>
           <SectionLabel text="메뉴 이름" required 칸id={이름칸id} />
           <input
@@ -1426,33 +1488,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
           )}
         </div>
 
-        <div style={{ marginBottom: 28 }}>
-          <SectionLabel text="장소 유형" />
-          <div className="grid grid-cols-2 gap-2.5" role="group" aria-label="장소 유형 선택">
-            {PLACE_LIST.map(({ label, icon }) => (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={place === label}
-                onClick={() => handlePlaceChange(label)}
-                style={{
-                  minHeight: 56,
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "14px 16px", borderRadius: RADIUS.input, cursor: "pointer",
-                  fontSize: 16, fontWeight: 500, fontFamily: FONT, letterSpacing: "-0.01em",
-                  border: "none",
-                  backgroundColor: place === label ? RULE : CANVAS,
-                  color: place === label ? PAPER : TEXT_CHIP,
-                  transition: "background-color 0.15s",
-                }}
-              >
-                <span aria-hidden="true" style={{ color: place === label ? PAPER : TEXT_1, display: "flex" }}>{icon}</span>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
+        {/* 장소 고르기는 뺐다 — 위의 place 주석. 답이 하나뿐인 질문은 묻지 않는다. */}
         {options.length > 0 && (
           <div style={{ marginBottom: 28 }}>
             <SectionLabel text="세부 옵션" />
@@ -1875,10 +1911,12 @@ const 숫자만읽기 = (글: string): number | null => {
 };
 
 function SavedSheetsScreen({
-  sheets, onAddSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
+  sheets, onAddSheet, onAddVoiceSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
 }: {
   sheets: OrderSheet[];
   onAddSheet: () => void;
+  /** 말로 만드는 길. 못 듣는 기기에서는 단추를 안 내민다. */
+  onAddVoiceSheet: () => void;
   onDeleteSheet: (id: string) => void;
   onEditSheet: (sheet: OrderSheet) => void;
   onOrder: (sheet: OrderSheet) => void;
@@ -2022,6 +2060,10 @@ function SavedSheetsScreen({
         <OutlineBtn onClick={onAddSheet}>
           + 새 주문표 추가
         </OutlineBtn>
+        {/* 말로 만드는 길. 터치 화면에 음성 카드를 끼우지 않고 문에서 가른다. */}
+        {들을수있나() && (
+          <OutlineBtn onClick={onAddVoiceSheet}>말로 주문표 만들기</OutlineBtn>
+        )}
       </StickyFooter>
     </div>
   );
@@ -2547,13 +2589,18 @@ function AccountScreen({
         { label: "저장된 주문표 관리", sub: "이번 이용에만 쓰는 메뉴 주문표예요", action: onSheets, danger: false },
         { label: "접근성 설정", sub: "큰 글씨", action: onA11y, danger: false },
         { label: "개인정보 안내", sub: "무엇을 저장하고 무엇을 저장하지 않는지", action: onPrivacy, danger: false },
-        { label: "이 기기에서 정보 지우기", sub: "지금까지 입력한 내용을 모두 지워요", action: onClearLocal, danger: true },
+        /*
+         * 게스트에게는 '프로필 삭제' 다. 지워지는 것이 이 기기에 적어 둔 프로필
+         * (주문표·호칭·도움 설정·알레르기)뿐이라서다. 로그인 쪽의 '계정 삭제' 와
+         * 이름을 갈라 두면 무엇이 지워지는지 이름만 보고도 다르다는 것을 안다.
+         */
+        { label: "프로필 삭제", sub: "이 기기에 입력한 내용을 모두 지우고 처음으로 돌아가요", action: onClearLocal, danger: true },
       ]
     : [
         { label: "저장된 주문표 관리", sub: "내 메뉴 주문표를 확인하고 수정해요", action: onSheets, danger: false },
         { label: "접근성 설정", sub: "큰 글씨", action: onA11y, danger: false },
         { label: "개인정보 안내", sub: "무엇을 저장하고 무엇을 저장하지 않는지", action: onPrivacy, danger: false },
-        { label: "이 기기에서 정보 지우기", sub: "저장해 둔 내용을 모두 지워요", action: onClearLocal, danger: true },
+        { label: "계정 삭제", sub: "계정과 저장해 둔 내용을 모두 지우고 처음으로 돌아가요", action: onClearLocal, danger: true },
         { label: "로그아웃", sub: "", action: onLogout, danger: true },
       ];
   return (
@@ -2723,26 +2770,15 @@ const 바로바꾸는것: 도움항목[] = [
   { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
 ];
 /*
- * 켜도 이 앱 화면은 그대로고 키오스크로 전해지기만 하던 자리.
+ * '키오스크에 전해 드려요' 무리는 통째로 뺐다.
  *
- * 지금은 비어 있다. '그림 안내'(visualGuidance) 와 '소리 대신 화면'(hearingSupport)
- * 을 뺐다 — 켜도 아무 일이 안 일어나는 스위치가 화면에 있으면 사용자는 켜 놓고
- * 무언가 달라지기를 기다린다.
- *
- * **받는 쪽이 없어서가 아니라, 이번 환경이 안 쓰기 때문이다.** 킷의
- * simulation-driver 는 두 값을 uiState.accessibilityMode 로 그대로 받는다. 다만
- * chicken-store 환경 데이터(candidates·option-groups·screens·transitions)에는 이
- * 두 값을 보는 곳이 없어서 결과가 달라지지 않는다(킷 5.1.6 확인).
- *
- * **hospital 은 다르다.** environments/hospital/candidates.json 의 supports 에
- * hearingSupport 를 가진 후보가 있다. 병원 환경까지 내보내게 되면 이 목록에
- * 다시 넣어야 한다 — 안 넣으면 그 후보 특성을 살릴 수 없다.
- *
- * 계약의 일곱 칸은 그대로 나간다(canonical.ts 의 일곱칸만). 안 묻는 칸은 false 다.
- * 계약에 '안 물어봤다' 를 적을 값이 없어서(데이터 사전의 UNKNOWN ✖) false 뿐이다.
- * 목록만 비우고 틀은 남겨 둔다 — 다시 물을 값이 생기면 여기에 넣으면 된다.
+ * '그림 안내'(visualGuidance) 와 '소리 대신 화면'(hearingSupport) 만 남아
+ * 있었는데, 켜도 이번 환경(chicken-store)에서는 결과가 달라지지 않는다 —
+ * 빈 무리 위에 제목과 "전해 주기만 해요" 안내만 남아, 읽는 사람에게 빈 약속이
+ * 됐다. 계약의 일곱 칸은 그대로 나가고 안 묻는 칸은 false 다. 어느 환경이 이
+ * 값을 실제로 쓰는지는 session.ts 의 이제안묻는칸 주석에 적어 두었다 —
+ * 병원 환경까지 내보내게 되면 그 주석을 보고 여기 무리를 되살리면 된다.
  */
-const 전해드릴것: 도움항목[] = [];
 
 /** 이 브라우저에서 실제로 되는 항목만 남긴다. */
 const 쓸수있는것 = (항목들: 도움항목[]): 도움항목[] => 항목들.filter((r) => !r.될때만 || r.될때만());
@@ -2891,12 +2927,11 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
 
         <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>이 앱이 바로 바꿔요</h2>
         <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
-
-        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24 }}>키오스크에 전해 드려요</h2>
-        <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
-          앱 화면은 그대로예요. 지금은 전해 주기만 해요.
-        </p>
-        <도움목록 항목들={쓸수있는것(전해드릴것)} 설정={설정} onChange={onChange} />
+        {/*
+          '키오스크에 전해 드려요' 제목은 뺐다. 그 무리(전해드릴것)가 비면서 제목과
+          "지금은 전해 주기만 해요" 안내만 남아 있었다 — 아래에 스위치가 하나도 없는
+          제목은 읽는 사람에게 빈 약속이다. 항목이 다시 생기면 제목도 같이 돌아온다.
+        */}
         <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
         {/*
@@ -2954,25 +2989,9 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
         <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
 
         {/*
-          이 한 줄은 문단이 아니라 제목의 일부다. 스위치와 제목 사이에 본문이
-          끼면 다시 '글 중간에 스위치' 가 된다. 그렇다고 지울 수는 없다 -
-          이 둘은 켜도 앱 화면이 안 바뀌는데, 그 말을 안 하면 화면이 거짓이 된다.
-          (ProfileMapper 는 값을 옮기기만 하고 RecommendationEngineService 는
-          profile 을 읽지 않는다. 지금은 정말로 전해 주기만 한다.)
+          '키오스크에 전해 드려요' 제목과 안내는 뺐다(위 설정 화면과 같은 이유).
+          빈 무리 위에 제목만 남아 있었다. 항목이 다시 생기면 같이 돌아온다.
         */}
-        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24 }}>키오스크에 전해 드려요</h2>
-        {/*
-          TEXT_3 를 쓸 뻔했다. 제목보다 낮춰 보이려고 골랐는데 tokens.ts 에
-          "글자 금지" 라고 적어 둔 값이다 - 흰 배경에서 1.74:1 이라 읽으라고
-          둔 문장이 사실상 안 보인다. 하필 접근성 화면에서 그럴 뻔했다.
-
-          낮춰 보이는 것은 색이 아니라 자리와 크기로 만든다. 색은 본문용
-          TEXT_2(흰 배경 5.30:1)를 쓴다.
-        */}
-        <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
-          앱 화면은 그대로예요. 지금은 전해 주기만 해요.
-        </p>
-        <도움목록 항목들={쓸수있는것(전해드릴것)} 설정={설정} onChange={onChange} />
         <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
         {/*
@@ -5525,10 +5544,18 @@ export default function App() {
               onPaired={(id, exp, kiosk) => { setPairingId(id); setPairingExpiresAt(exp); setPairingKiosk(kiosk); setQrExpired(false); setFromQr(true); setTab("menu"); }}
             />
           )}
+          {screen === "voice-sheet" && (
+            <VoiceSheetScreen
+              언어={접근성값.language === "en-US" ? "en-US" : "ko-KR"}
+              onNext={주문표저장}
+              onBack={() => setScreen("saved")}
+            />
+          )}
           {inMain && tab === "menu" && (
             <SavedSheetsScreen
               sheets={sheets}
               onAddSheet={() => { set고칠주문표(null); setScreen("sheet"); }}
+              onAddVoiceSheet={() => { set고칠주문표(null); setScreen("voice-sheet"); }}
               onDeleteSheet={deleteSheet}
               onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
@@ -5564,12 +5591,12 @@ export default function App() {
               onLogin={() => setScreen("login")}
               // 저장된 정보를 지우는 길. 주문표까지 함께 비운다.
               onClearLocal={() => set확인대기({
-                title: "이 기기에서 정보를 지울까요?",
+                title: 계정 ? "계정을 삭제할까요?" : "프로필을 삭제할까요?",
                 body: 계정
                   // 서버 주문표까지 지운다(팀 #79). 주문 기록은 여전히 남으므로
                   // 뭉뚱그리지 않는다. 못 지운 것이 있으면 지운 뒤에 알린다.
-                  ? "이 기기에 있는 주문표와 호칭이 사라지고 로그아웃돼요. 서버에 저장해 둔 주문표도 함께 지워져요. 다만 키오스크에 보낸 주문 기록은 남아요."
-                  : "저장한 주문표와 호칭이 모두 사라져요. 되돌릴 수 없어요.",
+                  ? "계정과 서버에 저장해 둔 주문표, 이 기기의 정보가 모두 지워지고 처음 화면으로 돌아가요. 다만 키오스크에 보낸 주문 기록은 남아요."
+                  : "저장한 주문표와 호칭이 모두 사라지고 처음 화면으로 돌아가요. 되돌릴 수 없어요.",
                 confirmLabel: "모두 지우기",
                 run: () => {
                   // 목 전용 함수가 아니라 계약의 삭제 메서드를 부른다.
@@ -5602,7 +5629,24 @@ export default function App() {
                    * 그 뒤에 오류 화면을 띄우면 나가려는 사람을 붙잡는 셈이다.
                    * 이 기기에서 지우는 것은 아래에서 이미 끝난다.
                    */
-                  if (계정) 서버주문표모두지우기(계정.userId, sheets.map((p) => p.id));
+                  if (계정) {
+                    서버주문표모두지우기(계정.userId, sheets.map((p) => p.id));
+                    /*
+                     * 계정 자체도 지우려 든다. 경로가 아직 서버에 없으면 false 가
+                     * 돌아오는데, 그때는 사실대로 말한다 — '계정 삭제' 라고 이름
+                     * 붙여 놓고 아이디가 남는 것을 조용히 넘기면 그 이름이 거짓이
+                     * 된다(docs/BACKEND_INTEGRATION.md 에 경로 요청을 적어 두었다).
+                     */
+                    void account.deleteAccount(계정.userId).then((지워짐) => {
+                      if (지워짐) return;
+                      set확인대기({
+                        title: "서버의 계정까지는 지우지 못했어요",
+                        body: "이 기기의 정보와 서버 주문표는 지워졌고 로그아웃도 됐어요. 계정을 지우는 길이 아직 서버에 없어서 아이디는 남아 있어요.",
+                        confirmLabel: "확인",
+                        run: () => {},
+                      });
+                    });
+                  }
                   setSheets([]); setName("");
                   // 계정도 함께 푼다. 안 풀면 주문표를 다 지운 화면에 회원으로 남아
                   // '저장된 주문표 관리' 가 빈 목록을 회원 것처럼 보여 준다.
@@ -5618,6 +5662,11 @@ export default function App() {
                   // 새로고침 너머로 넘기려고 적어 둔 것까지 지운다. 이걸 빼면
                   // "모두 지워요" 라고 말한 뒤 새로고침 한 번에 전부 되돌아온다.
                   이어쓰기.비우기();
+                  // 처음 화면으로 돌아간다. 동의도 방금 풀었으니 다음 사람은
+                  // 첫 화면에서 다시 동의부터 시작한다 — 지운 화면에 남아 있으면
+                  // '다 지웠다' 면서 개인 화면(계정 탭)에 서 있는 셈이다.
+                  setTab("menu");
+                  setScreen("welcome");
                 },
               })}
               // 연결이 살아 있으면 주문 경로를 끊지 않는다. 하단 탭과 같은 판단이다.

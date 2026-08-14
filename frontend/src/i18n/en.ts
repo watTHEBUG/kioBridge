@@ -65,6 +65,48 @@ export const EN: Record<string, string> = {
    * 한 줄로 조립한다(i18n/reason.ts). 메뉴 이름은 안 옮긴다 — 가게가 붙인
    * 이름이라 옮기면 사용자가 키오스크 화면에서 그 이름을 못 찾는다.
    */
+  /*
+   * ── 백엔드 실측 문장 (RecommendationEngineService 상수를 그대로 옮김) ──────
+   *
+   * 마침표까지 문장이 곧 키다. 아래 옛 항목들("~와 맞는 메뉴라" 꼴)은 추측으로
+   * 적어 둔 것이라 실제 응답과 안 맞았고, 영어 화면에 우리말이 그대로 남았다.
+   * 목이 아직 그 문장을 쓰므로 지우지 않고 실측 문장을 나란히 둔다.
+   * 서버에서 문구를 고치면 여기도 같이 고쳐야 한다.
+   */
+  "조건에 맞는 메뉴를 찾지 못해 추천드릴 항목이 없습니다.":
+    "We could not find a menu that fits your conditions.",
+  "선호하신 이용 방식과 일치하는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the service type you chose.",
+  "선호하신 맵기와 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the spice level you chose.",
+  "선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the bone type you chose.",
+  "선호하신 컵 옵션과 일치하는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the cup you chose.",
+  "남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.":
+    "Recommended — closest to your conditions among what's left.",
+  "일부 정보의 확신도가 낮아 다시 확인이 필요합니다.":
+    "Some of your info needs another look — confidence is low.",
+  "지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.":
+    "It's a busy hour, so takeout menus you can grab without waiting come first.",
+  "선호하신 이용 방식과 다릅니다.": "Differs from the service type you chose.",
+  "선호하신 맵기와 다릅니다.": "Differs from the spice level you chose.",
+  "선호하신 뼈/순살과 다릅니다.": "Differs from the bone type you chose.",
+  "선호하신 컵 옵션과 다릅니다.": "Differs from the cup you chose.",
+  /*
+   * 킷 fixture 의 후보 이름 여덟. 메뉴 이름은 원래 안 옮겼는데(키오스크 화면과
+   * 같아야 찾는다), 영어 화면에 우리말이 하나도 없어야 한다는 쪽으로 정했다.
+   * 아는 이름만 옮기고 모르는 이름(사용자가 적은 것)은 data-원문이 지킨다.
+   */
+  "매운 순살 닭강정": "Spicy boneless dakgangjeong",
+  "순한 순살 닭강정": "Mild boneless dakgangjeong",
+  "매운 뼈 닭강정": "Spicy bone-in dakgangjeong",
+  "간장 순살 닭강정": "Soy-glazed boneless dakgangjeong",
+  "땅콩 토핑 닭강정": "Peanut-topped dakgangjeong",
+  "포장 전용 닭강정": "Takeout-only dakgangjeong",
+  "매장 전용 닭강정": "Dine-in-only dakgangjeong",
+  "품절 닭강정": "Sold-out dakgangjeong",
+
   "선호하신 맵기와 맞는 메뉴라": "Matches the spice level you chose",
   "선호하신 뼈/순살과 다릅니다": "Differs from the bone type you chose",
   "선호하신 이용 방식과 맞는 메뉴라": "Matches the service type you chose",
@@ -241,6 +283,33 @@ export const EN: Record<string, string> = {
   // 직접 적는 칸이다. 단위(원 / KRW)는 표가 아니라 코드에서 언어를 보고 붙인다.
   "예: 8000": "e.g. 8000",
   "비워 두면 한도 없이 찾아요": "Leave it blank to search without a limit",
+  // ─── 말로 만드는 주문표 ───────────────────────────────────────────────────
+  "말로 주문표 만들기": "Make an order card by voice",
+  "말로 만드는 주문표": "Order card by voice",
+  "한 칸씩 여쭤볼게요. 말씀하셔도 되고, 보기를 눌러 고르셔도 돼요":
+    "We'll ask one thing at a time. Speak, or tap a choice.",
+  "주문표 이름": "Card name",
+  "비워 두면 '이름 없는 주문표' 로 저장돼요": "Leave it blank to save as “Untitled order card”",
+  "이름에 전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지워 주시면 저장할 수 있어요.":
+    "The name looks like it contains a phone number, ID number, or address. Remove it to save.",
+  "이 기기에서는 말로 채울 수 없어요. 뒤로 가서 터치로 만들어 주세요.":
+    "This device cannot fill by voice. Go back and make it by touch.",
+
+  // ─── 계정·프로필 삭제 ─────────────────────────────────────────────────────
+  "프로필 삭제": "Delete profile",
+  "계정 삭제": "Delete account",
+  "이 기기에 입력한 내용을 모두 지우고 처음으로 돌아가요": "Erase everything on this device and start over",
+  "계정과 저장해 둔 내용을 모두 지우고 처음으로 돌아가요": "Delete the account and everything saved, and start over",
+  "계정을 삭제할까요?": "Delete this account?",
+  "프로필을 삭제할까요?": "Delete this profile?",
+  "계정과 서버에 저장해 둔 주문표, 이 기기의 정보가 모두 지워지고 처음 화면으로 돌아가요. 다만 키오스크에 보낸 주문 기록은 남아요.":
+    "Your account, saved order cards on the server, and everything on this device will be erased, then you'll return to the start. Order records already sent to the kiosk remain.",
+  "저장한 주문표와 호칭이 모두 사라지고 처음 화면으로 돌아가요. 되돌릴 수 없어요.":
+    "Your saved order cards and nickname will be erased, then you'll return to the start. This cannot be undone.",
+  "서버의 계정까지는 지우지 못했어요": "We could not delete the account on the server",
+  "이 기기의 정보와 서버 주문표는 지워졌고 로그아웃도 됐어요. 계정을 지우는 길이 아직 서버에 없어서 아이디는 남아 있어요.":
+    "Everything on this device and your server order cards were erased, and you were signed out. The server cannot delete accounts yet, so the ID itself remains.",
+
   // 키오스크가 반드시 골라야 하는 축이 빈 주문표. 축 이름은 따로 옮겨진다(t).
   "아직 안 고르신 것이 있어요 — {빠진것}. 주문표를 열어 고르시면 주문할 수 있어요.":
     "Some choices are still missing — {빠진것}. Open the card and pick them to order.",
