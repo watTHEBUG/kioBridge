@@ -311,6 +311,61 @@ describe("메뉴를 못 찾은 이유마다 다음에 할 일이 다르다", () 
   });
 });
 
+describe("상관없음은 제약 없음으로 다룬다", () => {
+  // CodeRabbit 회귀: 목이 "상관없음" 문자열을 실제 선택값과 그대로 비교하면,
+  // 전용 메뉴가 절대조건에서 부당하게 빠지고(절대조건으로거르기), 어떤 후보도
+  // "상관없음"과 같은 맵기·형태 값을 가질 수 없어 전부 어긋난 것으로 잡힌다
+  // (안맞는축 → 확인표 matched=false, 점수순에도 영향). 네 축 모두 확인한다.
+  const 전부상관없음 = 주문표({
+    "이용 방식": ["상관없음"], "맵기": ["상관없음"], "형태": ["상관없음"],
+    "컵": ["상관없음"], "수량": ["1개"],
+  });
+
+  it("전용 메뉴를 절대조건에서 빼지 않는다", () => {
+    // 정말 안 고른 경우엔(이용 방식 자체가 없음) 지금도 전용 메뉴를 보수적으로 뺀다 —
+    // 이건 "상관없음"을 명시적으로 밝힌 경우만 다르게 다루는지를 본다.
+    const r = buildMapping("exact", 전부상관없음);
+    const 문구 = 이유문구(r).join("\n");
+    expect(문구).not.toContain("포장 전용 닭강정");
+    expect(문구).not.toContain("매장 전용 닭강정");
+  });
+
+  it("어떤 후보도 상관없음 때문에 어긋났다고 표시하지 않는다", () => {
+    const r = buildMapping("clarification", 전부상관없음);
+    for (const c of r.candidates ?? []) {
+      expect(c.unmatchedLabels).not.toContain("맵기");
+      expect(c.unmatchedLabels).not.toContain("형태");
+    }
+  });
+
+  it("확인표에는 고른 대로 상관없음이 보이되, 어긋났다고 표시하지 않는다", () => {
+    // 실제로 무엇을 골랐는지는 사실대로 보여 준다 — 값만 숨기지 않을 뿐,
+    // 그 값을 이유로 matched=false 를 붙이지는 않는다.
+    const r = buildMapping("exact", 전부상관없음);
+    const 표 = Object.fromEntries((r.item?.options ?? []).map((o) => [o.label, o]));
+    for (const label of ["이용 방식", "맵기", "형태", "컵"]) {
+      expect(표[label]?.value).toBe("상관없음");
+      expect(표[label]?.matched).toBe(true);
+    }
+  });
+
+  it("이유 문장에 상관없음이라는 말 자체가 나가지 않는다", () => {
+    // 제약값() 없이 그대로 쓰면 "상관없음을 고르셔서 상관없음이 되는 메뉴만
+    // 남겼어요" 같은 말이 되지 않는 문장이 나간다.
+    const r = buildMapping("exact", 전부상관없음);
+    expect(이유문구(r).join("\n")).not.toContain("상관없음");
+  });
+
+  it("나머지가 상관없음이어도 실제로 고른 축(형태)은 그대로 반영된다", () => {
+    const 형태만정함 = 주문표({
+      "이용 방식": ["상관없음"], "맵기": ["상관없음"], "형태": ["뼈"],
+      "컵": ["상관없음"], "수량": ["1개"],
+    });
+    const r = buildMapping("exact", 형태만정함);
+    expect(r.item?.displayName).toBe("매운 뼈 닭강정");
+  });
+});
+
 describe("결제 경계", () => {
   it("종료 상태는 장바구니까지이고 결제 관련 문구를 만들지 않는다", () => {
     expect(MOCK_CART.handoff).toContain("장바구니");
