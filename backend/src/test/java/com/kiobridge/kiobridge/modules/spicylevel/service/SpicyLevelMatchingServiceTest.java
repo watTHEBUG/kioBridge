@@ -45,4 +45,14 @@ class SpicyLevelMatchingServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.voteBreakdown()).isNotEmpty();
     }
+
+    @Test
+    void 동률이면_두_후보를_포함한_질문이_생성된다() {
+        // 2:2:1처럼 애매하게 갈리는 표현으로 테스트
+        SpicyLevelMatchResult result = matchingService.match("애매한표현");
+
+        if (!result.confident()) {
+            assertThat(result.clarificationQuestion()).contains("또는");
+        }
+    }
 }

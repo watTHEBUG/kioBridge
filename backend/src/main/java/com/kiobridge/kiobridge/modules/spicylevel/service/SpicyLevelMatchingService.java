@@ -31,25 +31,37 @@ public class SpicyLevelMatchingService {
         Map<String, Long> counts = nearest.stream()
             .collect(Collectors.groupingBy(level -> level, Collectors.counting()));
 
-        Map.Entry<String, Long> top = counts.entrySet().stream()
-            .max(Map.Entry.comparingByValue())
+        long maxVotes = counts.values().stream()
+            .max(Long::compare)
             .orElseThrow(() -> new IllegalStateException("anchor 데이터가 없습니다."));
 
-        if (top.getValue() >= CONFIDENCE_THRESHOLD) {
-            return new SpicyLevelMatchResult(top.getKey(), true, counts, null);
+        List<String> topLabels = counts.entrySet().stream()
+            .filter(e -> e.getValue() == maxVotes)
+            .map(Map.Entry::getKey)
+            .sorted()
+            .toList();
+
+        if (topLabels.size() == 1 && maxVotes >= CONFIDENCE_THRESHOLD) {
+            return new SpicyLevelMatchResult(topLabels.get(0), true, counts, null);
         }
 
-        String question = buildClarificationQuestion(text, top.getKey());
+        String question = buildClarificationQuestion(text, topLabels);
         return new SpicyLevelMatchResult(null, false, counts, question);
     }
 
-    private String buildClarificationQuestion(String text, String bestGuess) {
-        String labelKorean = switch (bestGuess) {
+    private String buildClarificationQuestion(String text, List<String> candidates) {
+        String labels = candidates.stream()
+            .map(this::toKorean)
+            .collect(Collectors.joining(" 또는 "));
+        return "\"" + text + "\"은(는) " + labels + "인가요?";
+    }
+
+    private String toKorean(String level) {
+        return switch (level) {
             case "HOT" -> "매운맛";
             case "MEDIUM" -> "중간맛";
             case "MILD" -> "순한맛";
-            default -> bestGuess;
+            default -> level;
         };
-        return "\"" + text + "\"은(는) " + labelKorean + "인가요?";
     }
 }

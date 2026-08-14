@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 
 public interface SpicyLevelAnchorRepository extends JpaRepository<SpicyLevelAnchor, Long> {
 
@@ -39,4 +40,8 @@ public interface SpicyLevelAnchorRepository extends JpaRepository<SpicyLevelAnch
         LIMIT :k
         """, nativeQuery = true)
     List<String> findNearestSpicyLevels(@Param("embedding") String embedding, @Param("k") int k);
+
+    /** 이미 저장된 anchor의 expression 목록을 조회한다 (Seeder에서 재임베딩 방지용) */
+    @Query(value = "SELECT expression FROM spicy_level_anchors", nativeQuery = true)
+    Set<String> findAllExpressions();
 }
