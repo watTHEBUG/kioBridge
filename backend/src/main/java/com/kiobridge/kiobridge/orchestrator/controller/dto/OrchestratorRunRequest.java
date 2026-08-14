@@ -13,11 +13,11 @@ import java.util.Objects;
  * 최초 바인딩된 profile/sessionContext와 일치할 때만 실제 sessionId로 치환한다.
  */
 public record OrchestratorRunRequest(
-    String pairingId,
-    CanonicalProfile profile,
-    ChickenStoreSessionContext sessionContext,
-    Recommendation recommendation,
-    UserDecision userDecision
+    String pairingId,                          // 실제 RC5 sessionId를 조회할 일회용 연결 ID
+    CanonicalProfile profile,                  // bind 당시 값과 비교할 정규화 프로필
+    ChickenStoreSessionContext sessionContext, // bind 당시 값과 비교할 정규화 주문 조건
+    Recommendation recommendation,            // 실행계획으로 변환할 최종 추천 결과
+    UserDecision userDecision                  // 사용자의 승인·거절·수정 결정
 ) {
     public OrchestratorRunRequest {
         Objects.requireNonNull(pairingId, "pairingId는 null일 수 없습니다.");

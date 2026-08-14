@@ -28,11 +28,11 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class PairingRegistry {
 
-    static final Duration TTL = Duration.ofMinutes(5);
+    static final Duration TTL = Duration.ofMinutes(5); // pairingId를 사용할 수 있는 최대 시간
 
-    private final ConcurrentHashMap<String, Binding> pairings = new ConcurrentHashMap<>();
-    private final SecureRandom secureRandom;
-    private final Clock clock;
+    private final ConcurrentHashMap<String, Binding> pairings = new ConcurrentHashMap<>(); // pairingId별 연결 상태
+    private final SecureRandom secureRandom; // 추측하기 어려운 256비트 pairingId 생성기
+    private final Clock clock;               // 만료 시각 계산 및 테스트 시간 제어용 시계
 
     public PairingRegistry() {
         this(Clock.systemUTC(), new SecureRandom());
@@ -48,8 +48,8 @@ public class PairingRegistry {
         requireText(environmentId, "environmentId");
         removeExpired();
 
-        String pairingId;
-        Binding binding;
+        String pairingId; // 브라우저에 전달할 새 일회용 연결 ID
+        Binding binding;  // pairingId에 연결할 RC5 세션 및 입력 상태
         do {
             pairingId = newPairingId();
             binding = new Binding(
@@ -81,8 +81,8 @@ public class PairingRegistry {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(sessionContext, "sessionContext");
 
-        pairings.compute(pairingId, (ignored, current) -> {
-            Binding binding = requireUsable(current);
+        pairings.compute(pairingId, (ignoredPairingId, current) -> { // current는 현재 저장된 연결 상태
+            Binding binding = requireUsable(current); // 존재 및 만료 검사를 통과한 연결
             if (binding.status() == Status.EXECUTING) {
                 throw conflict("PAIRING_ALREADY_EXECUTING", "이미 처리 중인 연결입니다.");
             }
@@ -108,10 +108,10 @@ public class PairingRegistry {
         requireText(pairingId, "pairingId");
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(sessionContext, "sessionContext");
-        AtomicReference<Reservation> reservation = new AtomicReference<>();
+        AtomicReference<Reservation> reservation = new AtomicReference<>(); // compute 밖으로 꺼낼 실행 권한
 
-        pairings.compute(pairingId, (ignored, current) -> {
-            Binding binding = requireUsable(current);
+        pairings.compute(pairingId, (ignoredPairingId, current) -> { // current는 실행 예약 전 연결 상태
+            Binding binding = requireUsable(current); // 존재 및 만료 검사를 통과한 연결
             if (binding.profileSnapshot() == null || binding.contextSnapshot() == null) {
                 throw conflict("PAIRING_INPUT_NOT_BOUND", "연결에 사용할 주문표가 아직 지정되지 않았습니다.");
             }
@@ -149,12 +149,12 @@ public class PairingRegistry {
     }
 
     private void removeExpired() {
-        Instant now = clock.instant();
+        Instant now = clock.instant(); // 만료된 pairing을 판별할 현재 시각
         pairings.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
     }
 
     private String newPairingId() {
-        byte[] bytes = new byte[32];
+        byte[] bytes = new byte[32]; // SecureRandom으로 채울 256비트 난수 버퍼
         secureRandom.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
@@ -174,19 +174,19 @@ public class PairingRegistry {
     }
 
     private enum Status {
-        WAITING_FOR_INPUT,
-        ACTIVE,
-        EXECUTING
+        WAITING_FOR_INPUT, // pairing은 생성됐지만 프로필·주문 조건이 아직 고정되지 않음
+        ACTIVE,            // 입력 고정이 끝나 승인 요청을 받을 수 있음
+        EXECUTING          // 한 승인 요청이 실행 권한을 선점해 처리 중임
     }
 
     private record Binding(
-        String rc5SessionId,
-        String environmentId,
-        String initialState,
-        CanonicalProfile profileSnapshot,
-        ChickenStoreSessionContext contextSnapshot,
-        Instant expiresAt,
-        Status status
+        String rc5SessionId,                         // 서버 내부에서만 사용하는 실제 RC5 세션 ID
+        String environmentId,                        // RC5 세션이 속한 시뮬레이션 환경 ID
+        String initialState,                         // RC5 환경의 시작 상태
+        CanonicalProfile profileSnapshot,            // 최초 bind 시 고정한 사용자 프로필
+        ChickenStoreSessionContext contextSnapshot,  // 최초 bind 시 고정한 주문 조건
+        Instant expiresAt,                           // 이 연결을 사용할 수 있는 마지막 시각
+        Status status                                // 입력 대기·활성·실행 중 상태
     ) {
         private Binding withInput(CanonicalProfile profile, ChickenStoreSessionContext context) {
             return new Binding(
@@ -194,7 +194,7 @@ public class PairingRegistry {
             );
         }
 
-        private Binding withStatus(Status nextStatus) {
+        private Binding withStatus(Status nextStatus) { // 원자적으로 전환할 다음 연결 상태
             return new Binding(
                 rc5SessionId,
                 environmentId,
@@ -208,11 +208,14 @@ public class PairingRegistry {
     }
 
     public record CreatedPairing(
-        String pairingId,
-        String environmentId,
-        String initialState,
-        long expiresAt
+        String pairingId,     // 브라우저에 반환할 일회용 연결 ID
+        String environmentId, // 연결된 RC5 환경 ID
+        String initialState,  // RC5 환경의 시작 상태
+        long expiresAt        // pairing 만료 시각(Unix epoch milliseconds)
     ) {}
 
-    public record Reservation(String rc5SessionId, String environmentId) {}
+    public record Reservation(
+        String rc5SessionId, // 검증 완료 후 내부 실행에만 사용할 실제 RC5 세션 ID
+        String environmentId // 실행 대상 RC5 환경 ID
+    ) {}
 }

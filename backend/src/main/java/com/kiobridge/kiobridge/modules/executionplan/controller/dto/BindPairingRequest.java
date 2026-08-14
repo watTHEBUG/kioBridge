@@ -8,9 +8,9 @@ import java.util.Objects;
 
 /** 최초 매핑에 사용한 정규화 입력을 pairing에 고정한다. */
 public record BindPairingRequest(
-    String pairingId,
-    CanonicalProfile profile,
-    ChickenStoreSessionContext sessionContext
+    String pairingId,                          // 주문 입력을 고정할 일회용 연결 ID
+    CanonicalProfile profile,                  // 최초 연결 시점의 정규화 사용자 프로필
+    ChickenStoreSessionContext sessionContext  // 최초 연결 시점의 정규화 주문 조건
 ) {
     public BindPairingRequest {
         if (pairingId == null || pairingId.isBlank()) {

@@ -3,7 +3,10 @@ package com.kiobridge.kiobridge.modules.executionplan.controller.dto;
 import com.kiobridge.kiobridge.common.web.ApiException;
 
 /** POST /internal/simulation/session 요청. */
-public record CreateSessionRequest(String environmentId, String claimCode) {
+public record CreateSessionRequest(
+    String environmentId, // 연결할 RC5 시뮬레이션 환경 ID
+    String claimCode      // QR에서 읽은 연결 코드(RC5에서는 존재 여부만 확인)
+) {
     public CreateSessionRequest {
         if (environmentId == null || environmentId.isBlank()) {
             // Kit ERROR_CATALOG.md 1.계약·형식: 필수 필드 없음

@@ -21,8 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/internal")
 public class ExecutionPlanController {
 
-    private final ExecutionPlanService executionPlanService;
-    private final PairingRegistry pairingRegistry;
+    private final ExecutionPlanService executionPlanService; // RC5 세션 생성과 실행계획 처리를 담당하는 서비스
+    private final PairingRegistry pairingRegistry;           // pairingId와 실제 RC5 세션의 연결 상태 저장소
 
     public ExecutionPlanController(
         ExecutionPlanService executionPlanService,
@@ -35,8 +35,8 @@ public class ExecutionPlanController {
     /** POST /internal/simulation/session — Simulation API 세션 생성. */
     @PostMapping("/simulation/session")
     public CreateSessionResponse createSession(@RequestBody CreateSessionRequest request) {
-        SessionCreateResponse session = executionPlanService.createSession(request.environmentId());
-        PairingRegistry.CreatedPairing pairing = pairingRegistry.register(
+        SessionCreateResponse session = executionPlanService.createSession(request.environmentId()); // RC5 원본 세션
+        PairingRegistry.CreatedPairing pairing = pairingRegistry.register( // 브라우저에 반환할 비공개화된 연결
             session.sessionId(), session.environmentId(), session.initialState()
         );
         return new CreateSessionResponse(
