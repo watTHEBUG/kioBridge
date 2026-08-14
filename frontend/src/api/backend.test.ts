@@ -210,6 +210,144 @@ describe("상품 ID 를 화면으로 내보내지 않는다", () => {
   });
 });
 
+describe("일회용 연결 (팀 #108)", () => {
+  it("정보 지우기 뒤에는 다 쓴 연결 목록도 남지 않는다", () => {
+    /*
+     * pairingId 는 키오스크를 움직일 수 있는 열쇠다. '모두 지워요' 를 누른 뒤에도
+     * 이 계층이 그 값들을 들고 있으면 화면이 한 말이 사실이 아니게 된다.
+     *
+     * 같은 pairingId 를 다시 받아 승인이 되는지로 본다 — 목의 createSession 은
+     * 늘 "s1" 을 주므로, 안 지워졌으면 두 번째 승인이 CLAIM_EXPIRED 로 막힌다.
+     */
+    const execute = vi.fn(async () => ({ planId: "pln_1" }));
+    const api = createApi(가짜백엔드({ execute }));
+    return (async () => {
+      await api.claimPairing("kb");
+      await api.requestMapping("s1", "p1");
+      await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+
+      await api.forgetAll();
+
+      await api.claimPairing("kb");
+      await api.requestMapping("s1", "p1");
+      await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+      expect(execute).toHaveBeenCalledTimes(2);
+    })();
+  });
+
+  it("승인이 개발자 오류로 터져도 사람 말로 바꿔 올린다", async () => {
+    /*
+     * 화면은 잡은 것을 KioBridgeError 로 보고 e.message 를 그대로 띄운다
+     * (App.tsx 의 approve). 그물을 빠져나온 것이 fetch 의 TypeError 면
+     * "Failed to fetch" 가 어르신 화면에 뜬다.
+     */
+    const api = createApi(가짜백엔드({ submit: async () => { throw new TypeError("Failed to fetch"); } }));
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    const e = await api
+      .approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" })
+      .then(() => null, (err: unknown) => err);
+    expect(e).toBeInstanceOf(KioBridgeError);
+    expect((e as KioBridgeError).message).not.toContain("Failed to fetch");
+    expect((e as KioBridgeError).recoverable).toBe(false);
+  });
+
+  it("한 번 쓴 연결로 다시 승인하면 QR 부터 다시 찍으라고 한다", async () => {
+    // 이 연결은 서버가 이미 소모했다. 되돌려 두면 사용자는 눌러도 안 되는
+    // 버튼을 계속 누른다.
+    const api = createApi(가짜백엔드());
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    const e = await api
+      .approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" })
+      .then(() => null, (err: KioBridgeError) => err);
+    expect(e?.code).toBe("CLAIM_EXPIRED");
+  });
+});
+
+describe("주문 입력을 pairing 에 고정하지 못하면 승인까지 가지 않는다 (팀 #108)", () => {
+  const 이주문표: OrderSheet = { id: "p1", menuName: "닭강정", place: "음식점", selections: {}, memo: "" };
+  const 차림 = (bindPairing: Backend["bindPairing"]) => {
+    const execute = vi.fn(async () => ({ planId: "pln_1" }));
+    const b = 가짜백엔드({ bindPairing, execute });
+    return { execute, api: createApi(b, "chicken-store", () => 이주문표) };
+  };
+
+  it("고정이 실패하면 매핑이 거기서 멈춘다", async () => {
+    /*
+     * 삼키면 안 되는 이유가 이것이다.
+     *
+     * 고정 안 된 연결은 승인에서 서버가 PAIRING_INPUT_NOT_BOUND 로 막고
+     * (PairingRegistry.reserveForExecution), 승인이 한 번 실패하면 그 연결은
+     * 끝난 것이 된다. 삼키면 사용자는 추천을 다 읽고 승인을 누른 뒤에야
+     * "QR 을 다시 찍으세요" 를 듣는다 — 되돌릴 수 없는 자리에서 처음 안다.
+     *
+     * 여기서 멈추면 연결은 아직 살아 있어서, 다시 시도가 실제로 통한다.
+     */
+    const { api } = 차림(async () => { throw new Error("network"); });
+    await api.claimPairing("kb");
+    await expect(api.requestMapping("s1", "p1")).rejects.toThrow();
+  });
+
+  it("고정에 실패한 연결로는 승인이 나가지 않는다", async () => {
+    const { api, execute } = 차림(async () => { throw new Error("network"); });
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1").catch(() => {});
+    // 매핑 캐시를 지워 두었으므로 승인은 '메뉴를 먼저 찾아야 해요' 에서 막힌다.
+    await expect(
+      api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" }),
+    ).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("고정에 성공하면 평소대로 승인까지 간다", async () => {
+    // 위 두 개가 '항상 막힌다' 로 통과해 버리면 아무것도 지키지 못한다.
+    const { api, execute } = 차림(async () => {});
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    expect(execute).toHaveBeenCalled();
+  });
+
+  it("화면이 주문표를 안 들고 있어도 고정은 시도한다", async () => {
+    /*
+     * getSheet 이 없는 것은 **서버가 주문표를 id 로 찾아 주는** 구현이라는 뜻이다
+     * (createApi 의 getSheet 주석: 그렇게 되면 이 인자는 빼면 된다). 그 구현은
+     * 화면이 주문표를 안 들고 있어도 pairing 을 고정할 수 있다.
+     *
+     * 여기서 건너뛰면 그 백엔드는 매핑을 다 해 놓고 고정만 안 된 채로 승인에
+     * 들어간다. 무엇이 필요한지는 각 bindPairing 이 스스로 보고, 못 하면 던진다.
+     */
+    const bindPairing = vi.fn(async () => {});
+    const api = createApi(가짜백엔드({ bindPairing }));
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    // 열쇠는 sheetId 다. 바로 위 filterCandidates·recommend 가 쓰는 값과 같다.
+    expect(bindPairing).toHaveBeenCalledWith({ pairingId: "s1", profileId: "p1" });
+  });
+
+  it("주문표를 안 들고 있을 때도 고정에 실패하면 매핑이 멈춘다", async () => {
+    const execute = vi.fn(async () => ({ planId: "pln_1" }));
+    const api = createApi(가짜백엔드({ execute, bindPairing: async () => { throw new Error("network"); } }));
+    await api.claimPairing("kb");
+    await expect(api.requestMapping("s1", "p1")).rejects.toThrow();
+    await expect(
+      api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" }),
+    ).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("bindPairing 이 없는 옛 백엔드는 그냥 지나간다", async () => {
+    // 목(mockApi)과 #108 이전 서버에는 이 경로가 없다. 없다고 멈추면 안 된다.
+    const { api, execute } = 차림(undefined);
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    expect(execute).toHaveBeenCalled();
+  });
+});
+
 describe("승인은 제출 → 검증 → 실행 순서를 지킨다", () => {
   it("세 단계가 이 순서로 불린다", async () => {
     const 순서: string[] = [];
@@ -547,6 +685,8 @@ const 경로별응답 = (over: Record<string, unknown> = {}) => (url: string, bo
   if (url.includes("profile-normalizations")) return 정규화응답.주문표;
   if (url.includes("session-context-normalizations")) return 정규화응답.맥락;
   if (url.includes("canonical-inputs/validate")) return 정규화응답.통합;
+  // 서버는 고정에 성공하면 bound: true 를 주고, 아니면 던진다.
+  if (url.includes("pairing/bind")) return { bound: true };
   if (url.includes("candidate-filters")) return { eligibleCandidates: [], excludedCandidates: [] };
   if (url.includes("recommendations")) return 목추천;
   if (body.userDecision) return 실행성공;
@@ -1297,7 +1437,7 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
   });
 
   it("QR 로 읽은 claimCode 를 세션 요청에 함께 보낸다", async () => {
-    const b = 붙이기({ "simulation/session": { sessionId: "sess_1", initialState: "IDLE", submissionEndpoint: "/x" } });
+    const b = 붙이기({ "simulation/session": { pairingId: "pair_1", initialState: "IDLE", expiresAt: Date.now() + 300000 } });
     await b.createSession({ environmentId: "chicken-store", claimCode: "kb_demo" });
     const [, init] = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
     expect(JSON.parse(String(init.body))).toEqual({ environmentId: "chicken-store", claimCode: "kb_demo" });
@@ -1476,7 +1616,8 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     const 거절 = calls.find((c) => c.url.includes("orchestrator/approve"))!;
     expect(거절.body.userDecision).toMatchObject({ approved: false, decision: "REJECT" });
     // 승인과 같은 재료를 보낸다. 서버가 무엇을 보고 거절했는지 알아야 한다.
-    for (const k of ["sessionId", "profile", "sessionContext", "recommendation"]) {
+    // 열쇠는 pairingId 다 — 실제 sessionId 는 브라우저에 없다(팀 #108).
+    for (const k of ["pairingId", "profile", "sessionContext", "recommendation"]) {
       expect(거절.body).toHaveProperty(k);
     }
   });
@@ -1607,13 +1748,15 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
 
     const 승인 = calls[1];
     expect(승인.url).toBe("/api/bff/internal/orchestrator/approve");
-    expect(승인.body.sessionId).toBe("s1");
+    // 실제 RC5 sessionId 가 아니라 단명 pairingId 를 보낸다(팀 #108).
+    expect(승인.body.pairingId).toBe("s1");
+    expect(승인.body).not.toHaveProperty("sessionId");
     // 문서가 요구한 다섯 조각이 다 있어야 서버가 제출물을 조립할 수 있다.
-    for (const k of ["sessionId", "profile", "sessionContext", "recommendation", "userDecision"]) {
+    for (const k of ["pairingId", "profile", "sessionContext", "recommendation", "userDecision"]) {
       expect(승인.body).toHaveProperty(k);
     }
     expect(승인.body.userDecision).toMatchObject({ approved: true, decision: "APPROVE" });
-    // environmentId 는 보내지 않는다. 서버가 sessionId 로 다시 조회한다.
+    // environmentId 는 보내지 않는다. 서버가 pairingId 로 다시 조회한다.
     expect(승인.body).not.toHaveProperty("environmentId");
   });
 
@@ -1641,8 +1784,54 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     ).rejects.toThrow();
   });
 
+  it("세션 응답의 pairingId·expiresAt 을 그대로 쓴다", async () => {
+    /*
+     * 실제 RC5 sessionId 는 서버 밖으로 안 나온다(팀 #108). 브라우저는 단명
+     * pairingId 만 받는다 — 이 값 하나로 남의 주문을 실행할 수 있던 구멍이
+     * 여기서 닫힌다(P0-2). 만료도 서버가 준 값을 그대로 쓴다: 예전에는
+     * 클라이언트 시계로 5분을 가정해서 서버가 먼저 끝내면 앱이 몰랐다.
+     */
+    const 만료 = Date.now() + 123456;
+    const { b } = 캡처({ "simulation/session": { pairingId: "pair_9", initialState: "X", expiresAt: 만료 } });
+    const s = await b.createSession({ environmentId: "chicken-store", claimCode: "kb" });
+    expect(s.sessionId).toBe("pair_9");
+    expect(s.expiresAt).toBe(만료);
+  });
+
+  it("매핑이 끝나면 주문 입력을 pairing 에 고정한다", async () => {
+    // 승인 때 서버가 bind 당시 값과 같은지 비교한다. 매핑에 쓴 정규화 결과를
+    // 그대로 보내야 하고, 다르면 그 자리에서 거절당한다(팀 #108).
+    const { b, calls } = 캡처();
+    await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    await b.bindPairing!({ pairingId: "s1", profileId: "p1" });
+    const bind = calls.find((c) => c.url.includes("pairing/bind"))!;
+    expect(bind.url).toBe("/api/bff/internal/simulation/pairing/bind");
+    expect(bind.body.pairingId).toBe("s1");
+    for (const k of ["profile", "sessionContext"]) expect(bind.body).toHaveProperty(k);
+  });
+
+  it("bound 가 true 가 아니면 고정에 실패한 것으로 본다", async () => {
+    /*
+     * 지금 서버는 성공이면 늘 true 를 주고 아니면 던진다
+     * (ExecutionPlanController.bindPairing). 그래도 본다 — 계약에 있는 칸이라,
+     * 서버가 나중에 '못 고정했지만 200' 을 쓰기 시작했을 때 이 검사가 없으면
+     * 아무도 모르게 승인까지 간다.
+     */
+    const { b } = 캡처({ "pairing/bind": { bound: false } });
+    await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    await expect(b.bindPairing!({ pairingId: "s1", profileId: "p1" })).rejects.toThrow();
+  });
+
+  it("보낼 정규화 결과가 없으면 조용히 넘어가지 않는다", async () => {
+    // 예전에는 return 이었다. 그러면 '고정했다' 와 '아무것도 안 했다' 가
+    // 호출부에서 구분되지 않아, 사용자는 승인 버튼에서야 막힌다.
+    const { b, calls } = 캡처();
+    await expect(b.bindPairing!({ pairingId: "s1", profileId: "안한주문표" })).rejects.toThrow();
+    expect(calls.find((c) => c.url.includes("pairing/bind"))).toBeUndefined();
+  });
+
   it("세션 응답의 environmentId 를 그대로 올린다", async () => {
-    const { b } = 캡처({ "simulation/session": { sessionId: "s1", environmentId: "hospital", initialState: "X", submissionEndpoint: "/y" } });
+    const { b } = 캡처({ "simulation/session": { pairingId: "pair_1", environmentId: "hospital", initialState: "X", expiresAt: Date.now() + 300000 } });
     const s = await b.createSession({ environmentId: "chicken-store", claimCode: "kb" });
     // 화면이 보낸 값이 아니라 서버가 정한 값이 이긴다.
     expect(s.environmentId).toBe("hospital");
