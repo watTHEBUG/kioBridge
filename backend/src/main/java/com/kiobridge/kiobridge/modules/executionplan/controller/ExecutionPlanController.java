@@ -1,14 +1,12 @@
 package com.kiobridge.kiobridge.modules.executionplan.controller;
 
-import com.kiobridge.kiobridge.contracts.client.dto.ExecuteResult;
 import com.kiobridge.kiobridge.contracts.client.dto.SessionCreateResponse;
-import com.kiobridge.kiobridge.modules.executionplan.controller.dto.BuildExecutionPlanRequest;
-import com.kiobridge.kiobridge.modules.executionplan.controller.dto.BuildExecutionPlanResponse;
+import com.kiobridge.kiobridge.modules.executionplan.controller.dto.BindPairingRequest;
+import com.kiobridge.kiobridge.modules.executionplan.controller.dto.BindPairingResponse;
 import com.kiobridge.kiobridge.modules.executionplan.controller.dto.CreateSessionRequest;
 import com.kiobridge.kiobridge.modules.executionplan.controller.dto.CreateSessionResponse;
-import com.kiobridge.kiobridge.modules.executionplan.controller.dto.SubmitAndRunRequest;
-import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanResult;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanService;
+import com.kiobridge.kiobridge.modules.pairing.service.PairingRegistry;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,32 +22,33 @@ import org.springframework.web.bind.annotation.RestController;
 public class ExecutionPlanController {
 
     private final ExecutionPlanService executionPlanService;
+    private final PairingRegistry pairingRegistry;
 
-    public ExecutionPlanController(ExecutionPlanService executionPlanService) {
+    public ExecutionPlanController(
+        ExecutionPlanService executionPlanService,
+        PairingRegistry pairingRegistry
+    ) {
         this.executionPlanService = executionPlanService;
-    }
-
-    /** POST /internal/plan/build — STEP 9 실행계획 생성. */
-    @PostMapping("/plan/build")
-    public BuildExecutionPlanResponse buildPlan(@RequestBody BuildExecutionPlanRequest request) {
-        ExecutionPlanResult result = executionPlanService.buildExecutionPlan(
-            request.sessionId(), request.recommendation(), request.userDecision(), request.sessionContext()
-        );
-        return new BuildExecutionPlanResponse(result.executionPlan());
+        this.pairingRegistry = pairingRegistry;
     }
 
     /** POST /internal/simulation/session — Simulation API 세션 생성. */
     @PostMapping("/simulation/session")
     public CreateSessionResponse createSession(@RequestBody CreateSessionRequest request) {
         SessionCreateResponse session = executionPlanService.createSession(request.environmentId());
+        PairingRegistry.CreatedPairing pairing = pairingRegistry.register(
+            session.sessionId(), session.environmentId(), session.initialState()
+        );
         return new CreateSessionResponse(
-            session.sessionId(), session.environmentId(), session.initialState(), session.submissionEndpoint()
+            pairing.pairingId(), pairing.environmentId(), pairing.initialState(), pairing.expiresAt()
         );
     }
 
-    /** POST /internal/simulation/submit-and-run — 제출 -> 검증 -> (통과 시) 실행. */
-    @PostMapping("/simulation/submit-and-run")
-    public ExecuteResult submitAndRun(@RequestBody SubmitAndRunRequest request) {
-        return executionPlanService.submitAndRun(request.sessionId(), request.submission());
+    /** POST /internal/simulation/pairing/bind — 최초 정규화 입력을 이 연결에 고정. */
+    @PostMapping("/simulation/pairing/bind")
+    public BindPairingResponse bindPairing(@RequestBody BindPairingRequest request) {
+        pairingRegistry.bindInput(request.pairingId(), request.profile(), request.sessionContext());
+        return new BindPairingResponse(true);
     }
+
 }

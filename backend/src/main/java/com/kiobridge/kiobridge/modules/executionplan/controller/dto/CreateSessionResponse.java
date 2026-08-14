@@ -2,15 +2,12 @@ package com.kiobridge.kiobridge.modules.executionplan.controller.dto;
 
 /**
  * POST /internal/simulation/session 응답.
- * Simulation API 원본 응답(contracts.client.dto.SessionCreateResponse) 중
- * 프론트가 다음 단계(제출)를 진행하는 데 필요한 필드만 추린 것.
- *
- * environmentId를 여기서 돌려주지 않으면 프론트가 이후 단계(예: submit-and-run의
- * ParticipantSubmission.environmentId)에서 값을 다시 하드코딩해야 한다 — 그대로 echo한다.
+ * 실제 RC5 sessionId와 sessionId가 포함된 submissionEndpoint는 서버 밖으로 내보내지 않는다.
+ * 브라우저에는 단명 pairingId만 주고 승인 시 서버가 실제 sessionId로 치환한다.
  */
 public record CreateSessionResponse(
-    String sessionId,
+    String pairingId,
     String environmentId,
     String initialState,
-    String submissionEndpoint
+    long expiresAt
 ) {}
