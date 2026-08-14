@@ -5,11 +5,14 @@ import com.kiobridge.kiobridge.modules.member.repository.AppUserRepository;
 import com.kiobridge.kiobridge.modules.member.repository.UserProfileRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,8 +36,9 @@ class UserAccountServiceTest {
 
         service.delete(1L);
 
-        verify(userProfileRepository).deleteAllByUser_Id(1L);
-        verify(appUserRepository).delete(user);
+        InOrder inOrder = inOrder(userProfileRepository, appUserRepository);
+        inOrder.verify(userProfileRepository).deleteAllByUser_Id(1L);
+        inOrder.verify(appUserRepository).delete(user);
     }
 
     @Test
@@ -47,6 +51,6 @@ class UserAccountServiceTest {
         service.delete(1L);
 
         verify(userProfileRepository, never()).deleteAllByUser_Id(1L);
-        verify(appUserRepository, never()).deleteById(1L);
+        verify(appUserRepository, never()).delete(any(AppUser.class));
     }
 }
