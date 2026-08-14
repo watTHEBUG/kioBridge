@@ -231,6 +231,35 @@ describe("손댄 값을 믿지 않는다", () => {
     expect(저장소.getItem("kb.session.v3")).toBeNull();
   });
 
+  it("이번 방문 자리만 깨져도 주문표는 지킨다", () => {
+    /*
+     * 저장소가 하나일 때는 한쪽이 깨지면 다 버려도 됐다. 나누고 나서는
+     * **이 변경이 지키려던 주문표를 잃는 길**이 된다 — 판 번호를 올리거나
+     * 누가 개발자 도구로 한 줄 건드리면, 사용자가 지운 적도 없이 사라진다.
+     */
+    오래저장소.setItem(오래열쇠, JSON.stringify({ sheets: [주문표("a")], fromServer: [] }));
+    저장소.setItem(이번열쇠, "{이건 JSON 이 아니다");
+
+    const v = 이어쓰기.읽기()!;
+    expect(v.sheets.map((p) => p.id)).toEqual(["a"]);
+    // 깨진 자리는 지운다. 안 지우면 새로고침마다 같은 데서 또 걸린다.
+    expect(저장소.getItem(이번열쇠)).toBeNull();
+    // 멀쩡한 자리는 안 건드린다.
+    expect(오래저장소.getItem(오래열쇠)).not.toBeNull();
+  });
+
+  it("주문표 자리만 깨지면 나머지는 이어 쓴다", () => {
+    // 반대 방향도 같다. 주문표를 잃더라도 이름·도움 설정까지 날릴 이유는 없다.
+    저장소.setItem(이번열쇠, JSON.stringify(채운값({ sheets: [], fromServer: [] })));
+    오래저장소.setItem(오래열쇠, "{이것도 JSON 이 아니다");
+
+    const v = 이어쓰기.읽기()!;
+    expect(v.name).toBe("예나");
+    expect(v.sheets).toEqual([]);
+    expect(오래저장소.getItem(오래열쇠)).toBeNull();
+    expect(저장소.getItem(이번열쇠)).not.toBeNull();
+  });
+
   it("주문표 한 장이라도 모양이 다르면 통째로 버린다", () => {
     // 반쯤 살린 상태가 가장 나쁘다 — 로그인은 돼 있는데 주문표만 비어 있는
     // 화면을 사용자는 설명할 수 없다.
