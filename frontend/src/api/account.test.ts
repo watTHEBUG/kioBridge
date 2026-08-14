@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { 접근토큰 } from "./token";
 import {
   clearAccountMock, createTeamAccount, mockAccount, setAccountMockDelay,
   아이디검사, 비밀번호검사, 못올리는이유,
@@ -126,6 +127,24 @@ describe("못올리는이유 — 서버가 받아 주지 않을 주문표를 미
     }
   });
 
+  it("메뉴 이름에도 같은 검사가 걸린다", () => {
+    /*
+     * 자유롭게 적는 칸이 메모와 메뉴 이름 둘이고, 저장되는 길은 같다(이 기기 +
+     * 로그인했으면 서버). 메모만 막으면 막힌 칸을 피해 다른 칸에 적는 것을
+     * 못 막는다(#101 리뷰).
+     */
+    for (const menuName of ["010-1234-5678", "900101-1234567", "역삼로 12길 5"]) {
+      expect(못올리는이유(주문표({ menuName }))).not.toBeNull();
+    }
+  });
+
+  it("메뉴 이름다운 이름은 막지 않는다", () => {
+    // 숫자가 들어간다고 막으면 안 된다. 수량과 가격은 메뉴 이름에 흔하다.
+    for (const menuName of ["아이스 아메리카노 2개", "닭강정 1인분", "3000원짜리 세트"]) {
+      expect(못올리는이유(주문표({ menuName }))).toBeNull();
+    }
+  });
+
   it("주문에 필요한 말은 막지 않는다", () => {
     // 너무 넓게 잡으면 정상적인 메모가 막힌다. 장소를 가리키는 말은 주문에
     // 필요한 정보다 — 사는 곳이 아니다. 번지·호수까지 있어야 주소로 본다.
@@ -148,6 +167,24 @@ describe("못올리는이유 — 서버가 받아 주지 않을 주문표를 미
      * 메모는 거기서 예외다. 문서도 그렇게 적었다.
      */
     expect(못올리는이유(주문표({ memo: "김할머니 앞으로 해주세요" }))).toBeNull();
+  });
+
+  it("메뉴 이름도 실명·환자번호는 못 거른다 — 같은 한계다", () => {
+    /*
+     * 자유 입력 칸이 둘이 되면서 한계도 둘이 됐다. 메뉴 이름에도 같은 모양 검사를
+     * 걸었지만(#101 리뷰), 모양이 없는 값은 여기서도 그대로 통과한다.
+     *
+     * **통과하는 것이 맞다.** 이 자리는 그 사실을 코드에 못박아 두는 곳이다 —
+     * 검사를 하나 더 걸었다고 "이제 개인정보가 안 들어간다" 고 말하면 그게 거짓이
+     * 된다. 환자번호는 자리수도 형식도 기관마다 달라서 정규식으로 잡을 수 없고,
+     * 잡으려 들면 "3000원짜리 세트" 같은 멀쩡한 메뉴 이름이 막힌다.
+     *
+     * 실제로 막는 것은 두 가지다 — 모양이 있는 값(전화번호·주민번호·주소)을
+     * 걸러 내는 것과, 애초에 이름을 묻는 칸을 두지 않는 것. 메뉴 이름은 메뉴를
+     * 묻는 칸이지 사람을 묻는 칸이 아니다.
+     */
+    expect(못올리는이유(주문표({ menuName: "김순자" }))).toBeNull();
+    expect(못올리는이유(주문표({ menuName: "환자번호 12345678" }))).toBeNull();
   });
 
   it(`주문표 id 는 ${PROFILE_ID_MAX}자까지 올라간다`, () => {
@@ -541,5 +578,104 @@ describe("주문표 삭제 (팀 #79)", () => {
     await mockAccount.deleteSheet(갑.userId, 주문표().id);
     expect(await mockAccount.listSheets(갑.userId)).toHaveLength(0);
     expect(await mockAccount.listSheets(을.userId)).toHaveLength(1);
+  });
+});
+
+describe("팀 백엔드 — 실제 로그인 계약(accessToken)", () => {
+  /*
+   * 이 묶음이 지키는 것 — **테스트가 예전 계약을 붙들고 있지 않게.**
+   *
+   * 위쪽 테스트들은 서버가 `{userId, loginId}` 만 준다고 가정하고 씁니다. 실제
+   * 백엔드는 `accessToken` 을 함께 주고, 주문표 경로는 그 토큰을 요구합니다.
+   * 예전 모양으로만 확인하면 CI 는 초록인데 실제 연동은 깨집니다(팀원 지적).
+   */
+  afterEach(() => 접근토큰.비우기());
+
+  it("로그인 응답의 accessToken 을 붙들어 둔다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "eyJ.abc.def" })) as unknown as typeof fetch;
+
+    const a = await createTeamAccount().login("할머니1", "1234");
+
+    expect(접근토큰.읽기()).toBe("eyJ.abc.def");
+    // 화면으로는 계정만 간다. 토큰은 session.ts 가 sessionStorage 에 적는 값에
+    // 섞이면 안 된다(token.ts).
+    expect(a).toEqual({ userId: 7, loginId: "할머니1" });
+    expect(a).not.toHaveProperty("accessToken");
+  });
+
+  it("가입 응답의 accessToken 도 붙든다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t1" }, 201)) as unknown as typeof fetch;
+    await createTeamAccount().signup("할머니1", "1234");
+    expect(접근토큰.읽기()).toBe("t1");
+  });
+
+  it("주문표 요청에 Authorization: Bearer 를 붙인다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t2" })) as unknown as typeof fetch;
+    const 계정 = createTeamAccount();
+    await 계정.login("할머니1", "1234");
+
+    globalThis.fetch = vi.fn(async () => 응답([])) as unknown as typeof fetch;
+    await 계정.listSheets(7);
+
+    const [, init] = 부른것()[0];
+    const 헤더 = init.headers as Record<string, string>;
+    expect(헤더.authorization).toBe("Bearer t2");
+  });
+
+  it("로그인 전에는 Authorization 을 안 붙인다", async () => {
+    // 가입·로그인은 아직 토큰이 없는 상태에서 부르는 요청이다. 빈 값을 Bearer
+    // 뒤에 붙여 보내면 서버가 그걸 어떻게 읽을지 알 수 없다.
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: "할머니1" })) as unknown as typeof fetch;
+    await createTeamAccount().login("할머니1", "1234");
+    const [, init] = 부른것()[0];
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined();
+  });
+
+  it("401 을 받으면 토큰을 버린다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t3" })) as unknown as typeof fetch;
+    const 계정 = createTeamAccount();
+    await 계정.login("할머니1", "1234");
+
+    globalThis.fetch = vi.fn(async () => 응답({ message: "unauthorized" }, 401)) as unknown as typeof fetch;
+    await expect(계정.listSheets(7)).rejects.toThrow();
+    // 지난 토큰을 들고 있으면 다음 요청도 같은 401 을 받는다. 다시 로그인하라는
+    // 말이 나갈 수 있게 비운다.
+    expect(접근토큰.읽기()).toBeNull();
+  });
+});
+
+describe("계정 삭제 — 실패의 종류를 가른다", () => {
+  it("목은 계정과 딸린 것을 지우고, 같은 아이디로 다시 가입할 수 있다", async () => {
+    const a = await mockAccount.signup("할머니1", "1234");
+    await mockAccount.saveSheet(a.userId, 주문표());
+    expect(await mockAccount.deleteAccount(a.userId)).toBe("지웠음");
+    expect(await mockAccount.listSheets(a.userId)).toEqual([]);
+    // 지워졌으면 아이디가 풀린다. 이게 '계정 삭제' 가 실제로 뜻하는 것이다.
+    await expect(mockAccount.signup("할머니1", "5678")).resolves.toBeTruthy();
+  });
+
+  it("404 는 '경로없음' — 서버에 아직 기능이 없는 것이다", async () => {
+    globalThis.fetch = vi.fn(async () => 응답({ message: "not found" }, 404)) as unknown as typeof fetch;
+    expect(await createTeamAccount().deleteAccount(7)).toBe("경로없음");
+  });
+
+  it("옛 배포본 BFF 의 NOT_ALLOWED 도 '경로없음' 이다", async () => {
+    // 허용 목록에 이 경로가 없던 배포본은 BFF 가 code: NOT_ALLOWED 로 404 를 준다.
+    globalThis.fetch = vi.fn(async () => 응답({ code: "NOT_ALLOWED", message: "허용되지 않은 경로예요" }, 404)) as unknown as typeof fetch;
+    expect(await createTeamAccount().deleteAccount(7)).toBe("경로없음");
+  });
+
+  it("서버 오류는 '못지움' — 기능이 없다고 말하면 안 된다", async () => {
+    /*
+     * 이 구분이 이 기능의 핵심이다(#106 리뷰). 일시 장애를 '경로없음' 으로
+     * 뭉치면 화면이 "아직 못 지우는 기능" 이라고 잘못 말하고, 사용자는
+     * 다시 시도할 생각을 못 한다.
+     */
+    globalThis.fetch = vi.fn(async () => 응답({ message: "boom" }, 500)) as unknown as typeof fetch;
+    expect(await createTeamAccount().deleteAccount(7)).toBe("못지움");
   });
 });

@@ -3,6 +3,7 @@ import type { PlaceType, OrderSheet } from "@/domain/types";
 // 계정 오류만 다른 타입이면 화면에 분기가 하나 더 생긴다. backend.ts 도 같은 방식이다.
 import { KioBridgeError } from "@/api/client";
 import { 연동기록, 팀백엔드모드, 본문을남길까 } from "@/api/devlog";
+import { 접근토큰 } from "@/api/token";
 
 /**
  * 계정과 그 계정에 딸린 주문표.
@@ -55,6 +56,18 @@ export interface AccountApi {
    * 거기서 오류가 나면 지우는 도중에 멈춘다.
    */
   deleteSheet(userId: number, profileId: string): Promise<void>;
+  /**
+   * 계정을 지운다. 던지지 않고 셋 중 하나로 답한다.
+   *
+   *   "지웠음"    서버가 지웠다
+   *   "경로없음"  지우는 경로가 아직 서버에 없다(404·405) — BACKEND_INTEGRATION.md 요청
+   *   "못지움"    경로는 모르겠고 이번 요청이 실패했다(시간 초과·서버 오류 등)
+   *
+   * 뒤의 둘을 가르는 이유 — 화면이 하는 말이 달라야 한다. 경로가 없으면 "아직
+   * 못 지우는 기능" 이고, 요청이 실패한 것이면 "다음에 다시 시도할 일" 이다.
+   * 하나로 뭉치면 일시 장애에도 "기능이 없다" 고 잘못 말하게 된다(#106 리뷰).
+   */
+  deleteAccount(userId: number): Promise<"지웠음" | "경로없음" | "못지움">;
 }
 
 // ─── 입력 규칙 — 백엔드 제약을 그대로 옮긴다 ──────────────────────────────────
@@ -150,13 +163,25 @@ const 주민번호꼴 = /\d{6}[-.\s]?[1-4]\d{6}/;
  */
 const 주소꼴 =
   /([가-힣]{2,}(시|군|구|읍|면|동|리)\s*)?[가-힣]{2,}(로|길)\s*\d+|[가-힣]{2,}(동|리)\s*\d+\s*-\s*\d+|\d+\s*동\s*\d+\s*호/;
-export const 개인정보같은메모 = (memo: string): boolean =>
-  주민번호꼴.test(memo) || 전화번호꼴.test(memo) || 주소꼴.test(memo);
+/**
+ * 메모와 메뉴 이름 두 칸에 같이 쓴다.
+ *
+ * 예전에는 메모에만 걸었다. 그런데 주문표에서 사용자가 자유롭게 적는 칸은 둘이고,
+ * 저장되는 길도 둘 다 같다(이 기기 + 로그인했으면 서버). 한쪽만 막으면 막은 칸을
+ * 피해 다른 칸에 적는 것을 막지 못한다.
+ */
+export const 개인정보같은글 = (글: string): boolean =>
+  주민번호꼴.test(글) || 전화번호꼴.test(글) || 주소꼴.test(글);
 
 export const 못올리는이유 = (p: OrderSheet): string | null => {
   if (!p.place) return "장소를 정해 두시면 다음에도 불러올 수 있어요";
-  if (개인정보같은메모(p.memo ?? "")) {
+  if (개인정보같은글(p.memo ?? "")) {
     return "메모에 전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지우고 다시 저장해 주세요";
+  }
+  // 화면이 이미 막지만 여기에도 둔다. 이 함수는 '서버로 내보내도 되는가' 를 혼자
+  // 판단하는 자리라, 화면을 거치지 않고 올리는 길이 생겨도 여기서 걸린다.
+  if (개인정보같은글(p.menuName)) {
+    return "메뉴 이름에 전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 지우고 다시 저장해 주세요";
   }
   if (!p.menuName.trim()) return "메뉴 이름이 있어야 저장할 수 있어요";
   if (p.menuName.length > MENU_NAME_MAX) return `메뉴 이름은 ${MENU_NAME_MAX}자까지 저장돼요`;
@@ -322,6 +347,16 @@ export const mockAccount: AccountApi = {
     // 없는 것을 지워도 오류로 두지 않는다. 서버가 204 라 목도 같게 둔다.
     서버주문표.get(userId)?.delete(profileId);
   },
+
+  async deleteAccount(userId) {
+    await delay(목지연);
+    // 계정과 그 계정에 딸린 것을 전부 지운다. 같은 아이디로 다시 가입할 수 있어진다.
+    for (const [아이디, 계정] of 계정들) {
+      if (계정.userId === userId) 계정들.delete(아이디);
+    }
+    서버주문표.delete(userId);
+    return "지웠음";
+  },
 };
 
 /** 테스트가 목 저장소를 비운다. 앱은 부르지 않는다. */
@@ -347,6 +382,12 @@ const 문구 = (code: string, 서버문구: string | undefined, status: number):
     case "USER_NOT_FOUND":      return "계정을 찾을 수 없어요. 다시 로그인해 주세요";
     case "INVALID_REQUEST":     return 서버문구 || "적어 주신 내용을 다시 확인해 주세요";
     default:
+      /*
+       * 401 은 토큰이 없거나 만료된 것이다. 토큰은 메모리에만 두므로 새로고침
+       * 한 번이면 이 상태가 된다 — 사용자 잘못이 아니라 우리가 안 적어 두기로
+       * 한 결과다. 무엇을 하면 되는지 말해 준다(#100 리뷰).
+       */
+      if (status === 401) return "로그인이 풀렸어요. 다시 로그인해 주세요";
       if (status === 400) return "적어 주신 내용을 다시 확인해 주세요";
       if (status >= 500) return "서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요";
       return 서버문구 || "요청을 처리하지 못했어요";
@@ -357,6 +398,17 @@ const 문구 = (code: string, 서버문구: string | undefined, status: number):
  * 기본 주소는 /api/bff 다. 이 앱의 서버 함수가 백엔드로 대신 보내 주므로 브라우저는
  * 같은 출처로만 요청하고 CORS 가 발생하지 않는다. backend.ts 의 createTeamBackend 와 같다.
  */
+/**
+ * 응답에서 토큰만 떼어 담고, 화면·저장소로는 계정 식별자만 내보낸다.
+ *
+ * 토큰이 Account 에 섞여 나가면 session.ts 가 그대로 적어 둔다. 적어 두지 않기로
+ * 한 값이라 여기서 끊는다(token.ts).
+ */
+const 계정만 = (r: Account & { accessToken?: unknown; expiresAt?: unknown }): Account => {
+  접근토큰.담기(r?.accessToken, r?.expiresAt);
+  return { userId: r.userId, loginId: r.loginId };
+};
+
 export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
   const 부르기 = async <T>(방법: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> => {
     const 시작 = 팀백엔드모드 ? performance.now() : 0;
@@ -395,12 +447,28 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
     const ac = new AbortController();
     const 시계 = setTimeout(() => ac.abort(), 20_000);
 
+    /*
+     * 한 번만 읽어서 붙들어 둔다.
+     *
+     * 읽기() 는 만료 시각을 보면서 지난 토큰을 지우기도 한다(token.ts). 그래서
+     * 조건과 헤더에서 각각 부르면, 두 호출 사이에 만료된 순간 조건은 통과하고
+     * 헤더에는 `Bearer null` 이 실린다. 같은 값을 둘 다 보게 한다.
+     */
+    const 토큰 = 접근토큰.읽기();
+
     let res: Response;
     try {
       res = await fetch(baseUrl + path, {
         method: 방법,
         signal: ac.signal,
-        headers: { "content-type": "application/json" },
+        /*
+         * 주문표 경로는 Authorization 을 요구한다. 있을 때만 붙인다 —
+         * 가입.로그인은 아직 토큰이 없는 상태에서 부르는 요청이다.
+         */
+        headers: {
+          "content-type": "application/json",
+          ...(토큰 ? { authorization: `Bearer ${토큰}` } : {}),
+        },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (e) {
@@ -425,6 +493,16 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         try { return JSON.parse(t ?? "") as { code?: string; message?: string }; } catch { return {}; }
       })();
       const code = b.code ?? `HTTP_${res.status}`;
+      /*
+       * 401 은 토큰이 없거나 만료된 것이다. 들고 있던 토큰을 버린다.
+       *
+       * 토큰은 메모리에만 있어서 새로고침하면 사라지는데(token.ts) 계정은 남는다.
+       * 그러면 화면은 로그인한 것처럼 보이는데 주문표 요청마다 401 이 온다.
+       * 버려 두지 않으면 안 되는 토큰을 계속 붙여 보낸다.
+       *
+       * 화면은 이 코드를 보고 "다시 로그인해 주세요" 로 안내한다(#100 리뷰).
+       */
+      if (res.status === 401) 접근토큰.비우기();
       // 계정 쪽 오류는 전부 recoverable 이다. 아이디가 겹쳤으면 다른 아이디로, 비밀번호가
       // 틀렸으면 다시 적으면 되고, 서버가 죽었으면 잠시 뒤 다시 하면 된다. 화면이
       // 되돌아갈 길 없는 막다른 곳으로 사용자를 보내지 않게 하는 값이라 여기서는 늘 참이다.
@@ -447,11 +525,21 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
   };
 
   return {
-    signup: (loginId, password) =>
-      부르기<Account>("POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
+    /*
+     * 응답에 accessToken 이 같이 온다. 담아 두고 이후 주문표 요청에 붙인다.
+     *
+     * Account 로 돌려주는 값에는 안 싣는다 — 그 객체는 session.ts 가 적어 두는
+     * 값이라, 넣으면 토큰이 sessionStorage 로 따라 나간다(token.ts 주석).
+     */
+    signup: async (loginId, password) => 계정만(
+      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
+        "POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
+    ),
 
-    login: (loginId, password) =>
-      부르기<Account>("POST", "/api/v1/auth/login", { loginId: loginId.trim(), password }),
+    login: async (loginId, password) => 계정만(
+      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
+        "POST", "/api/v1/auth/login", { loginId: loginId.trim(), password }),
+    ),
 
     async listSheets(userId) {
       const r = await 부르기<UserProfileResponse[]>("GET", `/api/v1/users/${encodeURIComponent(userId)}/profiles`);
@@ -484,6 +572,24 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         "DELETE",
         `/api/v1/users/${encodeURIComponent(userId)}/profiles/${encodeURIComponent(profileId)}`,
       );
+    },
+
+    async deleteAccount(userId) {
+      /*
+       * 던지지 않는다 — 여기서 던지면 기기 정리까지 끝난 마당에 오류 화면이 떠서,
+       * 나가려는 사람을 붙잡는다. 대신 실패의 종류를 가른다(AccountApi 주석).
+       *
+       * 경로 없음의 신호 셋: 백엔드 404(HTTP_404) · 405(HTTP_405) · BFF 허용
+       * 목록에 안 실린 옛 배포본의 404(NOT_ALLOWED). 그 밖은 전부 '이번 실패' 다.
+       */
+      try {
+        await 부르기<void>("DELETE", `/api/v1/users/${encodeURIComponent(userId)}`);
+        return "지웠음";
+      } catch (e) {
+        const 코드 = (e as KioBridgeError)?.code;
+        return 코드 === "HTTP_404" || 코드 === "HTTP_405" || 코드 === "NOT_ALLOWED"
+          ? "경로없음" : "못지움";
+      }
     },
   };
 }
