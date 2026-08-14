@@ -1297,7 +1297,7 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
   });
 
   it("QR 로 읽은 claimCode 를 세션 요청에 함께 보낸다", async () => {
-    const b = 붙이기({ "simulation/session": { sessionId: "sess_1", initialState: "IDLE", submissionEndpoint: "/x" } });
+    const b = 붙이기({ "simulation/session": { pairingId: "pair_1", initialState: "IDLE", expiresAt: Date.now() + 300000 } });
     await b.createSession({ environmentId: "chicken-store", claimCode: "kb_demo" });
     const [, init] = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
     expect(JSON.parse(String(init.body))).toEqual({ environmentId: "chicken-store", claimCode: "kb_demo" });
@@ -1476,7 +1476,8 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     const 거절 = calls.find((c) => c.url.includes("orchestrator/approve"))!;
     expect(거절.body.userDecision).toMatchObject({ approved: false, decision: "REJECT" });
     // 승인과 같은 재료를 보낸다. 서버가 무엇을 보고 거절했는지 알아야 한다.
-    for (const k of ["sessionId", "profile", "sessionContext", "recommendation"]) {
+    // 열쇠는 pairingId 다 — 실제 sessionId 는 브라우저에 없다(팀 #108).
+    for (const k of ["pairingId", "profile", "sessionContext", "recommendation"]) {
       expect(거절.body).toHaveProperty(k);
     }
   });
@@ -1607,13 +1608,15 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
 
     const 승인 = calls[1];
     expect(승인.url).toBe("/api/bff/internal/orchestrator/approve");
-    expect(승인.body.sessionId).toBe("s1");
+    // 실제 RC5 sessionId 가 아니라 단명 pairingId 를 보낸다(팀 #108).
+    expect(승인.body.pairingId).toBe("s1");
+    expect(승인.body).not.toHaveProperty("sessionId");
     // 문서가 요구한 다섯 조각이 다 있어야 서버가 제출물을 조립할 수 있다.
-    for (const k of ["sessionId", "profile", "sessionContext", "recommendation", "userDecision"]) {
+    for (const k of ["pairingId", "profile", "sessionContext", "recommendation", "userDecision"]) {
       expect(승인.body).toHaveProperty(k);
     }
     expect(승인.body.userDecision).toMatchObject({ approved: true, decision: "APPROVE" });
-    // environmentId 는 보내지 않는다. 서버가 sessionId 로 다시 조회한다.
+    // environmentId 는 보내지 않는다. 서버가 pairingId 로 다시 조회한다.
     expect(승인.body).not.toHaveProperty("environmentId");
   });
 
@@ -1641,8 +1644,34 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     ).rejects.toThrow();
   });
 
+  it("세션 응답의 pairingId·expiresAt 을 그대로 쓴다", async () => {
+    /*
+     * 실제 RC5 sessionId 는 서버 밖으로 안 나온다(팀 #108). 브라우저는 단명
+     * pairingId 만 받는다 — 이 값 하나로 남의 주문을 실행할 수 있던 구멍이
+     * 여기서 닫힌다(P0-2). 만료도 서버가 준 값을 그대로 쓴다: 예전에는
+     * 클라이언트 시계로 5분을 가정해서 서버가 먼저 끝내면 앱이 몰랐다.
+     */
+    const 만료 = Date.now() + 123456;
+    const { b } = 캡처({ "simulation/session": { pairingId: "pair_9", initialState: "X", expiresAt: 만료 } });
+    const s = await b.createSession({ environmentId: "chicken-store", claimCode: "kb" });
+    expect(s.sessionId).toBe("pair_9");
+    expect(s.expiresAt).toBe(만료);
+  });
+
+  it("매핑이 끝나면 주문 입력을 pairing 에 고정한다", async () => {
+    // 승인 때 서버가 bind 당시 값과 같은지 비교한다. 매핑에 쓴 정규화 결과를
+    // 그대로 보내야 하고, 다르면 그 자리에서 거절당한다(팀 #108).
+    const { b, calls } = 캡처();
+    await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    await b.bindPairing!({ pairingId: "s1", profileId: "p1" });
+    const bind = calls.find((c) => c.url.includes("pairing/bind"))!;
+    expect(bind.url).toBe("/api/bff/internal/simulation/pairing/bind");
+    expect(bind.body.pairingId).toBe("s1");
+    for (const k of ["profile", "sessionContext"]) expect(bind.body).toHaveProperty(k);
+  });
+
   it("세션 응답의 environmentId 를 그대로 올린다", async () => {
-    const { b } = 캡처({ "simulation/session": { sessionId: "s1", environmentId: "hospital", initialState: "X", submissionEndpoint: "/y" } });
+    const { b } = 캡처({ "simulation/session": { pairingId: "pair_1", environmentId: "hospital", initialState: "X", expiresAt: Date.now() + 300000 } });
     const s = await b.createSession({ environmentId: "chicken-store", claimCode: "kb" });
     // 화면이 보낸 값이 아니라 서버가 정한 값이 이긴다.
     expect(s.environmentId).toBe("hospital");

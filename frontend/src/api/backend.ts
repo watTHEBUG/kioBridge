@@ -72,6 +72,18 @@ export interface Backend {
     profile?: OrderSheet;
   }): Promise<RecommendationResult>;
 
+  /**
+   * POST /internal/simulation/pairing/bind — 이 연결에 쓸 주문 입력을 고정한다(팀 #108).
+   *
+   * 매핑에 쓴 정규화 결과를 서버가 pairing 에 붙들어 둔다. 승인할 때 같은 값이
+   * 아니면 서버가 거절한다 — 화면이 보여 준 조건과 실제로 실행되는 조건이
+   * 갈라지는 길을 막는 자리다.
+   *
+   * 선택 메서드로 둔다. 목(mockApi)에는 이 개념이 없고, 이 경로가 없는 옛
+   * 백엔드에서도 앱이 멈추면 안 된다.
+   */
+  bindPairing?(input: { pairingId: string; profileId: string }): Promise<void>;
+
   /** POST /api/v1/sessions/:sessionId/submission — 검증 X, 저장만 */
   submit(sessionId: string, submission: unknown): Promise<void>;
 
@@ -206,6 +218,14 @@ export function createApi(
   // 세션 하나에 대해 서버가 뭐라고 답했는지. 승인 검사와 실행 조회의 기준이 된다.
   // 페어링 만료 시각. 승인 때 끝난 연결인지 다시 보려면 필요하다.
   const 만료 = new Map<string, number>();
+  /**
+   * 이미 다 쓴 연결. 승인·거절이 한 번 나가면 여기 들어온다(팀 #108).
+   *
+   * pairingId 는 일회용이다 — 서버가 승인 요청에서 그 값을 소모하므로, 성공했든
+   * 검증에 막혔든 그 뒤의 재시도는 전부 거절당한다. 화면이 "다시 시도" 를 내밀지
+   * 않도록 여기서 먼저 막고, QR 을 다시 찍으라고 말한다.
+   */
+  const 연결끝남 = new Set<string>();
   // 세션이 실제로 붙은 키오스크. 서버가 알려 주면 environmentId 인자 대신 이걸 쓴다.
   const 환경 = new Map<string, string>();
   /**
@@ -285,6 +305,21 @@ export function createApi(
         // 없으면 만료를 알 수 없으므로 0 으로 두어 승인에서 막힌다.
         expiresAt: 만료.get(pairingId) ?? 0,
       });
+
+      /*
+       * 이 연결에 쓸 주문 입력을 서버에 고정한다(팀 #108).
+       *
+       * 정규화 결과는 백엔드 계층이 쥐고 있어서 그쪽에 맡긴다(createTeamBackend
+       * 의 bindPairing). 승인할 때 서버가 bind 당시 값과 같은지 비교하므로,
+       * 매핑에 쓴 것과 같은 값이어야 한다 — 같은 캐시를 쓰는 이유다.
+       *
+       * 실패해도 여기서 던지지 않는다. 화면은 이미 추천을 받아 보여 줄 수 있고,
+       * 바인딩이 없으면 승인 시점에 서버가 막는다 — 그 자리에서 QR 을 다시
+       * 찍으라고 말하는 편이, 메뉴를 보기도 전에 오류를 띄우는 것보다 낫다.
+       */
+      if (backend.bindPairing && profile) {
+        await backend.bindPairing({ pairingId, profileId: profile.id }).catch(() => {});
+      }
 
       // 무엇을 왜 뺐는지는 후보 필터와 추천 양쪽에서 온다. 둘 다 사용자에게 보여 준다.
       //
@@ -470,6 +505,10 @@ export function createApi(
       if (!s) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
       // 아니라고 한 것을 뒤에서 되살리지 않는다. 담으려면 메뉴를 처음부터 다시 찾는다.
       if (s.rejected) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
+      // 이미 쓴 연결이면 서버가 어차피 거절한다. 여기서 먼저, 사람 말로 막는다.
+      if (연결끝남.has(input.pairingId)) {
+        throw new KioBridgeError("CLAIM_EXPIRED", "이 연결은 이미 사용했어요. QR 을 다시 찍어 주세요", true);
+      }
       // client.ts 와 같은 검사를 여기서도 한다. 한쪽만 막으면 구현을 바꿀 때 샌다.
       if (s.sheetId !== input.sheetId) {
         throw new KioBridgeError("PROFILE_MISMATCH", "메뉴를 다시 찾아 주세요", true);
@@ -543,11 +582,24 @@ export function createApi(
         }
         ({ planId } = await backend.execute(input.pairingId));
       } catch (e) {
-        // 실행에 이르지 못했으면 다시 시도할 수 있어야 한다.
-        s.executed = false;
-        throw e;
+        /*
+         * 되돌리지 않는다 — pairingId 는 한 번 쓰면 끝이다(팀 #108).
+         *
+         * 예전에는 s.executed 를 false 로 되돌려 같은 연결로 다시 승인하게 했다.
+         * 지금은 승인 요청이 서버에서 pairing 을 소모하므로 그 재시도가 무조건
+         * 거절당한다 — 되돌려 두면 사용자는 눌러도 안 되는 버튼을 계속 누른다.
+         *
+         * 이 연결을 끝난 것으로 표시하고 넘긴다. 화면은 recoverable=false 를 보고
+         * '다시 시도' 대신 QR 로 되돌리는 길을 낸다(client.ts 의 오류 처리).
+         */
+        연결끝남.add(input.pairingId);
+        throw e instanceof KioBridgeError
+          ? new KioBridgeError(e.code, e.message, false, e.details)
+          : e;
       }
-      // 실행 조회는 sessionId 기준이므로 화면이 들고 다닐 값에 함께 실어 둔다.
+      // 성공해도 이 연결은 끝난다. 같은 pairingId 로 한 번 더 담을 수 없다.
+      연결끝남.add(input.pairingId);
+      // 실행 조회는 이 값을 기준으로 하므로 화면이 들고 다닐 값에 함께 실어 둔다.
       return { planId: `${input.pairingId}::${planId}` };
     },
 
@@ -565,6 +617,9 @@ export function createApi(
       // 지우지 않고 표시만 한다. 지우면 forgetAll 이 이 페어링을 못 찾아서,
       // 거절까지 갔던 사람의 정규화된 주문표가 '정보 지우기' 뒤에도 남는다.
       s.rejected = true;
+      // 거절도 승인과 같은 경로로 나가 pairing 을 소모한다(팀 #108).
+      // 다시 담으려면 QR 부터 다시 찍어야 한다.
+      연결끝남.add(input.pairingId);
       if (!backend.reject) return;
       try {
         const profile = getSheet?.(input.sheetId);
@@ -733,6 +788,22 @@ interface ApprovalResult {
    * 이건 서버가 실제로 한 일이다.
    */
   runSteps?: RunStep[];
+  /**
+   * 내부 sessionId 를 걷어낸 최소 실행 결과 (팀 #108).
+   *
+   * 예전의 raw(ExecuteResult 통째)를 대신한다. 실제 sessionId 처럼 브라우저가
+   * 알 필요 없는 것이 빠지고, 화면이 결과를 그리는 데 쓰는 값만 온다.
+   * executedActions 배열 대신 개수만 오므로 진행도는 그 수로 센다.
+   */
+  execution?: {
+    runId?: string;
+    result?: string;
+    stopType?: string;
+    stopReason?: string;
+    executedActionCount?: number;
+    reviewSnapshot?: ReviewSnapshot;
+  };
+  /** #108 이전 백엔드. 둘 다 받는다 — 옛 배포본에서도 앱이 돌아야 한다. */
   raw?: ExecuteResult;
 }
 
@@ -1565,26 +1636,45 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
        * 지금 붙는 환경이 닭강정집 하나뿐이라(백엔드가아는장소) 그 검사는 늘 통과한다.
        * 환경이 늘면 그때 여기서 짚는다.
        */
-      const r = await 보내기<{ sessionId: string; environmentId?: string; initialState: string; submissionEndpoint: string }>(
+      /*
+       * 응답이 pairingId 로 바뀌었다(팀 #108).
+       *
+       * 실제 RC5 sessionId 는 이제 서버 밖으로 안 나온다 — 브라우저는 단명
+       * pairingId 만 받고, 승인할 때 서버가 그걸 진짜 sessionId 로 치환한다.
+       * 이것이 P0-2 가 요구하던 '세션을 누군가에게 묶는' 자리다: 이 값 하나만
+       * 알아도 남의 주문을 실행할 수 있던 구멍이 여기서 닫힌다.
+       */
+      const r = await 보내기<{ pairingId: string; environmentId?: string; initialState: string; expiresAt: number }>(
         "/internal/simulation/session", { environmentId, claimCode },
       );
       return {
-        sessionId: r.sessionId,
+        sessionId: r.pairingId,
         // 서버가 세션 생성 시점의 값을 그대로 돌려준다. 조립 계층이 이후 단계에서
         // 이 값을 쓴다 — 화면이 보낸 값을 다시 믿지 않는다.
         ...(r.environmentId ? { environmentId: r.environmentId } : {}),
         /*
-         * 백엔드가 키오스크 이름과 만료를 아직 안 준다. 받게 되면 여기서 쓴다.
-         * 만료를 클라이언트 시계로 가정하고 있어서, 서버가 먼저 끝내면 앱은 모른다.
-         * docs/BACKEND_INTEGRATION.md 질문 ① 이 이것이다.
+         * 만료는 이제 서버가 준다(Unix epoch ms, TTL 5분). 예전에는 클라이언트
+         * 시계로 5분을 가정해서, 서버가 먼저 끝내면 앱이 몰랐다 —
+         * docs/BACKEND_INTEGRATION.md 질문 ① 이 이것이었고 이제 해결됐다.
          *
-         * 그때까지는 킷이 적어 둔 이름을 쓴다 — environments/chicken-store/
-         * manifest.json 의 displayName 이 "닭강정 가게" 다. 지점 번호는 킷 어디에도
-         * 없어서 안 붙인다. 지어내면 화면이 사실이 아닌 것을 말하게 된다.
+         * 키오스크 이름은 아직 안 준다. 킷이 적어 둔 이름을 쓴다 —
+         * environments/chicken-store/manifest.json 의 displayName 이 "닭강정 가게" 다.
+         * 지점 번호는 킷 어디에도 없어서 안 붙인다 — 지어내면 화면이 사실이 아닌 것을 말한다.
          */
         kioskName: "닭강정 가게",
-        expiresAt: Date.now() + 5 * 60 * 1000,
+        expiresAt: r.expiresAt,
       };
+    },
+
+    async bindPairing({ pairingId, profileId }) {
+      // 매핑 때 만들어 둔 정규화 결과를 그대로 보낸다. 여기서 다시 만들면
+      // 승인 때 서버가 비교하는 값과 갈라져 그 자리에서 거절당한다.
+      const 키 = 마지막키.get(profileId);
+      const 정 = 키 ? 정규화됨.get(키) : undefined;
+      if (!정) return;
+      await 보내기<{ bound: boolean }>("/internal/simulation/pairing/bind", {
+        pairingId, profile: 정.profile, sessionContext: 정.sessionContext,
+      });
     },
 
     /**
@@ -1756,7 +1846,9 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       const 정 = 키 ? 정규화됨.get(키) : undefined;
       if (!정) throw new KioBridgeError("MAPPING_REQUIRED", "메뉴를 먼저 찾아야 해요", false);
       const r = await 보내기<ApprovalResult>("/internal/orchestrator/approve", {
-        sessionId,
+        // 실제 RC5 sessionId 는 브라우저에 없다. 서버가 pairingId 로 조회해
+        // 치환하고, bind 때 고정한 profile·sessionContext 와 같은지도 본다(팀 #108).
+        pairingId: sessionId,
         profile: 정.profile,
         sessionContext: 정.sessionContext,
         // 사용자가 다른 후보를 골랐으면 그것이 1순위다. 서버가 조립할 때 그 값을 쓴다.
@@ -1771,8 +1863,32 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // note 는 선택 필드다. null 을 보내면 킷 스키마가 'must be string' 으로 막는다.
         userDecision: { approved: true, decision: "APPROVE", confirmedAt: new Date().toISOString() },
       });
-      // #48 이후에는 { valid, summary, raw } 로 감싸여 온다. 둘 다 받는다.
-      실행결과.set(sessionId, r.raw ?? (r as unknown as ExecuteResult));
+      /*
+       * 실행 결과를 담는다. 응답 모양이 세 번 바뀌었고 셋 다 받는다.
+       *
+       *   ~#47  ExecuteResult 가 그대로            → r 자체
+       *   #48   { valid, summary, raw }            → r.raw
+       *   #108  { valid, summary, execution }      → r.execution (내부 sessionId 제거)
+       *
+       * execution 은 evidence 모양으로 옮겨 담는다 — 소비처(getEvidence·
+       * getPlanStatus)가 evidence 를 읽게 되어 있어서, 여기서 한 번 맞춰 두면
+       * 그쪽은 손댈 것이 없다. executedActions 배열은 이제 안 온다: 개수만 오므로
+       * 길이를 재던 자리를 위해 그 수만큼 빈 칸을 만들어 둔다.
+       */
+      const 실행 = r.execution;
+      실행결과.set(sessionId, 실행
+        ? {
+            valid: r.valid,
+            evidence: {
+              runId: 실행.runId,
+              result: 실행.result as "PASS" | "FAIL" | undefined,
+              stopType: 실행.stopType as "NORMAL_BOUNDARY_STOP" | "SAFETY_STOP" | "NONE" | undefined,
+              stopReason: 실행.stopReason,
+              executedActions: Array.from({ length: 실행.executedActionCount ?? 0 }),
+              reviewSnapshot: 실행.reviewSnapshot,
+            },
+          }
+        : (r.raw ?? (r as unknown as ExecuteResult)));
       if (r.summary) 서버요약.set(sessionId, r.summary);
       /*
        * 빈 배열도 그대로 담는다. 담지 않고 넘기면 앞 응답의 문장이 남는다.
@@ -1862,7 +1978,9 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       // 매핑을 안 거쳤으면 서버에 보낼 재료가 없다. 기록을 포기하고 넘어간다.
       if (!정 || !rec) return;
       await 보내기("/internal/orchestrator/approve", {
-        sessionId,
+        // 승인과 같은 경로·같은 열쇠다(팀 #108). 거절도 pairing 을 소모하므로
+        // 그 뒤에는 QR 을 다시 찍어야 한다.
+        pairingId: sessionId,
         profile: 정.profile,
         sessionContext: 정.sessionContext,
         recommendation: rec,

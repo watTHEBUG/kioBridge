@@ -46,6 +46,8 @@ const 허용경로 = [
   /^api\/v1\/recommendation-output-validations$/,
   // 세션 생성 (ExecutionPlanController)
   /^internal\/simulation\/session$/,
+  // 이 연결에 쓸 주문 입력을 고정한다(팀 #108). 승인 때 서버가 같은 값인지 본다.
+  /^internal\/simulation\/pairing\/bind$/,
   // 이미 조립된 제출물을 다루는 저수준 경로. 프론트는 안 쓰지만 남겨 둔다.
   /^internal\/simulation\/submit-and-run$/,
   /^internal\/plan\/build$/,

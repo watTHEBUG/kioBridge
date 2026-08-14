@@ -348,6 +348,18 @@ KIOBRIDGE_API_BASE = https://<백엔드 주소>
 
 명세서대로 새로 만드시면 `createHttpBackend` 가 왼쪽 칸을 그대로 부릅니다. 지금 구조를 유지하시면 `createTeamBackend` 가 오른쪽 칸에 맞춰 이미 돌아갑니다. **둘 중 아무거나 고르셔도 프론트는 준비돼 있습니다.**
 
+### ✅ 세션이 pairingId 로 묶였습니다 (팀 #108, 해결됨)
+
+이 문서와 P0-2 분석에서 "세션이 아무에게도 안 묶여 있다 — `sessionId` 문자열만 알면 누구나 `submission`·`validate`·`execute` 를 부를 수 있다" 고 적었던 문제가 해결됐습니다. 프론트도 새 계약으로 옮겼습니다:
+
+- `POST /internal/simulation/session` 이 실제 RC5 `sessionId` 대신 단명 **`pairingId`** 와 **`expiresAt`**(Unix epoch ms, TTL 5분)을 줍니다. 브라우저는 이제 진짜 sessionId 를 아예 모릅니다.
+- 매핑이 끝나면 **`POST /internal/simulation/pairing/bind`** 로 그때의 `profile`·`sessionContext` 를 고정합니다. 승인 때 서버가 같은 값인지 비교하므로, 화면이 보여 준 조건과 실제 실행되는 조건이 갈라질 수 없습니다.
+- `POST /internal/orchestrator/approve` 는 `sessionId` 대신 **`pairingId`** 를 받습니다(거절도 같은 경로).
+- 응답은 `raw`(ExecuteResult 통째) 대신 **`execution`**(내부 sessionId 를 걷어낸 최소 결과)을 씁니다. `executedActions` 배열 대신 `executedActionCount` 만 오므로 진행도는 그 수로 셉니다.
+- **pairingId 는 일회용입니다.** 승인·거절이 한 번 나가면 성공이든 검증 실패든 그 연결은 끝나고, 프론트는 재시도를 내밀지 않고 QR 부터 다시 찍게 안내합니다.
+
+만료도 이제 서버 시각 기준입니다 — 예전에는 클라이언트 시계로 5분을 가정해서 서버가 먼저 끝내면 앱이 몰랐습니다.
+
 ### 계정 API 를 붙였습니다 — 그런데 인증이 없습니다
 
 `modules/member` 의 네 경로에 붙였습니다(`src/api/account.ts`). 그런데 붙이면서 확인한 것 중에 **저희가 프론트에서 고칠 수 없는 것 세 가지**가 있어서 같은 무게로 적습니다.
