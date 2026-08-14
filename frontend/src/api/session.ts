@@ -10,14 +10,28 @@ import type { Account } from "@/api/account";
  * 올리기만 해도 로그인이 풀리고 주문표가 사라지고 큰 글씨가 꺼졌다. 처음부터 다시
  * 하라는 뜻인데, 이 앱을 쓰는 사람에게 '처음부터 다시' 가 가장 어렵다.
  *
- * ── 왜 sessionStorage 인가 ───────────────────────────────────────────────────
+ * ── 저장소가 둘인 이유 ───────────────────────────────────────────────────────
  *
- *   localStorage      탭을 닫아도 남는다. 다음에 이 기기를 켠 사람이 앞사람 것을 본다.
- *   sessionStorage    이 탭에만 있고, 탭을 닫으면 사라진다.
+ *   localStorage      탭을 닫아도 남는다.   주문표만 여기 있다.
+ *   sessionStorage    탭을 닫으면 사라진다. 나머지 전부.
  *
- * 개인정보 안내 화면이 "이번 이용이 끝나면 남지 않아요" 라고 약속하고 있다.
- * sessionStorage 는 그 약속을 그대로 지킨다 — 탭을 닫는 것이 곧 이용이 끝나는
- * 것이다. localStorage 로 옮기면 그 문장이 거짓이 되므로 옮기지 말 것.
+ * 예전에는 전부 sessionStorage 였다. "탭을 닫는 것이 곧 이용이 끝나는 것" 이라는
+ * 이유를 여기 적어 두고, localStorage 로 옮기지 말라고 못을 박아 두었다.
+ *
+ * 그 전제가 틀렸다. 이 앱은 **자기 휴대폰에서 쓴다.** 탭을 닫는 것은 이용이
+ * 끝나는 것이 아니라 잠깐 다른 것을 보는 것이고, 다음에 열었을 때 앞사람이
+ * 아니라 같은 사람이다. 주문표는 그 사람이 시간을 들여 만든 것인데, 탭 하나
+ * 닫혔다고 통째로 사라지면 이 앱을 쓸 이유가 없어진다 — 매번 처음부터 다시
+ * 만들어야 한다면 키오스크 앞에서 직접 고르는 것과 다르지 않다.
+ *
+ * 그래서 주문표만 옮겼다. 나머지는 그대로 둔다. 특히 **동의는 절대 안 옮긴다** —
+ * 앞선 동의가 다음에 그대로 이어지면 그건 동의가 아니고, 개인정보 화면도
+ * "동의는 이번 이용에만 남고, 창을 닫으면 사라져요" 라고 말하고 있다.
+ * 로그인도 안 남는다(토큰이 메모리뿐이라 되살려 봐야 못 쓴다).
+ *
+ * 이 변경은 계약에도 나타난다. canonical.ts 의 retentionPolicy 가
+ * SESSION_ONLY 에서 UNTIL_USER_DELETES 로 바뀐 것이 같은 사실을 말한다.
+ * 여기를 되돌리면 거기도 같이 되돌려야 한다.
  *
  * ── 담지 않는 것 ─────────────────────────────────────────────────────────────
  *
@@ -32,6 +46,14 @@ import type { Account } from "@/api/account";
 
 /** 판을 바꾸면 이 번호를 올린다. 예전 판은 읽지 않고 버린다. */
 const KEY = "kb.session.v3";
+
+/**
+ * 창을 닫아도 남는 자리. 주문표만 들어간다.
+ *
+ * 판 번호를 KEY 와 따로 매긴다. 둘이 담는 것이 다르고 수명도 달라서, 한쪽
+ * 모양을 바꿨다고 다른 쪽까지 버리게 만들 이유가 없다.
+ */
+const 주문표KEY = "kb.sheets.v1";
 
 /**
  * 새로고침 뒤에도 그대로 보여 줄 수 있는 화면.
@@ -91,8 +113,10 @@ export interface 이어쓸것 {
    * 이 사람이 늘 피해야 하는 것. 주문표의 알레르기와 합쳐서 서버로 나간다.
    *
    * 이번 이용에만 남는다. 알레르기는 그 사람에 대한 사실이라 오래 붙들고 싶어지지만,
-   * 이 앱은 창을 닫으면 아무것도 안 남기겠다고 약속했다. 다음 사람이 이 기기를
-   * 열었을 때 앞사람의 알레르기가 남아 있으면 그건 약속을 어기는 것이다.
+   * 틀렸을 때의 대가가 다른 값과 다르다 — 화면에는 걸러지는 것처럼 보이는데
+   * 실제로는 앞사람 것으로 걸러진다. 그래서 **주문표를 창 너머로 남기게 된
+   * 뒤에도 이 값은 안 남긴다.** 로그인한 사람의 알레르기를 서버에 두는 것은
+   * 별개의 일이다(feat/account-preferences) — 그건 누구 것인지가 분명하다.
    */
   allergies: string[];
   /**
@@ -133,10 +157,12 @@ export interface 이어쓸것 {
  * 있는지만 보면 통과하고 쓸 때 터진다. 저장은 있으면 좋은 것이지 없으면
  * 앱이 멈춰야 하는 것이 아니므로, 안 되면 조용히 없는 셈 친다.
  */
-const 저장소 = (): Storage | null => {
+const 써보기 = (고르기: () => Storage | undefined, 이름: string): Storage | null => {
   try {
-    const s = globalThis.sessionStorage;
-    const 시험 = `${KEY}::probe`;
+    const s = 고르기();
+    // 브라우저가 아닌 데서 돌면 아예 없다. 없는 것은 못 쓰는 것과 같게 다룬다.
+    if (!s) return null;
+    const 시험 = `${이름}::probe`;
     s.setItem(시험, "1");
     s.removeItem(시험);
     return s;
@@ -145,14 +171,42 @@ const 저장소 = (): Storage | null => {
   }
 };
 
+/** 이번 방문에만 남는 자리. */
+const 이번저장소 = () => 써보기(() => globalThis.sessionStorage, KEY);
+/** 창을 닫아도 남는 자리. 주문표만. */
+const 오래저장소 = () => 써보기(() => globalThis.localStorage, 주문표KEY);
+
+/**
+ * 적어 둔 것을 객체로 읽는다.
+ *
+ * '없다' 와 '깨졌다' 를 나눠 돌려준다. 없는 것은 첫 방문이라 그냥 넘어가면
+ * 되지만, 깨진 것은 남겨 두면 새로고침마다 또 터진다 — 부르는 쪽이 지운다.
+ */
+const 날것읽기 = (s: Storage | null, key: string): Record<string, unknown> | null | "깨짐" => {
+  if (!s) return null;
+  let v: unknown;
+  try {
+    const 글 = s.getItem(key);
+    if (!글) return null;
+    v = JSON.parse(글);
+  } catch {
+    return "깨짐";
+  }
+  if (typeof v !== "object" || v === null) return "깨짐";
+  return v as Record<string, unknown>;
+};
+
 const 글자인가 = (v: unknown): v is string => typeof v === "string";
 
 /**
  * 저장된 주문표가 우리가 아는 모양인지 본다.
  *
- * sessionStorage 는 사용자가 개발자 도구로 고칠 수 있다. 고친 값을 그대로 믿으면
+ * 저장소는 사용자가 개발자 도구로 고칠 수 있다. 고친 값을 그대로 믿으면
  * 화면이 알 수 없는 것을 그리거나, P0-1 이 금지한 상품 ID 같은 것이 주문표에
  * 섞여 들어온다. 우리가 아는 칸만 골라 새 객체를 만든다 — 모르는 칸은 버린다.
+ *
+ * 주문표가 창을 닫아도 남게 되면서 이 검사가 더 오래 살아 있는 값을 본다.
+ * 한 번 손댄 값이 그 뒤로 계속 읽히므로, 걸러 내는 자리가 여기 하나여야 한다.
  */
 const 주문표읽기 = (v: unknown): OrderSheet | null => {
   if (typeof v !== "object" || v === null) return null;
@@ -267,35 +321,56 @@ export const 이어쓰기 = {
    * (동의처럼 있는 쪽이 위험한 값은 기본이 '안 함' 이라 손대도 얻을 게 없다.)
    */
   읽기(): 이어쓸것 | null {
-    const s = 저장소();
-    if (!s) return null;
-    let 날것: unknown;
-    try {
-      const 글 = s.getItem(KEY);
-      if (!글) return null;
-      날것 = JSON.parse(글);
-    } catch {
-      // 판이 바뀌었거나 누가 손을 댔다. 남겨 두면 다음 새로고침마다 또 터진다.
-      this.비우기();
-      return null;
-    }
-    if (typeof 날것 !== "object" || 날것 === null) { this.비우기(); return null; }
-    const o = 날것 as Record<string, unknown>;
+    const 이번 = 날것읽기(이번저장소(), KEY);
+    const 오래 = 날것읽기(오래저장소(), 주문표KEY);
+    // 판이 바뀌었거나 누가 손을 댔다. 남겨 두면 다음 새로고침마다 또 터진다.
+    if (이번 === "깨짐" || 오래 === "깨짐") { this.비우기(); return null; }
+    if (!이번 && !오래) return null;
+    const o = 이번 ?? {};
+
+    /*
+     * 주문표를 옛 자리에서 한 번 옮긴다.
+     *
+     * 이 변경 전에 쓰던 사람의 주문표는 sessionStorage 에 들어 있다. 새 자리만
+     * 보면 그 사람들은 만들어 둔 것을 통째로 잃는다 — 옮기는 김에 잃게 만드는
+     * 것은 이 변경이 없애려던 바로 그 일이다.
+     *
+     * 새 자리가 비어 있을 때만 옛 자리를 본다. 옮기고 나면 아래에서 쓰기() 를
+     * 한 번 불러 옛 자리를 비우므로, 이 길은 사람마다 한 번만 지나간다.
+     */
+    const 옮기는중 = 오래 === null;
+    const 주문표날것 = 오래 ? 오래.sheets : o.sheets;
 
     const account = 계정읽기(o.account);
-    const sheets: OrderSheet[] = [];
-    if (Array.isArray(o.sheets)) {
-      for (const 하나 of o.sheets) {
+    const 읽은주문표: OrderSheet[] = [];
+    if (Array.isArray(주문표날것)) {
+      for (const 하나 of 주문표날것) {
         const p = 주문표읽기(하나);
         if (!p) { this.비우기(); return null; }
-        sheets.push(p);
+        읽은주문표.push(p);
       }
     }
-    const 아는id = new Set(sheets.map((p) => p.id));
-    const fromServer = Array.isArray(o.fromServer)
-      // 목록에 없는 id 는 버린다. 남겨 두면 로그아웃이 있지도 않은 것을 빼려 든다.
-      ? o.fromServer.filter((x): x is string => 글자인가(x) && 아는id.has(x))
-      : [];
+    const 읽은id = new Set(읽은주문표.map((p) => p.id));
+    const 서버것날것 = 오래 ? 오래.fromServer : o.fromServer;
+    const 서버에서온것 = new Set(
+      Array.isArray(서버것날것)
+        // 목록에 없는 id 는 버린다. 남겨 두면 로그아웃이 있지도 않은 것을 빼려 든다.
+        ? 서버것날것.filter((x): x is string => 글자인가(x) && 읽은id.has(x))
+        : [],
+    );
+
+    /*
+     * 로그인해서 불러왔던 주문표는 로그인이 끊기면 같이 사라진다.
+     *
+     * 주문표는 이제 창을 닫아도 남지만 로그인은 안 남는다. 그대로 두면 다음에
+     * 이 기기를 열었을 때, 로그아웃된 화면에 서버 계정에서 받아 온 주문표가
+     * 그대로 보인다 — 지울 방법도 마땅치 않다. '이 기기에서 정보 지우기' 는
+     * 계정 화면에 있는데 그 화면은 로그인한 사람의 것이기 때문이다.
+     *
+     * 잃는 것은 없다. 서버에서 온 것은 서버에 있고, 다시 로그인하면 다시 온다.
+     */
+    const sheets = account ? 읽은주문표 : 읽은주문표.filter((p) => !서버에서온것.has(p.id));
+    const fromServer = account ? [...서버에서온것] : [];
 
     const 적힌화면 = 글자인가(o.screen) ? (o.screen as Screen) : "welcome";
     const planId = 글자인가(o.planId) && o.planId !== "" ? o.planId : null;
@@ -316,7 +391,7 @@ export const 이어쓰기 = {
       ? 적힌화면
       : (대신 ?? (실행못함 ? "saved" : "welcome"));
 
-    return {
+    const 값: 이어쓸것 = {
       screen,
       tab: 탭들.includes(o.tab as MainTab) ? (o.tab as MainTab) : "menu",
       name: 글자인가(o.name) ? o.name : "",
@@ -337,6 +412,10 @@ export const 이어쓰기 = {
       // 실행 화면으로 돌아가지 못하면 계획도 들고 있을 이유가 없다.
       planId: screen === "execution" ? planId : null,
     };
+    // 옛 자리에서 가져온 주문표를 새 자리에 적고, 옛 자리를 비운다.
+    // 쓰기() 가 두 저장소를 각자 다시 쓰므로 여기서 따로 지울 것이 없다.
+    if (옮기는중) this.쓰기(값);
+    return 값;
   },
 
   /**
@@ -351,8 +430,6 @@ export const 이어쓰기 = {
    * 이어 쓰기는 편의지 이 앱이 하는 일이 아니다.
    */
   쓰기(값: 이어쓸것): void {
-    const s = 저장소();
-    if (!s) return;
     /*
      * '이번만 쓰기' 로 만든 주문표는 적지 않는다.
      *
@@ -360,24 +437,74 @@ export const 이어쓰기 = {
      * 것을 적어 두면 그 선택이 거짓이 된다 — 화면에서는 지웠다고 하고 저장소에는
      * 남는 상태가 제일 나쁘다.
      *
-     * 걸러 낸 뒤에 '남길 것이 있나' 를 본다. 임시 주문표 하나만 있는 사람은
-     * 남길 것이 없는 사람이고, 그러면 저장소에 아무것도 안 만든다.
+     * 이 걸러 내기가 전보다 더 중요해졌다. 전에는 잘못 남겨도 탭을 닫으면
+     * 사라졌지만, 이제 주문표는 창을 닫아도 남는다.
      */
-    const 남길값 = { ...값, sheets: 값.sheets.filter((p) => p.임시 !== true) };
-    if (!남길것이있나(남길값)) { this.비우기(); return; }
+    const 남길주문표 = 값.sheets.filter((p) => p.임시 !== true);
+    const 남길id = new Set(남길주문표.map((p) => p.id));
+
+    // ① 창을 닫아도 남는 자리 — 주문표만.
+    const 오래 = 오래저장소();
+    if (오래) {
+      try {
+        if (남길주문표.length === 0) 오래.removeItem(주문표KEY);
+        else {
+          오래.setItem(주문표KEY, JSON.stringify({
+            sheets: 남길주문표,
+            fromServer: 값.fromServer.filter((id) => 남길id.has(id)),
+          }));
+        }
+      } catch {
+        /* 꽉 찼거나 막혔다. 이번 이용은 메모리로만 간다. */
+      }
+    }
+
+    /*
+     * ② 이번 방문에만 남는 자리 — 나머지.
+     *
+     * 주문표는 여기 적지 않는다. 적으면 두 벌이 생기고, 다음에 열었을 때 어느
+     * 쪽이 맞는지 알 수 없다. 칸을 하나씩 적어 두는 것은 그 실수를 막기 위해서다 —
+     * `...남길값` 으로 퍼뜨리면 나중에 칸이 하나 늘 때 조용히 따라 들어온다.
+     */
+    const s = 이번저장소();
+    if (!s) return;
+    // 남길 것이 있나는 주문표까지 세서 본다. 주문표만 있는 사람도 어느 화면에
+    // 있었는지는 되살릴 값어치가 있다.
+    if (!남길것이있나({ ...값, sheets: 남길주문표 })) { this.비우기(); return; }
     try {
-      s.setItem(KEY, JSON.stringify(남길값));
+      s.setItem(KEY, JSON.stringify({
+        screen: 값.screen,
+        tab: 값.tab,
+        name: 값.name,
+        account: 값.account,
+        a11y: 값.a11y,
+        consent: 값.consent,
+        allergies: 값.allergies,
+        budget: 값.budget,
+        voiceUsed: 값.voiceUsed,
+        planId: 값.planId,
+      }));
     } catch {
       /* 꽉 찼거나 막혔다. 이번 이용은 메모리로만 간다. */
     }
   },
 
-  /** 로그아웃·정보 지우기가 부른다. 화면이 "지웠어요" 라고 말한 것에 이것도 들어간다. */
+  /**
+   * 로그아웃·정보 지우기가 부른다. 화면이 "지웠어요" 라고 말한 것에 이것도 들어간다.
+   *
+   * 두 자리를 다 지운다. 한쪽만 지우면 '지웠어요' 를 본 사람의 주문표가 다음에
+   * 창을 열었을 때 되살아난다 — 지웠다는 말이 거짓이 되는 자리다.
+   */
   비우기(): void {
     try {
       globalThis.sessionStorage?.removeItem(KEY);
     } catch {
       /* 못 지웠으면 어차피 쓴 적도 없다. */
+    }
+    try {
+      globalThis.localStorage?.removeItem(주문표KEY);
+    } catch {
+      /* 위와 같다. */
     }
   },
 };

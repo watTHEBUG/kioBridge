@@ -435,7 +435,7 @@ export const EN: Record<string, string> = {
   "로그인 없이 모든 기능을 쓰고 있어요": "You’re using every feature without logging in",
   "다음에도 불러오려면 로그인 (선택)": "Log in to bring these back next time (optional)",
   "저장된 주문표 관리": "Manage saved order cards",
-  "이번 이용에만 쓰는 메뉴 주문표예요": "Order cards for this visit only",
+  "지우실 때까지 이 휴대폰에 남는 메뉴 주문표예요": "Order cards that stay on this phone until you erase them",
   "접근성 설정": "Support settings",
   "개인정보 안내": "Privacy notice",
   "무엇을 저장하고 무엇을 저장하지 않는지": "What we keep and what we don’t",
@@ -519,16 +519,25 @@ export const EN: Record<string, string> = {
   "이름·전화번호·주민등록번호 같은 개인정보는 적지 마세요.":
     "Don’t include personal details like your name, phone number, or ID number.",
   "맨 위": "the", "을 적으면 저장할 수 있어요": "above to save",
-  "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요. 실수로 새로고침해도 다시 적지 않으셔도 되게 이 창 안에 남겨 두고, 창을 닫으면 지워요.":
-    "We keep only what you wrote on your order card (take-out, hot, boneless, paper cup, and so on) — in plain words. Right now it stays on this device. We keep it inside this window so an accidental refresh doesn’t make you type it again, and we erase it when the window closes.",
+  /*
+   * 이 한 줄이 빠져 있었다.
+   *
+   * 영어로 보는 사람에게 개인정보 화면의 첫 문단만 한국어로 남아 있었다.
+   * 하필 **동의에 대한 설명**이라, 무엇에 동의하는지 못 읽은 채로 동의하게
+   * 되는 자리였다. 저장 정책 문구를 고치다가 영어 화면을 훑어서 찾았다.
+   */
+  "처음 화면에서 한 번 여쭤요. 동의하지 않으시면 앱을 시작할 수 없어요 — 저장해 두신 메뉴 조건으로 골라 드리는 앱이라, 그 조건을 쓰지 못하면 해 드릴 수 있는 일이 없어서예요. 동의는 이번 이용에만 남고, 창을 닫으면 사라져요. 다음에 이 기기를 쓰는 분은 다시 여쭤요.":
+    "We ask once, on the first screen. You can’t start without agreeing — this app picks for you using the order conditions you saved, so without them there’s nothing it can do. Your consent lasts for this visit only and goes when you close the window. Whoever uses this device next is asked again.",
+  "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요. 창을 닫아도 이 휴대폰에 남아 있어서, 다음에 오시면 만들어 두신 주문표를 그대로 쓰실 수 있어요. 지우고 싶으시면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요.":
+    "We keep only what you wrote on your order card (take-out, hot, boneless, paper cup, and so on) — in plain words. It stays on this device only. It stays on this phone even after you close the window, so the order cards you made are still here next time. To erase them, tap “Erase everything on this device” on the account screen.",
   "실제 이름·주소·전화번호·주민등록번호는 받지도, 저장하지도 않아요. 결제 정보도 다루지 않아요. 부르는 호칭은 화면에 띄우는 데만 쓰고 이 기기 밖으로 나가지 않아요.":
     "We never ask for or keep your real name, address, phone number, or ID number. We don’t handle payment details either. The name you’re greeted by is only shown on screen and never leaves this device.",
   "직접 지으신 아이디와 비밀번호만 받아요. 실제 이름이나 전화번호는 묻지 않아요. 비밀번호는 서버에서 알아볼 수 없는 형태로 바꿔 저장하고, 이 앱은 적으신 비밀번호를 어디에도 남기지 않아요. 로그인 상태는 새로고침해도 그대로지만, 이 창을 닫으면 풀립니다.":
     "We only take an ID and password you make up yourself. We never ask for your real name or phone number. The server stores your password in a form it can’t read back, and this app keeps it nowhere. You stay logged in across a refresh, but closing this window logs you out.",
   "QR로 연결할 때는 이번 주문에만 쓰는 짧은 연결 표만 오가요. 시간이 지나면 저절로 만료돼요.":
     "Connecting by QR only passes a short-lived pass used for this order. It expires on its own after a while.",
-  "지금은 로그인 없이 쓰고 계셔서 이 창을 닫으면 이 기기에 남지 않아요. 바로 지우시려면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요.":
-    "You’re using this without logging in, so nothing stays on this device once you close the window. To erase it right away, tap “Erase everything on this device” on the account screen. One thing stays: the order record sent to the kiosk remains on the server — there’s no way to erase that yet.",
+  "만들어 두신 주문표는 지우실 때까지 이 휴대폰에 남아요. 계정 화면의 ‘이 기기에서 정보 지우기’를 누르시면 바로 사라져요. 이름·도움 설정·알레르기처럼 나머지 적어 두신 것은 창을 닫으면 그때 사라져요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요.":
+    "The order cards you made stay on this phone until you erase them. Tap “Erase everything on this device” on the account screen and they go right away. Everything else you entered — your name, help settings, allergies — goes when you close the window. One thing stays: the order record sent to the kiosk remains on the server — there’s no way to erase that yet.",
   "세부 옵션": "Details",
   "1개 선택": "Pick one",
   "이용 방식 — 1개 선택": "Dine in or take out — pick one",
