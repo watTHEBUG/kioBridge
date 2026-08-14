@@ -31,7 +31,29 @@ jobs:
             tr -d '\r' > ~/.ssh/kiobridge.pem
           chmod 600 ~/.ssh/kiobridge.pem
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-
+      - name: Sync OpenAI key
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY 시크릿이 비어 있습니다 — 음성 인식만 꺼진 채로 배포합니다."
+            exit 0
+          fi
+          printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" |
+            ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/kiobridge.pem \
+              "$EC2_USER@$EC2_HOST" "
+                set -e
+                umask 077
+                f=/home/ec2-user/apps/kiobridge-config/backend.env
+                t=\$(mktemp \${f}.XXXXXX)
+                grep -v '^OPENAI_API_KEY=' \$f > \$t 2>/dev/null || true
+                cat >> \$t
+                mv \$t \$f
+                chmod 600 \$f
+                grep -c '^OPENAI_API_KEY=' \$f || true
+              "
       - name: Deploy backend
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
