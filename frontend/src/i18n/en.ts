@@ -523,6 +523,9 @@ export const EN: Record<string, string> = {
     "We keep only what you wrote on your order card (take-out, hot, boneless, paper cup, and so on) — in plain words. Right now it stays on this device. We keep it inside this window so an accidental refresh doesn’t make you type it again, and we erase it when the window closes.",
   "실제 이름·주소·전화번호·주민등록번호는 받지도, 저장하지도 않아요. 결제 정보도 다루지 않아요. 부르는 호칭은 화면에 띄우는 데만 쓰고 이 기기 밖으로 나가지 않아요.":
     "We never ask for or keep your real name, address, phone number, or ID number. We don’t handle payment details either. The name you’re greeted by is only shown on screen and never leaves this device.",
+  "음성으로 답할 때": "When you answer by voice",
+  "\"그만 듣기\"를 누르면 그때까지 녹음한 음성이 저희 서버로 전달되고, 서버가 그 음성을 글로 바꿔 알아들은 결과(예: '네')만 그 자리에서 써서 화면을 바꿔요. 보낸 음성은 인식하는 동안만 쓰고 저장하지 않고, 인식된 문장도 남기지 않아요. 말하기가 불편하시면 언제든 버튼을 눌러 손으로 답하실 수 있어요.":
+    "When you tap \"Stop listening,\" the audio recorded up to that point is sent to our server, which turns it into text and uses only the recognized result (e.g. \"yes\") right then to change the setting. The audio you send is used only while it's being recognized and isn't stored, and the recognized sentence isn't kept either. If speaking isn’t comfortable, you can always tap the button and answer by hand instead.",
   "직접 지으신 아이디와 비밀번호만 받아요. 실제 이름이나 전화번호는 묻지 않아요. 비밀번호는 서버에서 알아볼 수 없는 형태로 바꿔 저장하고, 이 앱은 적으신 비밀번호를 어디에도 남기지 않아요. 로그인 상태는 새로고침해도 그대로지만, 이 창을 닫으면 풀립니다.":
     "We only take an ID and password you make up yourself. We never ask for your real name or phone number. The server stores your password in a form it can’t read back, and this app keeps it nowhere. You stay logged in across a refresh, but closing this window logs you out.",
   "QR로 연결할 때는 이번 주문에만 쓰는 짧은 연결 표만 오가요. 시간이 지나면 저절로 만료돼요.":
