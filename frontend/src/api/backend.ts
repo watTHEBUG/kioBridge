@@ -1565,11 +1565,11 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
        * 지금 붙는 환경이 닭강정집 하나뿐이라(백엔드가아는장소) 그 검사는 늘 통과한다.
        * 환경이 늘면 그때 여기서 짚는다.
        */
-      const r = await 보내기<{ sessionId: string; environmentId?: string; initialState: string; submissionEndpoint: string }>(
+      const r = await 보내기<{ pairingId: string; environmentId?: string; initialState: string; expiresAt: number }>(
         "/internal/simulation/session", { environmentId, claimCode },
       );
       return {
-        sessionId: r.sessionId,
+        sessionId: r.pairingId,
         // 서버가 세션 생성 시점의 값을 그대로 돌려준다. 조립 계층이 이후 단계에서
         // 이 값을 쓴다 — 화면이 보낸 값을 다시 믿지 않는다.
         ...(r.environmentId ? { environmentId: r.environmentId } : {}),
