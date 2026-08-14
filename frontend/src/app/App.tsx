@@ -12,7 +12,7 @@ import type {
   MappingResponse, MappedItem, MappedOption, MappingCandidate, ApproveInput, RecommendationReason,
   PlanStatus, CartResult, AbortInfo, DetailOption,
 } from "@/domain/types";
-import { DETAIL_OPTIONS, PLACE_ICONS, STEPS, 못채운필수축 } from "@/domain/catalog";
+import { DETAIL_OPTIONS, PLACE_ICONS, STEPS, 못채운필수축, 못채운축 } from "@/domain/catalog";
 import { api, POLL_MS, KioBridgeError, getScenario, setScenario, registerSheet, unregisterSheet, type Scenario } from "@/api/client";
 import {
   account, 아이디검사, 비밀번호검사, 못올리는이유, 개인정보같은글,
@@ -1250,7 +1250,8 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [menuName, setMenuName] = useState("");
   const 이름칸id = useId();
-  const 빠진필수 = 못채운필수축(place, selections);
+  // 저장은 모든 축이 채워져야 열린다 — 터치 화면과 같은 규칙(catalog.tsx 의 못채운축).
+  const 빠진것 = 못채운축(place, selections);
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -1308,9 +1309,9 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
       </div>
 
       <StickyFooter>
-        {빠진필수.length > 0 && (
+        {빠진것.length > 0 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {tf("주문하려면 {빠진것}도 고르셔야 해요", { 빠진것: 빠진필수.map(t).join(", ") })}
+            {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", { 빠진것: 빠진것.map(t).join(", ") })}
           </p>
         )}
         <PrimaryBtn
@@ -1319,7 +1320,7 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
             menuName: menuName.trim() || "이름 없는 주문표",
             place, selections, memo: "",
           })}
-          disabled={개인정보같은글(menuName)}
+          disabled={개인정보같은글(menuName) || 빠진것.length > 0}
         >
           저장하고 시작하기
         </PrimaryBtn>
@@ -1588,17 +1589,15 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
           </p>
         )}
         {/*
-          키오스크가 반드시 골라야 하는 축을 미리 알려 준다.
-
-          **막지는 않는다.** 저장은 이 기기에 적어 두는 일이고, 채우다 만 주문표를
-          저장해 두었다가 나중에 마저 고르는 길을 닫을 이유가 없다. 다만 이대로는
-          주문이 안 된다는 것은 그때 가서가 아니라 지금 알아야 한다 — 목록 화면의
-          '주문하기' 가 같은 이유로 잠긴다.
+          모든 축을 골라야 저장이 열린다(제품 결정 — catalog.tsx 의 못채운축).
+          예전에는 알려만 주고 막지 않았는데, 반쯤 채운 주문표를 저장해 두면
+          주문하는 순간에야 빈 칸을 만났다. '늘 하던 것' 을 저장하는 표라면
+          저장 시점에 다 채워져 있어야 한다. 무엇이 비었는지는 이름을 대고 말한다.
         */}
-        {못채운필수축(place, selections).length > 0 && (
+        {못채운축(place, selections).length > 0 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {tf("주문하려면 {빠진것}도 고르셔야 해요", {
-              빠진것: 못채운필수축(place, selections).map(t).join(", "),
+            {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
+              빠진것: 못채운축(place, selections).map(t).join(", "),
             })}
           </p>
         )}
@@ -1626,7 +1625,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
             menuName: menuName.trim() || "이름 없는 주문표",
             place, selections, memo,
           })}
-          disabled={개인정보같은글(memo) || 개인정보같은글(menuName)}
+          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || 못채운축(place, selections).length > 0}
         >
           {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
         </PrimaryBtn>

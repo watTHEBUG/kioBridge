@@ -84,6 +84,25 @@ export const 못채운필수축 = (
     .filter((o) => o.required && (selections?.[o.label]?.length ?? 0) === 0)
     .map((o) => o.label);
 
+/**
+ * 아직 안 고른 축 전부. 필수 여부를 가리지 않는다.
+ *
+ * 저장 화면이 쓴다 — 주문표는 모든 축을 골라야 저장할 수 있다(제품 결정).
+ * 킷 기준으로는 컵이 선택 항목이지만, 반쯤 채운 주문표를 저장해 두면 주문하는
+ * 순간에야 빈 칸을 만난다. '늘 하던 것' 을 저장하는 표라면 다 채워져 있어야 한다.
+ *
+ * 못채운필수축 과 나뉘어 있는 이유 — 목록 화면의 '주문 가능' 판정은 서버가
+ * 실제로 요구하는 것(필수 축)만 본다. 옛 주문표(이 규칙 전에 저장된 것)가
+ * 컵 없이도 주문은 되게 두기 위해서다.
+ */
+export const 못채운축 = (
+  place: PlaceType,
+  selections: Record<string, string[]> | undefined,
+): string[] =>
+  (place ? DETAIL_OPTIONS[place] : [])
+    .filter((o) => (selections?.[o.label]?.length ?? 0) === 0)
+    .map((o) => o.label);
+
 // 장소 픽토그램. 관공서는 기둥이 선 관청 형태(bank)가 가장 알아보기 쉽다.
 /**
  * 화면이 고르게 하는 장소.

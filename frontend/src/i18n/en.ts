@@ -329,7 +329,10 @@ export const EN: Record<string, string> = {
   "필수": "Required",
   "선택": "Optional",
   "저장하고 시작하기": "Save and start",
-  // 저장은 막지 않는다. 이대로는 주문이 안 된다는 것만 미리 알린다.
+  // 저장 화면의 잠금 안내. 모든 축을 골라야 저장이 열린다(catalog.tsx 의 못채운축).
+  "아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요":
+    "Not chosen yet — {빠진것}. Pick them all to save",
+  // 목록 화면의 주문 잠금 안내(필수 축 기준)는 아래 문장을 계속 쓴다.
   "주문하려면 {빠진것}도 고르셔야 해요": "To order, you also need to pick {빠진것}",
   // ─── 말로 채우기 ──────────────────────────────────────────────────────────
   "말로 채우기": "Fill it by voice",
