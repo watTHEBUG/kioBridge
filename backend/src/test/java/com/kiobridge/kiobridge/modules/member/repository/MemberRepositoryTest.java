@@ -323,6 +323,28 @@ class MemberRepositoryTest {
         ).isEmpty();
     }
 
+    @Test
+    void deleteAllByUserIdRemovesAllProfiles() {
+        AppUser user = appUserRepository.save(
+                new AppUser("delete-all-user", "password")
+        );
+
+        userProfileRepository.saveAndFlush(
+                profile(user, "profile-001", "menu-1")
+        );
+        userProfileRepository.saveAndFlush(
+                profile(user, "profile-002", "menu-2")
+        );
+
+        long deleted = userProfileRepository.deleteAllByUser_Id(user.getId());
+        userProfileRepository.flush();
+        entityManager.clear();
+
+        assertThat(deleted).isEqualTo(2L);
+        assertThat(userProfileRepository.findAllByUser_IdOrderByIdAsc(user.getId()))
+                .isEmpty();
+    }
+
     private UserProfile profile(
             AppUser user,
             String profileId,
