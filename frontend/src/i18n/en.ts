@@ -1,0 +1,518 @@
+/**
+ * 화면에 나가는 우리말 → English.
+ *
+ * 열쇠는 우리말 원문 그대로다. 표에 없으면 원문이 그대로 보인다(i18n/apply.ts) —
+ * 빈칸이나 열쇠 이름이 뜨는 것보다 낫고, 무엇이 안 옮겨졌는지 화면에서 바로 보인다.
+ *
+ * ── 여기 넣으면 안 되는 것 ─────────────────────────────────────────────────
+ *
+ * **사용자가 적은 값**(메뉴 이름·메모·호칭)은 넣지 않는다. 표에 있는 문장과
+ * 정확히 같으면 바뀌는데, 사람이 적은 말이 바뀌면 자기가 적은 것이 아닌 것이
+ * 화면에 뜬다.
+ *
+ * 다만 **표에 없다는 것만으로 지켜지지는 않는다.** 사용자가 표에 있는 말을 그대로
+ * 적을 수 있기 때문이다 — 주문표 이름을 '포장하기' 로 지으면 그 이름이 옮겨졌다.
+ * 그래서 사용자가 적은 말이 나가는 자리에는 `data-원문` 을 붙여 두고, 옮기는 쪽이
+ * 그 안을 아예 안 본다(apply.ts). 이 표에 무엇을 넣든 그 자리는 안전하다.
+ * 새 열쇠를 넣을 때는 그 말이 나가는 자리가 표시돼 있는지 같이 본다(#41 리뷰).
+ *
+ * **서버가 준 문장**은 예전에 안 넣었다. 그대로 인용한다는 원칙이었다. 그런데
+ * 영어로 바꾸면 화면에 우리말이 하나도 없어야 한다는 요구와 부딪혔다 — 인용을
+ * 지키느라 영어를 쓰는 사람이 못 읽는 줄을 남긴 셈이었다.
+ *
+ * 인용을 버리지 않는 선에서 넣는다: **본 적 있는 문장만** 아래 '서버가 주는 이유'
+ * 칸에 적고, 모르는 문장은 서버가 준 그대로 나간다. 서버가 새 문장을 만들면 그
+ * 줄은 우리말로 보인다 — 지어낸 영어보다 낫다. 서버가 영어로 줄 수 있게 되면
+ * 이 칸은 지운다.
+ *
+ * 저장값은 안 바뀐다. 주문표의 selections 는 계속 우리말이고(canonical.ts 가 그
+ * 우리말을 enum 으로 옮긴다), 여기서 바뀌는 것은 **보여 주는 글자뿐**이다.
+ */
+export const EN: Record<string, string> = {
+  // 한 칸씩 묻는 음성 화면.
+  "{n}번째 질문 (전체 {전체}개)": "Question {n} of {전체}",
+  "{보기} — 이것으로 할까요? 그렇게 말씀하셔도 되고, 다른 것을 말씀하셔도 돼요.":
+    "{보기} — shall we go with this? You can say yes, or say another one.",
+  "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요.":
+    "We heard you but could not tell which one. Please say it again, or choose above.",
+  "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
+    "The microphone is not available. Please choose by hand above.",
+  "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",
+  "그만 듣기": "Stop listening",
+  "건너뛰기": "Skip",
+  "끝내기": "Done",
+
+  // 이 기기에 남길지 묻는 화면. 비로그인일 때만 지난다.
+  "저장할까요?": "Save this?",
+  "지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때 이 기기에서 다시 꺼내 쓸 수 있어요.":
+    "You do not need to save it to order right now. If you save it, you can use it again from this device next time.",
+  "이번만 쓰기": "Use just this once",
+  "이 기기에 저장하기": "Save on this device",
+
+  // 말하기 — 기기 안 음성 모델을 받는 동안과, 없을 때.
+  "말을 알아들을 준비를 하고 있어요": "Getting ready to understand speech",
+  "처음 한 번만 걸려요. 잠시만 기다려 주세요": "This happens only the first time. One moment",
+  "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 아래에서 손으로 골라 주세요.":
+    "This device is not set up to understand speech. Please choose by hand below.",
+  // 한칸씩말하기 는 보기 칩이 안내문 위에 있어서 '위에서' 라고 말한다.
+  "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 위에서 손으로 골라 주세요.":
+    "This device is not set up to understand speech. Please choose by hand above.",
+
+  /*
+   * ── 서버가 주는 이유 ─────────────────────────────────────────────────────
+   *
+   * 추천 이유·못 맞춘 조건·제외 사유. 화면은 여기에 메뉴 이름과 고른 값을 덧대
+   * 한 줄로 조립한다(i18n/reason.ts). 메뉴 이름은 안 옮긴다 — 가게가 붙인
+   * 이름이라 옮기면 사용자가 키오스크 화면에서 그 이름을 못 찾는다.
+   */
+  "선호하신 맵기와 맞는 메뉴라": "Matches the spice level you chose",
+  "선호하신 뼈/순살과 다릅니다": "Differs from the bone type you chose",
+  "선호하신 이용 방식과 맞는 메뉴라": "Matches the service type you chose",
+  "선호하신 컵과 맞는 메뉴라": "Matches the cup you chose",
+  "선호하신 수량과 맞는 메뉴라": "Matches the quantity you chose",
+  "포장하기를 고르셔서 포장이 되는 메뉴만 남겼어요":
+    "You chose takeout, so only takeout items were kept",
+  "매운맛 선호와 일치해요.": "Matches your spicy preference.",
+  "지금은 품절이라 제외됐어요": "Removed — sold out right now",
+  /*
+   * 팀 백엔드의 고정 제외 문장 넷 (ChickenStoreExclusionMessages.java 의 TEMPLATES ·
+   * UNKNOWN_ALLERGEN_MESSAGE · DEFAULT_MESSAGE). **마침표까지 그대로** 적는다 —
+   * 문장이 곧 키라서 한 글자만 달라도 조용히 안 옮겨진다. 위의 품절 항목이
+   * 실제로 그랬다: 마침표 없이 적혀 있어서 백엔드 문장(마침표 있음)이 한 번도
+   * 안 걸렸다. 서버에서 문구를 고치면 여기도 같이 고쳐야 한다(#101 리뷰).
+   */
+  "지금은 품절이라 제외됐어요.": "Removed — sold out right now.",
+  "설정하신 가격 한도를 넘어서 제외됐어요.": "Removed — it goes over your price limit.",
+  "알레르기 조건과 겹쳐서 제외됐어요.": "Removed — it conflicts with your allergy settings.",
+  "선택하신 조건과 맞지 않아 제외됐어요.": "Removed — it doesn't match your choices.",
+  // 팀 백엔드의 알레르기 제외 문장. 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
+  "{알레르기} 알레르기와 겹쳐서 제외됐어요.": "Removed — contains {알레르기}, which you cannot eat.",
+  /*
+   * 프론트가 직접 만드는 제외 문장(api/backend.ts 의 filterCandidates).
+   * 메뉴 이름은 문장에 안 넣고 menuName 으로 따로 나르므로 여기엔 고정문만 있다.
+   * 축 이름은 reason.ts 가 하나씩 옮겨서 끼운다.
+   */
+  "지금 팔지 않아서 뺐어요": "Removed — not being sold right now",
+  "조건에 맞지 않아서 뺐어요": "Removed — it doesn't match your conditions",
+  "{축}이(가) 맞지 않아서 뺐어요": "Removed — {축} doesn't match",
+  // 백엔드는 EGG 를 '달걀' 로 부른다(프론트 목록은 '계란'). 그 이름 그대로 온다.
+  "달걀": "Egg",
+  "조건에 맞는 메뉴가 오늘은 없어요. 알레르기나 이용 방식 때문에 모두 빠졌어요.":
+    "Nothing matches today. Everything was removed by allergy or service type.",
+  "[{알레르기}] 알레르기와 겹쳐서 제외됐어요.":
+    "Removed — contains {알레르기}, which you cannot eat.",
+  // 조각을 잇는 틀. 언어마다 어순이 달라서 토막을 잇지 않고 통째로 옮긴다.
+  "{메뉴} — {글}": "{메뉴} — {글}",
+  "{글} (고르신 값: {값})": "{글} (you chose: {값})",
+
+  /*
+   * 앱 이름과 언어 이름.
+   *
+   * 예전에는 둘 다 일부러 안 옮겼다 — 앱 이름은 고유명사고, 언어 이름은 그 언어로
+   * 적는 것이 보통이라서다("한국어" / "English"). 그런데 영어 화면에 우리말이
+   * 하나도 없어야 한다는 쪽으로 정했다. 로고의 aria-label 은 소리로만 듣는
+   * 사람에게 "키오브릿지" 로 읽히고 있었다.
+   */
+  "키오브릿지": "KioBridge",
+  "한국어": "Korean",
+  // ─── 첫 화면 · 동의 ───────────────────────────────────────────────────────
+  "키오스크 앞에서 헤매지 않도록,": "So you never feel lost at a kiosk,",
+  "저장해 둔 주문을 대신 담아드려요": "we add your saved order for you",
+  "바로 시작하기": "Start now",
+  "가입 없이 바로 쓸 수 있어요.": "No sign-up needed.",
+  "입력한 내용은 이번 한 번만 쓰고 지워집니다": "What you enter is used once, then erased",
+  "로그인 (선택)": "Log in (optional)",
+  "주문에 쓸 정보를 모으고 쓰는 데 동의합니다.": "I agree to the use of my order details.",
+  "메뉴 조건과 도움 설정이에요. 이름·전화번호는 받지 않아요.":
+    "Menu preferences and support settings. We never ask for your name or phone number.",
+  "자세히": "Details",
+  "동의하셔야 시작할 수 있어요": "Please agree to continue",
+  "동의하셔야 로그인할 수 있어요": "Please agree to log in",
+  "동의하셔야 가입할 수 있어요": "Please agree to sign up",
+
+  // ─── 로그인 · 가입 ────────────────────────────────────────────────────────
+  "로그인": "Log in",
+  "저장해 두신 주문표를 다시 불러와요": "Bring back the order cards you saved",
+  "아이디": "ID",
+  "비밀번호": "Password",
+  "비밀번호 다시 적기": "Re-enter password",
+  "보기": "Show",
+  "접기": "Hide",
+  // 숫자가 끼어 조각으로 쪼개지는 문장. tf() 로 통째로 옮긴다.
+  "{n}가지 실패": "{n} failed",
+  "숨기기": "Hide",
+  "확인하는 중": "Checking",
+  "아이디와 비밀번호를 적으면 로그인할 수 있어요": "Enter your ID and password to log in",
+  "아이디가 없으신가요? 회원가입": "No account yet? Sign up",
+  "이미 아이디가 있으신가요? 로그인": "Already have an account? Log in",
+  "회원가입": "Sign up",
+  "아이디와 비밀번호만 받아요": "We only ask for an ID and a password",
+  "가입하고 시작하기": "Sign up and start",
+  "가입하는 중": "Signing up",
+  "아이디와 비밀번호를 적으면 가입할 수 있어요": "Enter an ID and password to sign up",
+  "같은 비밀번호를 한 번 더 적어 주세요": "Please enter the same password again",
+  "아이디를 적어 주세요": "Please enter an ID",
+  "비밀번호를 적어 주세요": "Please enter a password",
+  "아이디 또는 비밀번호가 맞지 않아요": "That ID or password doesn’t match",
+  "로그인이 풀렸어요. 다시 로그인해 주세요": "You’ve been signed out. Please log in again",
+  "이미 쓰고 있는 아이디예요": "That ID is already taken",
+  "비밀번호가 달라요": "The passwords don’t match",
+  "비밀번호가 너무 길어요. 조금 줄여 주세요": "That password is too long. Please shorten it",
+
+  // ─── 호칭 · 환영 ──────────────────────────────────────────────────────────
+  "반갑습니다!": "Nice to meet you!",
+  "어떻게 불러드릴까요?": "What should we call you?",
+  // 팀 #96 리뷰에서 "아니어도 괜찮아요" 를 "실제 이름 말고" 로 바꿨다. 표도 같이 옮긴다.
+  "실제 이름 말고, 불리고 싶은 말을 적어 주세요":
+    "Not your real name — write what you’d like to be called",
+  "부를 호칭": "What to call you",
+  "예: 할머니, 김씨": "e.g. Grandma, Mr. Kim",
+  // 숫자가 끼는 문장이라 조각으로 쪼개진다. tf() 로 통째로 옮긴다.
+  "전체 {전체}단계 중 {지금}단계": "Step {지금} of {전체}",
+  "계속하기": "Continue",
+  "반가워요,": "Nice to meet you,",
+  "님!": "!",
+  "자주 시키는 주문을 저장해 두면": "Save the orders you make often and",
+  "키오스크 앞에서 바로 꺼내 쓸 수 있어요": "you can pull them up right at the kiosk",
+
+  // ─── 도움 설정 ────────────────────────────────────────────────────────────
+  "필요한 도움이": "Do you need any",
+  "있으신가요?": "help?",
+  "켜는 즉시 이 화면이 바로 바뀌어요. 안 켜셔도 괜찮아요":
+    "Changes apply right away. It’s fine to leave them off",
+  "나중에 계정 화면에서 언제든 바꿀 수 있어요.": "You can change these any time from your account.",
+  "보기 편하게": "Let’s make it",
+  "바꿔드릴게요": "easier to read",
+  "필요하신 것만 켜 주세요. 켠 것은 이 기기에만 남고, 이 창을 닫으면 처음으로 돌아가요.":
+    "Turn on only what you need. These stay on this device and reset when you close this window.",
+  "이 앱은 원래 큰 버튼과 또렷한 대비로 만들었고, 소리로만 알리는 것은 하나도 없어요. 어려우면 이 화면을 직원에게 보여 주세요.":
+    "This app already uses large buttons and strong contrast, and nothing is announced by sound alone. If you get stuck, show this screen to a staff member.",
+  "이 앱이 바로 바꿔요": "Changes this app right away",
+  "키오스크에 전해 드려요": "Passed on to the kiosk",
+  "앱 화면은 그대로예요. 지금은 전해 주기만 해요.":
+    "This app’s screens stay the same. For now we only pass this on.",
+  "큰 글씨": "Large text",
+  "앱 전체의 글씨와 버튼을 크게 봐요": "Makes all text and buttons bigger",
+  "고대비": "High contrast",
+  "글씨와 배경의 차이를 더 뚜렷하게 해요": "Sharpens the difference between text and background",
+  "소리로 읽어 주기": "Read aloud",
+  "화면에 나온 안내를 소리로 읽어 드려요": "Reads what’s on screen out loud",
+  "쉬운 단계": "Fewer steps",
+  "이유 화면을 건너뛰고 바로 확인 화면으로 가요": "Skips the reason screen and goes straight to review",
+  "시간 여유": "More time",
+  "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요":
+    "Won’t close the screen you’re reading when the session times out",
+  "직원 도움": "Staff help",
+  "승인 화면에도 직원에게 보여 달라는 안내를 띄워요":
+    "Shows a note asking staff for help on the approval screen too",
+  "그림 안내": "Picture guidance",
+  "글보다 그림으로 알려 달라고 전해요": "Asks the kiosk to guide with pictures rather than text",
+  "소리 대신 화면": "Screen instead of sound",
+  "소리 안내를 못 들어요. 키오스크에 그렇게 전해요":
+    "I can’t hear audio guidance. We tell the kiosk that",
+  "안내 언어": "Guidance language",
+  "키오스크에 이 언어로 안내해 달라고 전해요": "Asks the kiosk to guide you in this language",
+
+  // ─── 알레르기 ─────────────────────────────────────────────────────────────
+  "못 드시는 것": "Foods to avoid",
+  "고르시면 그게 들어간 메뉴는 추천에서 아예 빼요. 없으시면 안 고르셔도 돼요.":
+    "Anything you pick is removed from recommendations entirely. Skip this if none apply.",
+  "땅콩": "Peanut",
+  "대두": "Soy",
+  "우유": "Milk",
+  "계란": "Egg",
+  "밀": "Wheat",
+  "새우": "Shrimp",
+
+  // ─── 주문표 목록 ──────────────────────────────────────────────────────────
+  "어떤 주문표로": "Which order card",
+  "주문할까요?": "should we use?",
+  "저장된 주문표 목록": "Saved order cards",
+  "저장된 주문표가 없어요": "No saved order cards yet",
+  "새 주문표를 추가해보세요": "Try adding one",
+  "+ 새 주문표 추가": "+ Add an order card",
+  "이 주문표로 주문하기": "Order with this card",
+  "삭제": "Delete",
+  "한 개 값 한도 (선택)": "Price limit per item (optional)",
+  // 단가가 한도와 같아도 이 문구가 뜬다(합계만 넘으면 뜬다). "under" 는 미만이라
+  // 경계값을 빠뜨린다 — "within" 으로 적는다(#100 리뷰).
+  "한 개 값은 한도 안이지만, {수량}개면 {합계}예요.":
+    "Each one is within your limit, but {수량} of them come to {합계}.",
+  // 직접 적는 칸이다. 단위(원 / KRW)는 표가 아니라 코드에서 언어를 보고 붙인다.
+  "예: 8000": "e.g. 8000",
+  "비워 두면 한도 없이 찾아요": "Leave it blank to search without a limit",
+  // 키오스크가 반드시 골라야 하는 축이 빈 주문표. 축 이름은 따로 옮겨진다(t).
+  "아직 안 고르신 것이 있어요 — {빠진것}. 주문표를 열어 고르시면 주문할 수 있어요.":
+    "Some choices are still missing — {빠진것}. Open the card and pick them to order.",
+  "QR 찍기": "Scan QR",
+  "내 주문표": "My cards",
+  "계정": "Account",
+
+  // ─── 주문표 만들기 ────────────────────────────────────────────────────────
+  "메뉴 주문표": "Order card",
+  "자주 주문하는 메뉴를 저장해두세요": "Save the menu you order often",
+  "메뉴 이름": "Menu name",
+  "장소 유형": "Place type",
+  "메모": "Note",
+  "필수": "Required",
+  "선택": "Optional",
+  "저장하고 시작하기": "Save and start",
+  // 저장은 막지 않는다. 이대로는 주문이 안 된다는 것만 미리 알린다.
+  "주문하려면 {빠진것}도 고르셔야 해요": "To order, you also need to pick {빠진것}",
+  // ─── 말로 채우기 ──────────────────────────────────────────────────────────
+  "말로 채우기": "Fill it by voice",
+  "“매운 닭강정 포장으로 두 개” 처럼 말씀하시면 아래 칸이 채워져요.":
+    "Say something like “two spicy boneless, to go” and we will fill in the fields below.",
+  "한 번에 다 말하지 않으셔도 돼요. 들은 것만 채우고, 나머지는 손으로 고르시면 돼요.":
+    "You do not have to say it all at once. We fill in what we heard; pick the rest by hand.",
+  "말하기": "Speak",
+  "듣고 있어요": "Listening",
+  "이렇게 말씀해 보세요": "Try saying it like this",
+  "한 번에 다 말하지 않으셔도 돼요. 나머지는 손으로 고르시면 돼요.":
+    "You do not have to say it all at once. Pick the rest by hand.",
+  "다 말했어요": "I am done",
+  "이렇게 들었어요": "This is what we heard",
+  "이대로 채우기": "Use this",
+  "다시 말하기": "Say it again",
+  "못 들은 것 — {축}. 아래에서 골라 주세요.": "We did not catch these — {축}. Please pick them below.",
+  "말씀은 들었는데 어느 쪽인지 못 골랐어요 — {축}. 아래에서 골라 주세요.":
+    "We heard you mention these but could not tell which — {축}. Please pick them below.",
+  "장소가 바뀌어 못 채워요": "Place changed — cannot fill",
+  "장소를 고르시면 맵기·형태 같은 것도 말로 채울 수 있어요.":
+    "Pick a place and you can fill in things like spice level by voice too.",
+  "마이크를 쓸 수 없어요. 브라우저 설정에서 마이크를 허용해 주시거나, 아래에서 손으로 골라 주세요.":
+    "We cannot use the microphone. Allow it in your browser settings, or pick by hand below.",
+  "잘 안 들렸어요. 조금 더 크게 다시 말씀해 주세요.":
+    "We did not catch that. Please say it again a little louder.",
+  "지금은 말로 채울 수 없어요. 아래에서 손으로 골라 주세요.":
+    "Voice is not available right now. Please pick by hand below.",
+  // 저장해 둔 주문표를 다시 열어 고칠 때의 문구.
+  "주문표 고치기": "Edit this card",
+  "고치고 저장하면 이 주문표가 바뀌어요": "Saving replaces this card",
+  "고친 내용 저장하기": "Save changes",
+  "고치기": "Edit",
+  "맨 위 메뉴 이름을 적으면 저장할 수 있어요": "Enter a menu name above to save",
+  "주문에 필요한 내용만 적어 주세요. 이름·전화번호·주민등록번호 같은 개인정보는 적지 마세요.":
+    "Write only what’s needed for the order. Don’t include personal details like your name, phone number, or ID number.",
+  "카페": "Café",
+  "음식점": "Restaurant",
+  "병원": "Clinic",
+  "관공서": "Public office",
+  "이용 방식": "Dine in or take out",
+  "먹고 가기": "Eat in",
+  "포장하기": "Take out",
+  "맵기": "Spice level",
+  "순한맛": "Mild",
+  "보통맛": "Medium",
+  "매운맛": "Hot",
+  "형태": "Bone or boneless",
+  "혼잡 시간대": "Busy hours",
+  "뼈": "Bone-in",
+  "순살": "Boneless",
+  "컵": "Cup",
+  "종이컵": "Paper cup",
+  "일반컵": "Regular cup",
+  "수량": "Quantity",
+  "1개": "1",
+  "2개": "2",
+  "3개": "3",
+
+  // ─── QR · 연결 ────────────────────────────────────────────────────────────
+  "키오스크의 QR 코드를": "Point your camera at",
+  "카메라에 맞춰주세요": "the kiosk’s QR code",
+  "QR 코드가 잘 보이지 않으면 조명을 조절해 주세요": "If the QR code is hard to see, adjust the lighting",
+  "연결되었습니다": "Connected",
+  "{이름} 키오스크에 연결되었습니다": "Connected to {이름}",
+  "오늘의 메뉴와 맞춰보는 중": "Checking against today's menu",
+  "닭강정 가게": "Dakgangjeong Shop",
+  "이름 없는 주문표": "Untitled order card",
+  "키오스크": "Kiosk",
+  "세션 유효시간": "Session time left",
+  "만료되면 QR을 다시 스캔해 주세요": "Scan the QR code again when it expires",
+  "주문표 선택하기": "Choose an order card",
+
+  // ─── 이유 · 확인 ──────────────────────────────────────────────────────────
+  "이렇게 찾았어요": "How we found this",
+  "저장해 두신 조건으로 오늘 메뉴에서 찾은 결과예요.":
+    "This is what we found on today’s menu using your saved preferences.",
+  "이걸 보고 골랐어요": "What we looked at",
+  "반영한 조건": "What we used",
+  "맞추지 못한 조건": "What we couldn’t match",
+  "빼 둔 메뉴와 그 이유": "Menus we left out, and why",
+  "담을 메뉴 확인하기": "Review what goes in the cart",
+  "메뉴 고르러 가기": "Go pick a menu",
+  "상품": "Item",
+  "가격": "Price",
+  "승인하고 담기": "Approve and add",
+  "취소": "Cancel",
+  "혹시 이 중": "Which one",
+  "어떤 메뉴인가요?": "did you mean?",
+  "비슷한 메뉴가 여러 개예요": "There are several similar menus",
+  "저장하신 조건": "Your saved preferences",
+  "조건 일치": "Matches",
+  "고르신 메뉴와 달라요": "Different from what you picked",
+  "메뉴를 선택하면 승인할 수 있어요": "Pick a menu to approve",
+  "담을 수 있는 메뉴가 없어요": "There’s no menu we can add",
+  "확실하지 않아요": "Not certain",
+
+  // ─── 계정 ─────────────────────────────────────────────────────────────────
+  "게스트로 이용 중": "Using as a guest",
+  "로그인 없이 모든 기능을 쓰고 있어요": "You’re using every feature without logging in",
+  "다음에도 불러오려면 로그인 (선택)": "Log in to bring these back next time (optional)",
+  "저장된 주문표 관리": "Manage saved order cards",
+  "이번 이용에만 쓰는 메뉴 주문표예요": "Order cards for this visit only",
+  "접근성 설정": "Support settings",
+  "개인정보 안내": "Privacy notice",
+  "무엇을 저장하고 무엇을 저장하지 않는지": "What we keep and what we don’t",
+  "이 기기에서 정보 지우기": "Erase everything on this device",
+  "지금까지 입력한 내용을 모두 지워요": "Erases everything you’ve entered",
+  "저장해 둔 내용을 모두 지워요": "Erases everything you’ve saved",
+  "로그아웃": "Log out",
+  "모두 지우기": "Erase everything",
+  "다시 시도": "Try again",
+  "지우기": "Delete",
+
+  // ─── 개인정보 안내 ────────────────────────────────────────────────────────
+  "무엇을 남기고": "What we keep and",
+  "무엇을 안 남기나요": "what we don’t",
+  "동의는 언제 받나요": "When do you ask for consent?",
+  "저장하는 것": "What we keep",
+  "저장하지 않는 것": "What we never keep",
+  "로그인은 어떻게 하나요": "How does logging in work?",
+  "키오스크에 넘기는 것": "What goes to the kiosk",
+  "지우는 방법": "How to erase it",
+  "이 앱은 주문을 장바구니에 담는 데까지만 도와드려요. 결제는 키오스크에서 직접 하시면 돼요.":
+    "This app only helps up to adding items to the cart. You handle the rest at the kiosk yourself.",
+
+  // ─── 키오스크 연동 ────────────────────────────────────────────────────────
+  "키오스크에 연결하는 중": "Connecting to the kiosk",
+  "연결할 수 없습니다": "Can’t connect",
+  "유효하지 않은 QR입니다": "That QR code isn’t valid",
+  /*
+   * 제목이 <br /> 로 두 줄이라 조각 둘로 들어온다. 우리말과 영어의 어순이 같아
+   * 조각째 옮겨도 말이 된다 — "연결 시간이 / 만료되었습니다", "The connection /
+   * has timed out".
+   */
+  "연결 시간이": "The connection",
+  "만료되었습니다": "has timed out",
+  "안전을 위해 연결이 종료되었어요": "The connection was closed for your safety",
+  /*
+   * 원래 "QR 코드를 <strong>다시 스캔</strong>해 주세요" 라 조각이 셋이었다.
+   * 영어는 'again' 이 문장 끝에 붙어서 가운데 조각만 옮기면 어순이 무너진다.
+   * 굵은 자리를 "다시 스캔해 주세요" 로 넓혀 조각을 둘로 만들었다.
+   *
+   * 그래서 굵어지는 곳이 두 언어에서 다르다.
+   *
+   *   우리말  키오스크에 부착된 QR 코드를 **다시 스캔해 주세요**   (동작 전체)
+   *   영어    Scan the QR code on the kiosk **again**            ('again' 만)
+   *
+   * 영어 쪽은 동작(Scan)이 강조 밖에 있다. 어순 때문에 어쩔 수 없고, 그래도
+   * 말이 된다 — 한 번 찍어 본 사람에게 새로 알려야 할 것은 '또' 라는 사실이다.
+   */
+  "키오스크에 부착된 QR 코드를": "Scan the QR code on the kiosk",
+  "다시 스캔해 주세요": "again",
+  "문제가 반복되면 매장 직원에게 도움을 요청하세요":
+    "If this keeps happening, ask a staff member for help",
+
+  // ─── 실행 · 결과 ──────────────────────────────────────────────────────────
+  "잠시만 기다려 주세요": "Just a moment",
+  "화면을 닫지 마세요": "Please don’t close this screen",
+  "장바구니에 담았어요": "Added to the cart",
+  "처음으로": "Back to start",
+  "포장/매장 선택": "Dine in or take out",
+  "메뉴 선택": "Choose menu",
+  "옵션 선택": "Choose options",
+  "옵션 확정·담기": "Confirm and add",
+  "장바구니 확인": "Check the cart",
+  "됨": "Done",
+  "실패": "Failed",
+
+  // ─── 훑어서 찾은 나머지 (i18n/apply.ts 의 안바뀐것) ────────────────────────
+  //
+  // "키오브릿지" 와 "한국어" 는 일부러 안 넣는다 — 앞은 앱 이름이고, 뒤는 언어를
+  // 그 언어로 적는 목록이라 영어 화면에서도 한국어로 보여야 찾을 수 있다.
+  "주요 메뉴": "Main menu",
+  "버전 1.0.0": "Version 1.0.0",
+  "뒤로 가기": "Back",
+  "메뉴 이름 (필수)": "Menu name (required)",
+  "예) 아이스 아메리카노 둘": "e.g. two iced americanos",
+  "장소 유형 선택": "Choose a place type",
+  "메모 (선택). 이름·전화번호·주민등록번호 같은 개인정보는 적지 마세요":
+    "Note (optional). Don’t include personal details like your name, phone number, or ID number",
+  "예: 얼음 적게 주세요": "e.g. light on the ice",
+  "주문에 필요한 내용만 적어 주세요.": "Write only what’s needed for the order.",
+  "이름·전화번호·주민등록번호 같은 개인정보는 적지 마세요.":
+    "Don’t include personal details like your name, phone number, or ID number.",
+  "맨 위": "the", "을 적으면 저장할 수 있어요": "above to save",
+  "메뉴 주문표에 적어 두신 내용(예: 포장, 매운맛, 순살, 종이컵)만 저장해요. 사람이 읽는 말 그대로예요. 지금은 이 기기 안에만 있어요. 실수로 새로고침해도 다시 적지 않으셔도 되게 이 창 안에 남겨 두고, 창을 닫으면 지워요.":
+    "We keep only what you wrote on your order card (take-out, hot, boneless, paper cup, and so on) — in plain words. Right now it stays on this device. We keep it inside this window so an accidental refresh doesn’t make you type it again, and we erase it when the window closes.",
+  "실제 이름·주소·전화번호·주민등록번호는 받지도, 저장하지도 않아요. 결제 정보도 다루지 않아요. 부르는 호칭은 화면에 띄우는 데만 쓰고 이 기기 밖으로 나가지 않아요.":
+    "We never ask for or keep your real name, address, phone number, or ID number. We don’t handle payment details either. The name you’re greeted by is only shown on screen and never leaves this device.",
+  "직접 지으신 아이디와 비밀번호만 받아요. 실제 이름이나 전화번호는 묻지 않아요. 비밀번호는 서버에서 알아볼 수 없는 형태로 바꿔 저장하고, 이 앱은 적으신 비밀번호를 어디에도 남기지 않아요. 로그인 상태는 새로고침해도 그대로지만, 이 창을 닫으면 풀립니다.":
+    "We only take an ID and password you make up yourself. We never ask for your real name or phone number. The server stores your password in a form it can’t read back, and this app keeps it nowhere. You stay logged in across a refresh, but closing this window logs you out.",
+  "QR로 연결할 때는 이번 주문에만 쓰는 짧은 연결 표만 오가요. 시간이 지나면 저절로 만료돼요.":
+    "Connecting by QR only passes a short-lived pass used for this order. It expires on its own after a while.",
+  "지금은 로그인 없이 쓰고 계셔서 이 창을 닫으면 이 기기에 남지 않아요. 바로 지우시려면 계정 화면의 ‘이 기기에서 정보 지우기’를 눌러 주세요. 다만 키오스크에 보낸 주문 기록은 서버에 남아요 — 아직 지우는 길이 없어서요.":
+    "You’re using this without logging in, so nothing stays on this device once you close the window. To erase it right away, tap “Erase everything on this device” on the account screen. One thing stays: the order record sent to the kiosk remains on the server — there’s no way to erase that yet.",
+  "세부 옵션": "Details",
+  "1개 선택": "Pick one",
+  "이용 방식 — 1개 선택": "Dine in or take out — pick one",
+  "맵기 — 1개 선택": "Spice level — pick one",
+  "형태 — 1개 선택": "Bone or boneless — pick one",
+  "컵 — 1개 선택": "Cup — pick one",
+  "수량 — 1개 선택": "Quantity — pick one",
+  "QR 코드를 인식했어요": "QR code recognized",
+  "QR 코드 스캔": "QR code scanner",
+  "QR 스캔 닫기": "Close the scanner",
+  // 한 덩어리로 오는 자리. 줄 단위 항목만으로는 안 맞아서 줄바꿈째 넣는다.
+  "키오스크의 QR 코드를\n카메라에 맞춰주세요": "Point your camera\nat the kiosk’s QR code",
+  "한 개에 {금액}보다 비싼 메뉴는 빼고 찾아요. 남는 게 없으면 그렇다고 알려 드려요.":
+    "We’ll leave out anything over {금액} per item. If nothing is left, we’ll tell you so.",
+  "주문표 삭제": "Delete order card",
+  // ─── QR 다시 찍기 갈래 ────────────────────────────────────────────────────
+  "QR 코드를": "Scan the",
+  "찍어 주세요": "QR code",
+  "키오스크 화면이나 기계에 붙어 있어요": "It’s on the kiosk screen or stuck to the machine",
+  "찍지 않아도": "Even without scanning, you can review your saved",
+  "에서 저장한 조건을 먼저 확인할 수 있어요": "first",
+  "QR 다시 스캔하기": "Scan the QR code again",
+  "연결이 끊어졌어요": "The connection ended",
+  "연결 시간이 지났어요": "The session timed out",
+  // ─── 이유 화면 ────────────────────────────────────────────────────────────
+  //
+  // 서버가 준 문장(추천 이유·제외 사유)은 일부러 안 넣는다. 이 앱은 그걸 그대로
+  // 인용한다는 원칙을 지켜 왔고, 우리가 영어로 바꾸면 서버가 한 말인지 우리가
+  // 지어낸 말인지 다시 알 수 없다. 서버가 영어로 줄 수 있게 되면 그때 받아 쓴다.
+  //
+  // 메뉴 이름도 안 넣는다. 사용자는 이 이름을 키오스크 화면과 맞춰 봐야 하는데,
+  // 옮기면 화면에 있는 이름과 달라져서 맞춰 볼 수가 없다.
+  "반영:": "Used:",
+  "제외:": "Left out:",
+  "비슷한 메뉴 후보": "Similar menu options",
+  // ─── 결과 화면 ────────────────────────────────────────────────────────────
+  "담긴 내역": "What went in",
+  "담긴 내역을 불러오지 못했어요": "We couldn’t load what went in",
+  "화면 인식으로 확인됨": "Confirmed by reading the screen",
+  "키오스크가 보내온 결과": "What the kiosk sent back",
+  "키오스크 화면에서 장바구니를 확인해 주세요": "Please check the cart on the kiosk screen",
+  "이유 {n}개 더 보기": "See {n} more reasons",
+  // ─── 오류 문구 ────────────────────────────────────────────────────────────
+  //
+  // 화면에 그대로 뜨는 말이라 옮긴다. 서버가 준 문장(추천 이유 등)과 달리
+  // 이건 우리가 지은 말이다.
+  "메뉴를 먼저 찾아야 해요": "We need to find the menu first",
+  "주문표를 찾을 수 없어요": "We can’t find that order card",
+  "연결이 만료됐어요. QR을 다시 찍어 주세요": "The session expired. Please scan the QR code again",
+  "저장하신 조건을 서버가 읽지 못했어요": "The server couldn’t read your saved preferences",
+  "저장하신 조건을 다시 확인해 주세요": "Please check your saved preferences again",
+  "저장하신 알레르기 중에 저희가 확인하지 못한 것이 있어요. 주문표에서 다시 골라 주시거나 직원에게 도움을 청해 주세요.":
+    "There’s an allergy we couldn’t confirm. Please pick it again on your order card, or ask a staff member for help.",
+  "진행 상황을 확인할 수 없어요": "We can’t check the progress",
+  "서버에 남은 정보를 지우지 못했어요": "We couldn’t erase what’s left on the server",
+  "요청을 처리하지 못했어요": "We couldn’t complete that request",
+  "잠시 후 다시 시도해 주세요": "Please try again in a moment",
+  "안전을 위해 중단되었습니다": "Stopped for safety",
+  "예상하지 못한 화면이 감지되어 작동을 멈췄어요.": "We stopped because the screen wasn’t what we expected.",
+  "직원 초기화를 기다려 주세요": "Please wait for a staff member to reset it",
+  "키오스크가 한 일 {n}가지": "{n} things the kiosk did",
+};

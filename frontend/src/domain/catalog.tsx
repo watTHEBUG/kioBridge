@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { DetailOption, PlaceType, OrderSheet } from "@/domain/types";
+import type { DetailOption, PlaceType } from "@/domain/types";
 import { Pictogram } from "@/design/Pictogram";
 
 // 키를 PlaceType 으로 좁혀 둔다. string 이면 장소를 새로 넣을 때 한쪽만 채워도
@@ -25,46 +25,78 @@ export const DETAIL_OPTIONS: Record<NonNullable<PlaceType>, DetailOption[]> = {
   // 매핑의 일이지 앱이 목록에서 고르게 할 일이 아니다.
   음식점: [
     // chicken-store: SERVICE_TYPE / SPICY_LEVEL / BONE_TYPE / CUP / QUANTITY
-    { label: "이용 방식", multi: false, choices: ["먹고 가기", "포장하기"] },
-    { label: "맵기", multi: false, choices: ["순한맛", "보통맛", "매운맛"] },
-    { label: "형태", multi: false, choices: ["뼈", "순살"] },
+    // required 는 킷 option-groups.json 을 그대로 옮긴 것이다. 컵만 false 다.
+    { label: "이용 방식", multi: false, choices: ["먹고 가기", "포장하기"], required: true },
+    { label: "맵기", multi: false, choices: ["순한맛", "보통맛", "매운맛"], required: true },
+    { label: "형태", multi: false, choices: ["뼈", "순살"], required: true },
     // 컵은 '추가 옵션' 다중선택 안에 묻어 두지 않는다. fixture 에서 독립된 축이고,
     // 확인 카드에 반드시 보여야 하는 다섯 항목 중 하나라 따로 묻는다.
+    // 킷에서 유일하게 required: false 인 축이라, 안 골라도 주문을 막지 않는다.
     { label: "컵", multi: false, choices: ["종이컵", "일반컵"] },
-    { label: "수량", multi: false, choices: ["1개", "2개", "3개"] },
-    // 알레르기는 option-group 이 아니라 사람에 대한 절대 조건이라 fixture 축과 맞추지 않는다.
-    // 겹치는 메뉴는 순위를 낮추는 게 아니라 후보에서 아예 뺀다.
-    // 오늘 이 가게에서 실제로 걸리는 건 땅콩뿐이지만, 나머지를 지우면
-    // 새우 알레르기가 있는 사람이 그 사실을 말할 방법이 사라진다.
-    { label: "알레르기 (꼭 빼주세요)", multi: true, choices: ["땅콩", "대두", "우유", "계란", "밀", "새우"] },
+    { label: "수량", multi: false, choices: ["1개", "2개", "3개"], required: true },
+    /*
+     * 알레르기는 여기서 묻지 않는다. 가입 직후에 한 번 묻고 모든 주문에 쓴다
+     * (api/allergy.ts).
+     *
+     * 주문표마다 물으면 새 주문표를 만들 때마다 다시 골라야 하고, 한 번 빠뜨리면
+     * 그 주문표로 주문할 때 안 걸러진다. 빠뜨려도 되는 값이 아니다.
+     *
+     * 예전에 저장한 주문표에는 이 축이 남아 있을 수 있다. canonical.ts 는 그것도
+     * 계속 읽어서 합친다 - 화면이 안 묻게 됐다고 이미 적어 둔 알레르기를 조용히
+     * 버리면, 그 사람은 걸러질 줄 알고 승인한다.
+     */
   ],
   // 접수·안내 범위만 허용. 증상·진단·치료 관련 항목은 두지 않는다.
   // hospital: VISIT_TYPE / APPOINTMENT / DEPARTMENT / SUPPORT
   병원: [
-    { label: "방문 유형", multi: false, choices: ["초진", "재진", "건강검진", "검사"] },
-    { label: "예약 여부", multi: false, choices: ["예약 있음", "예약 없음"] },
+    { label: "방문 유형", multi: false, choices: ["초진", "재진", "건강검진", "검사"], required: true },
+    { label: "예약 여부", multi: false, choices: ["예약 있음", "예약 없음"], required: true },
     // '미정'을 선택지로 남겨 둔다. 어느 과인지 모르는 사람에게 앱이 대신 정해 주지 않고,
     // 진료과가 정해지지 않은 채로도 받아 주는 안내 경로로 보낸다.
-    { label: "진료과", multi: false, choices: ["내과", "정형외과", "영상의학과", "건강검진센터", "미정 (안내 필요)"] },
+    { label: "진료과", multi: false, choices: ["내과", "정형외과", "영상의학과", "건강검진센터", "미정 (안내 필요)"], required: true },
     // 이 축이 없으면 접근성 지원이 필요한 사람과 아닌 사람의 결과가 같아진다.
-    { label: "접근성 지원", multi: false, choices: ["지원 없음", "큰 글씨", "청각 지원", "직원 도움"] },
+    { label: "접근성 지원", multi: false, choices: ["지원 없음", "큰 글씨", "청각 지원", "직원 도움"], required: true },
   ],
   // 이용자격·법적 수급 가능성은 판단하지 않는다. 업무 선택과 절차 안내만 한다.
   // public-office: CATEGORY / AUTH_METHOD
   관공서: [
-    { label: "민원 분야", multi: false, choices: ["주민등록", "가족관계", "건강보험", "지방세", "직원 상담"] },
+    { label: "민원 분야", multi: false, choices: ["주민등록", "가족관계", "건강보험", "지방세", "직원 상담"], required: true },
     // 지금 가진 인증수단으로 이 기계에서 진행이 되는지만 본다. 자격 판단이 아니다.
     // 안 되는 후보는 점수를 깎는 게 아니라 후보에서 뺀다(AUTH_METHOD_UNAVAILABLE).
-    { label: "인증 방식", multi: false, choices: ["모바일 인증", "신분증 인증", "직원 확인"] },
+    { label: "인증 방식", multi: false, choices: ["모바일 인증", "신분증 인증", "직원 확인"], required: true },
   ],
 };
 
+/**
+ * 아직 안 고른 필수 축. 다 채웠으면 빈 배열이다.
+ *
+ * 킷의 통과 조건에 "필수 옵션을 모두 충족" 이 있다. 비면 실행계획이 검증에서
+ * 떨어지는데, 그 응답으로는 무엇이 빠졌는지 사용자에게 말해 줄 수 없다. 보내기
+ * 전에 여기서 먼저 본다.
+ *
+ * 장소를 안 골랐으면 볼 축 자체가 없다 — 그건 다른 안내가 따로 막는다.
+ */
+export const 못채운필수축 = (
+  place: PlaceType,
+  selections: Record<string, string[]> | undefined,
+): string[] =>
+  (place ? DETAIL_OPTIONS[place] : [])
+    .filter((o) => o.required && (selections?.[o.label]?.length ?? 0) === 0)
+    .map((o) => o.label);
+
 // 장소 픽토그램. 관공서는 기둥이 선 관청 형태(bank)가 가장 알아보기 쉽다.
+/**
+ * 화면이 고르게 하는 장소.
+ *
+ * 이번 시나리오는 닭강정집 하나만 쓴다. 카페·병원·관공서를 뺐다 — 백엔드가
+ * 다루는 것은 닭강정집뿐이라, 다른 장소로 주문표를 만들면 서버가 축을 못 찾아
+ * UNKNOWN 으로 채우고 확인 카드가 텅 빈 채로 승인 화면이 뜬다.
+ *
+ * 타입(PlaceType)과 축 표(DETAIL_OPTIONS)는 그대로 둔다. 목이 카페 후보를 들고
+ * 있고, 저장된 옛 주문표도 읽을 수 있어야 한다 — 고르는 자리만 좁힌다.
+ */
 export const PLACE_LIST: { label: PlaceType; icon: ReactNode }[] = [
-  { label: "카페", icon: <Pictogram name="coffee" size={22} /> },
   { label: "음식점", icon: <Pictogram name="forkKnife" size={22} /> },
-  { label: "병원", icon: <Pictogram name="hospital" size={22} /> },
-  { label: "관공서", icon: <Pictogram name="bank" size={22} /> },
 ];
 
 export const PLACE_ICONS: Record<NonNullable<PlaceType>, ReactNode> = {
@@ -77,37 +109,16 @@ export const PLACE_ICONS: Record<NonNullable<PlaceType>, ReactNode> = {
 // 메뉴 사진은 여기 두지 않는다. 저장된 주문표는 의미값(텍스트)만 갖고,
 // 사진은 키오스크 카탈로그가 매핑 응답으로 내려 준 것만 쓴다. (src/api/mock.ts)
 
-export const MOCK_SHEETS: OrderSheet[] = [
-  {
-    id: "1",
-    menuName: "닭강정",
-    place: "음식점",
-    selections: {
-      "이용 방식": ["포장하기"], "맵기": ["매운맛"], "형태": ["순살"],
-      "컵": ["종이컵"], "수량": ["1개"],
-      "알레르기 (꼭 빼주세요)": ["땅콩"],
-    },
-    memo: "",
-  },
-  {
-    id: "2",
-    menuName: "아이스 아메리카노 둘",
-    place: "카페",
-    selections: { "이용 방식": ["테이크아웃"], "음료": ["아메리카노"], "온도": ["ICE"], "사이즈": ["Tall"], "시럽": ["바닐라"] },
-    memo: "얼음 적게 부탁드려요",
-  },
-  {
-    id: "3",
-    menuName: "닭강정",
-    place: "음식점",
-    // 같은 가게, 다른 사람의 조건. 첫 번째 주문표와 모든 축이 반대라
-    // 저장한 조건이 결과를 실제로 바꾼다는 걸 목록에서 바로 보여 준다.
-    selections: {
-      "이용 방식": ["먹고 가기"], "맵기": ["순한맛"], "형태": ["뼈"],
-      "컵": ["일반컵"], "수량": ["2개"],
-    },
-    memo: "매운 건 못 드세요",
-  },
-];
+/*
+ * 미리 넣어 두던 주문표 세 장(MOCK_SHEETS)은 없앴다.
+ *
+ * 처음 연 사람에게 자기가 만든 적 없는 주문표가 세 장 놓여 있었다. 화면은
+ * '저장된 주문표' 라고 부르는데 저장한 적이 없으니, 이걸 지워도 되는지 남의
+ * 것인지 알 수가 없다. 개인정보 화면이 "적어 두신 내용만 저장해요" 라고
+ * 말하는 것과도 어긋난다 — 적은 적이 없는데 있다.
+ *
+ * 이제 빈 목록으로 시작한다. 그 화면은 이미 있다(SavedScreen 의 '저장된
+ * 주문표가 없어요'). 시연에서 주문표를 만드는 것부터 보여 주면 된다.
+ */
 
 export const STEPS = ["포장/매장 선택", "메뉴 선택", "옵션 선택", "옵션 확정·담기", "장바구니 확인"] as const;

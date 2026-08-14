@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.orchestrator.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.ParticipantSubmission;
 import com.kiobridge.kiobridge.contracts.Recommendation;
 import com.kiobridge.kiobridge.contracts.UserDecision;
@@ -10,6 +11,7 @@ import com.kiobridge.kiobridge.contracts.input.profile.CanonicalProfile;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanResult;
 import com.kiobridge.kiobridge.modules.executionplan.service.ExecutionPlanService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -78,7 +80,11 @@ public class SubmissionOrchestrator {
             ? planResult.environmentId()
             : simulationApiClient.getSession(sessionId).environmentId();
         if (environmentId == null || environmentId.isBlank()) {
-            throw new IllegalStateException(
+            // ExecutionPlanService의 동일 코드와 같은 이유로 502다 — Kit 응답 자체의 문제라 호출자가
+            // 요청을 고쳐도 재현된다(CodeRabbit 지적 사항).
+            throw new ApiException(
+                HttpStatus.BAD_GATEWAY,
+                "SESSION_ENVIRONMENT_UNRESOLVED",
                 "sessionId(" + sessionId + ")에 대한 세션을 Simulation API에서 찾지 못했거나 environmentId가 없습니다."
             );
         }

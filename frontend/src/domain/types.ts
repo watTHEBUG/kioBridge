@@ -1,9 +1,14 @@
 // 로그인은 끝까지 선택이다. login·signup 은 welcome 과 계정 화면에서만 들어갈 수 있고,
 // 주 흐름(saved → order-confirm → execution)은 이 둘을 거치지 않는다.
 export type Screen =
-  | "welcome" | "login" | "signup" | "name" | "greeting" | "sheet" | "saved"
+  | "welcome" | "login" | "signup" | "name"
+  | "setup"     // 가입 직후 한 번 묻는 도움 설정. 'profile' 이라 부르지 않는다 —
+                // 백엔드가 주문표를 profile 이라 불러서 그 이름은 이미 임자가 있다.
+  | "greeting" | "sheet"
+  | "save-choice"  // 만든 주문표를 이 기기에 남길지 묻는다. 비로그인일 때만 지난다.
+  | "saved"
   | "order-confirm" | "execution"
-  | "a11y"      // 접근성 설정
+  | "a11y"      // 접근성 설정 (계정 화면에서 언제든)
   | "privacy";  // 무엇을 저장하고 무엇을 저장하지 않는지
 export type MainTab = "qr" | "menu" | "account";
 export type PlaceType = "카페" | "음식점" | "병원" | "관공서" | null;
@@ -27,12 +32,33 @@ export interface OrderSheet {
   place: PlaceType;
   selections: Record<string, string[]>;
   memo: string;
+  /**
+   * 이번만 쓰고 남기지 않는다.
+   *
+   * 로그인하지 않은 사람에게는 이쪽이 **기본값**이다. 가입도 로그인도 없이 들어온
+   * 사람은 자기 정보가 어디에 남는지 확인할 방법이 없다 — 묻지 않고 남기면 안
+   * 된다. 남기고 싶으면 그렇게 고르면 된다.
+   *
+   * 이 표시가 붙은 주문표는 새로고침을 넘기지 않는다(session.ts). 화면에는 이번
+   * 이용 동안 그대로 있어서, 만들고 바로 주문하는 길은 똑같이 동작한다.
+   */
+  임시?: boolean;
 }
 
 export interface DetailOption {
   label: string;
   multi: boolean;
   choices: string[];
+  /**
+   * 킷의 option-groups.json 이 `required: true` 로 둔 축인가.
+   *
+   * 이 축이 비면 **실행계획이 검증에서 떨어진다** — 킷의 통과 조건이 "옵션 그룹·값이
+   * 존재하고, 후보가 그 옵션을 지원하며, 필수 옵션을 모두 충족" 이다. 서버가
+   * 400 을 주기 전에 화면이 먼저 알려 준다.
+   *
+   * 킷에 없는 장소(카페)는 비워 둔다. 우리가 정한 축이라 필수라고 말할 근거가 없다.
+   */
+  required?: boolean;
   /**
    * 다중 선택 안에서 혼자만 골라야 하는 값. 예: '시럽 없음'.
    * '바닐라'와 '시럽 없음'을 같이 고를 수 있으면 앱이 무엇을 주문해야 할지 알 수 없고,
@@ -58,6 +84,12 @@ export interface MappedOption {
 export interface MappedItem {
   displayName: string;
   priceText: string;
+  /**
+   * 한 개 값(숫자). priceText 는 이미 "8,000원" 으로 적어 둔 글자라 계산에 못 쓴다.
+   *
+   * 수량과 곱해 합계가 한 개 값 한도를 넘는지 볼 때만 쓴다. 서버가 안 주면 없다.
+   */
+  price?: number;
   options: MappedOption[];
   imageUrl?: string;
 }
@@ -83,10 +115,48 @@ export interface MappingCandidate {
 // 왜 이 메뉴를 골랐는지 사용자의 말로 적은 문장들.
 // 심사 규칙상 최소 1개가 있어야 하고, "AI가 추천했습니다" 같은 문장은 설명이 아니다.
 // 어떤 사용자 정보를 썼는지, 무엇을 왜 뺐는지가 드러나야 한다.
+/**
+ * 문장을 조각으로 들고 다닌다.
+ *
+ * `text` 는 셋을 이어 붙인 완성문이다 — 로그·읽어주기처럼 통째로 필요한 자리가 쓴다.
+ * 화면은 조각을 보고 제 언어로 조립한다.
+ *
+ * 왜 나눠 두는가 — 영어로 바꾸면 화면에 우리말이 남으면 안 되는데, 이 문장은
+ * 셋의 성격이 다 다르다. `메뉴` 는 가게가 붙인 이름이라 안 옮긴다(옮기면 사용자가
+ * 키오스크 화면에서 그 이름을 못 찾는다). `문장` 은 서버가 만든 말이라 아는 것만
+ * 옮긴다. `고른값` 은 우리가 아는 말이라 그냥 옮긴다.
+ *
+ * 완성문을 되쪼개는 방법도 있었지만, 메뉴 이름에 구분자가 들어 있는 날 조용히
+ * 틀린다. 붙이기 전 조각을 그대로 들고 오는 편이 낫다.
+ */
+interface 이유조각 {
+  /**
+   * 서버가 준 문장. 그대로 인용한다.
+   *
+   * 없으면 `text` 를 그대로 쓴다 — 조각 없이 만들어진 이유(목데이터·예전 코드)도
+   * 오늘처럼 보이게 두려는 것이다. 그런 줄은 영어로 안 바뀌고 우리말로 남는데,
+   * 모르는 문장은 지어내지 않는다는 규칙과 같은 결과다(i18n/reason.ts).
+   */
+  문장?: string;
+  /** 이 문장이 어느 메뉴 얘기인지. 서버는 안 알려 줘서 우리가 붙인다. */
+  메뉴?: string;
+  /**
+   * 사용자가 그 축에서 고른 값.
+   *
+   * **지금은 아무도 안 채운다.** 예전에는 서버 문장에 축 이름이 들어 있으면 그 축의
+   * 값을 찾아 붙였는데, 부분 문자열이라 선택 근거가 아닌 문장에도 붙었다(#101 리뷰).
+   * 어느 축 얘기인지 알 방법이 계약에 없어서 짐작을 그만두었다(api/backend.ts).
+   *
+   * 칸은 남겨 둔다. 서버가 이유마다 축 식별자를 주면 그때 여기를 채우면 되고,
+   * 화면 조립(i18n/reason.ts)은 이미 이 칸을 읽을 줄 안다.
+   */
+  고른값?: string;
+}
+
 export type RecommendationReason =
-  | { kind: "used"; text: string }      // 이 정보를 써서 골랐다
-  | { kind: "unmet"; text: string }     // 이 조건은 못 맞췄다 (담기는 담지만 한 축이 어긋남)
-  | { kind: "excluded"; text: string }; // 이 조건 때문에 뺐다
+  | ({ kind: "used"; text: string } & 이유조각)      // 이 정보를 써서 골랐다
+  | ({ kind: "unmet"; text: string } & 이유조각)     // 이 조건은 못 맞췄다 (담기는 담지만 한 축이 어긋남)
+  | ({ kind: "excluded"; text: string } & 이유조각); // 이 조건 때문에 뺐다
 
 export interface MappingResponse {
   result: MappingState;
@@ -97,6 +167,15 @@ export interface MappingResponse {
   diffNote?: string;
   /** 추천 이유. 확인 화면에 그대로 보여 준다. */
   reasons?: RecommendationReason[];
+  /**
+   * 서버가 점수를 매길 때 이 메뉴를 밀어 준 축들. 예: ["이용 방식", "가격"]
+   *
+   * 점수 숫자는 안 싣는다 — 0.0259 는 이 앱을 쓰는 분들에게 읽을 수 없는 값이다.
+   * 이유 문장(reasons)과 겹치는 것도 있지만 빠지는 것도 있다 — 가격 한도를
+   * 정해도 서버 이유 문장에는 가격 얘기가 한 줄도 안 나온다(실측).
+   * 비어 있으면 화면이 그 줄을 아예 안 그린다.
+   */
+  scoredAxes?: string[];
   /**
    * 사용자가 저장해 둔 조건. clarification 처럼 상품이 아직 정해지지 않은 상태에서
    * 조건만 보여 줄 때 쓴다. item 에 빈 displayName 을 넣어 실어 보내면

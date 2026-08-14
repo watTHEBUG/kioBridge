@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.stateevidence.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -26,8 +27,15 @@ class EvidenceParsingServiceTest {
 
     @Test
     void evidence가_null이면_예외가_발생한다() {
+        // evidenceJson은 우리 호출자가 아니라 Kit이 돌려준 응답이라 400이 아니라 502다
+        // (CodeRabbit 지적 사항).
         assertThatThrownBy(() -> service.parse(null))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EVIDENCE_EMPTY");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
     }
 
     @Test
@@ -35,7 +43,12 @@ class EvidenceParsingServiceTest {
         JsonNode nullNode = objectMapper.nullNode();
 
         assertThatThrownBy(() -> service.parse(nullNode))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EVIDENCE_EMPTY");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
     }
 
     @Test
@@ -45,8 +58,12 @@ class EvidenceParsingServiceTest {
             """);
 
         assertThatThrownBy(() -> service.parse(json))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("필수 필드가 없습니다");
+            .isInstanceOf(ApiException.class)
+            .satisfies(e -> {
+                ApiException apiException = (ApiException) e;
+                assertThat(apiException.code()).isEqualTo("EVIDENCE_REQUIRED_FIELD_MISSING");
+                assertThat(apiException.status()).isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+            });
     }
 
     private static final String VALID_EVIDENCE_JSON = """

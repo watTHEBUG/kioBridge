@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.contracts;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.input.context.SessionContextBase;
 import com.kiobridge.kiobridge.contracts.input.profile.CanonicalProfile;
 
@@ -42,7 +43,9 @@ public record ParticipantSubmission(
         Objects.requireNonNull(executionPlan, "executionPlan은 null일 수 없습니다.");
 
         if (!userDecision.approved() && !executionPlan.actions().isEmpty()) {
-            throw new IllegalArgumentException(
+            // Kit ERROR_CATALOG.md 4.실행계획구조: 승인 없이 Action이 있음
+            throw new ApiException(
+                "ACTIONS_WITHOUT_APPROVAL",
                 "userDecision.approved=false 인데 executionPlan.actions가 비어있지 않습니다. "
                     + "Kit 검증 규칙 위반입니다."
             );
@@ -51,7 +54,8 @@ public record ParticipantSubmission(
 
     private static void requireNonBlank(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + "는 비어있을 수 없습니다.");
+            // Kit ERROR_CATALOG.md 1.계약·형식: 필수 필드 없음
+            throw new ApiException("REQUIRED_FIELD_MISSING", fieldName + "는 비어있을 수 없습니다.");
         }
     }
 }

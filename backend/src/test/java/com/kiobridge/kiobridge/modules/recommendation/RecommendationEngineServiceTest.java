@@ -3,7 +3,6 @@ package com.kiobridge.kiobridge.modules.recommendation;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
 import com.kiobridge.kiobridge.contracts.Recommendation;
-import com.kiobridge.kiobridge.contracts.input.context.BoneType;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreCapabilities;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreFacts;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStoreHardConstraints;
@@ -26,7 +25,9 @@ import com.kiobridge.kiobridge.modules.recommendation.engine.CandidateFilterResu
 import com.kiobridge.kiobridge.modules.recommendation.engine.RuleEvaluationResult;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -35,7 +36,23 @@ import static org.assertj.core.data.Offset.offset;
 
 class RecommendationEngineServiceTest {
 
-    private final RecommendationEngineService service = new RecommendationEngineService();
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    // 혼잡도(요일+시간대) 로직과 무관한 기존 테스트들이 실행 시각에 따라 흔들리지 않도록,
+    // 평일이지만 점심 러시(11:30~13:00)가 아닌 고정 시각을 기본 서비스에 사용한다.
+    // 2026-08-12는 수요일, 15:00 KST = 06:00 UTC.
+    private static final Instant NOT_CONGESTED_INSTANT = Instant.parse("2026-08-12T06:00:00Z");
+    // 같은 수요일 12:00 KST = 03:00 UTC (점심 러시 한가운데).
+    private static final Instant CONGESTED_INSTANT = Instant.parse("2026-08-12T03:00:00Z");
+    // 2026-08-15는 토요일, 18:30 KST = 09:30 UTC (저녁 러시 — 평일/주말 공통으로 혼잡 취급).
+    private static final Instant WEEKEND_DINNER_RUSH_INSTANT = Instant.parse("2026-08-15T09:30:00Z");
+    // 같은 토요일 12:00 KST = 03:00 UTC (주말 점심 — 점심 러시는 평일 전용이라 혼잡 아님).
+    private static final Instant WEEKEND_LUNCH_INSTANT = Instant.parse("2026-08-15T03:00:00Z");
+
+    private final RecommendationEngineService service = serviceAt(NOT_CONGESTED_INSTANT);
+
+    private static RecommendationEngineService serviceAt(Instant instant) {
+        return new RecommendationEngineService(Clock.fixed(instant, KST));
+    }
 
     @Test
     void 적격_후보가_없으면_추천ID는_null이고_이유는_최소_1개다() {
@@ -97,6 +114,9 @@ class RecommendationEngineServiceTest {
 
         assertThat(recommendation.scoreBreakdown().get("serviceTypeMatch")).isEqualTo(0.0);
         assertThat(recommendation.scoreBreakdown().get("spicyLevelMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
         assertThat(recommendation.recommendationReasons())
             .containsExactly("남은 후보 중 조건에 가장 가까운 메뉴라 추천드립니다.");
     }
@@ -172,13 +192,17 @@ class RecommendationEngineServiceTest {
 
     @Test
     void 뼈타입_선호와_일치하면_점수_보너스와_일치_사유를_받는다() {
-        Candidate boneless = candidate("CHICKEN-BONELESS", 6000.0, List.of("HOT"), List.of("BONELESS"));
+        // v5.1.6 RC5부터 CHICKEN_BONE_TYPE_PREFERENCE가 CANDIDATE-scope WARN 규칙으로 추가됐다.
+        // serviceType/spicyLevel과 동일하게 PASS가 실제로 나야 "일치" 보너스를 준다.
+        Candidate boneless = candidate("CHICKEN-BONELESS", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> passes =
+            Map.of(boneless.candidateId(), List.of(boneTypePass()));
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(boneless), List.of(), Map.of(), Map.of(), Map.of());
+            new CandidateFilterResult(List.of(boneless), List.of(), Map.of(), Map.of(), passes);
 
-        Recommendation recommendation =
-            service.recommend(filterResult, sessionContext(null, BoneType.BONELESS), profile());
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
         assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.5);
         assertThat(recommendation.recommendationReasons()).contains("선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.");
@@ -186,29 +210,52 @@ class RecommendationEngineServiceTest {
 
     @Test
     void 뼈타입_선호와_불일치하면_감점되고_불만족_조건에_반영된다() {
-        Candidate boneOnly = candidate("CHICKEN-BONE-ONLY", 6000.0, List.of("HOT"), List.of("BONE"));
+        Candidate boneOnly = candidate("CHICKEN-BONE-ONLY", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> warnings =
+            Map.of(boneOnly.candidateId(), List.of(boneTypeMismatch()));
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(boneOnly), List.of(), Map.of(), Map.of(), Map.of());
+            new CandidateFilterResult(List.of(boneOnly), List.of(), warnings, Map.of(), Map.of());
 
-        Recommendation recommendation =
-            service.recommend(filterResult, sessionContext(null, BoneType.BONELESS), profile());
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
         assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(-0.15);
         assertThat(recommendation.unmetConditions()).contains("선호하신 뼈/순살과 다릅니다.");
     }
 
     @Test
-    void 뼈타입_선호가_없으면_후보가_지원해도_중립_점수를_받는다() {
-        Candidate both = candidate("CHICKEN-BOTH", 6000.0, List.of("HOT"), List.of("BONE", "BONELESS"));
+    void 컵옵션_선호와_일치하면_점수_보너스와_일치_사유를_받는다() {
+        // v5.1.6 RC5부터 CHICKEN_CUP_OPTION_PREFERENCE도 boneType과 동일한 구조의 CANDIDATE-scope
+        // WARN 규칙으로 추가됐다. boneType과 동일한 hasWarning→penalty; else hasPass→bonus 패턴을 따른다.
+        Candidate cupOk = candidate("CHICKEN-CUP-OK", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> passes =
+            Map.of(cupOk.candidateId(), List.of(cupOptionPass()));
 
         CandidateFilterResult filterResult =
-            new CandidateFilterResult(List.of(both), List.of(), Map.of(), Map.of(), Map.of());
+            new CandidateFilterResult(List.of(cupOk), List.of(), Map.of(), Map.of(), passes);
 
-        Recommendation recommendation =
-            service.recommend(filterResult, sessionContext(null, BoneType.NO_PREFERENCE), profile());
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
-        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.0);
+        assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(0.5);
+        assertThat(recommendation.recommendationReasons()).contains("선호하신 컵 옵션과 일치하는 메뉴라 우선 추천드립니다.");
+    }
+
+    @Test
+    void 컵옵션_선호와_불일치하면_감점되고_불만족_조건에_반영된다() {
+        Candidate cupMismatch = candidate("CHICKEN-CUP-MISMATCH", 6000.0, List.of("HOT"));
+
+        Map<String, List<RuleEvaluationResult>> warnings =
+            Map.of(cupMismatch.candidateId(), List.of(cupOptionMismatch()));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(cupMismatch), List.of(), warnings, Map.of(), Map.of());
+
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("cupOptionMatch")).isEqualTo(-0.15);
+        assertThat(recommendation.unmetConditions()).contains("선호하신 컵 옵션과 다릅니다.");
     }
 
     @Test
@@ -240,6 +287,87 @@ class RecommendationEngineServiceTest {
         );
     }
 
+    @Test
+    void 혼잡_시간대에는_포장_지원_후보에_소폭_가산점과_사유가_붙는다() {
+        // 평일(수요일) 점심 러시(12:00 KST)로 고정한 서비스 — 매장 API 없이 서버 시계만으로 판단한다.
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-OK", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(CONGESTED_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.1);
+        assertThat(recommendation.recommendationReasons())
+            .contains("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 혼잡_시간대여도_포장을_지원하지_않는_후보는_가산점을_받지_않는다() {
+        Candidate dineInOnly = new Candidate(
+            "CHICKEN-DINE-IN-ONLY", "테스트 후보", "chicken-store", true, "SYNTHETIC_MOCK",
+            6000.0, null,
+            Map.of("SERVICE_TYPE", List.of("DINE_IN"), "SPICY_LEVEL", List.of("HOT")),
+            Map.of(), Map.of(), Map.of()
+        );
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(dineInOnly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(CONGESTED_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
+        assertThat(recommendation.recommendationReasons())
+            .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 혼잡_시간대가_아니면_포장_지원_후보라도_가산점과_사유가_없다() {
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-QUIET", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
+        assertThat(recommendation.recommendationReasons())
+            .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 저녁_러시는_주말에도_혼잡으로_판단한다() {
+        // 치맥 시간대는 평일/주말 공통 — 점심 러시(평일 전용)와 달리 요일 제한이 없다.
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-DINNER", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(WEEKEND_DINNER_RUSH_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.1);
+        assertThat(recommendation.recommendationReasons())
+            .contains("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
+    @Test
+    void 점심_러시는_주말에는_적용되지_않는다() {
+        Candidate takeOutFriendly = candidate("CHICKEN-TAKEOUT-WEEKEND-LUNCH", 6000.0, List.of("HOT"));
+
+        CandidateFilterResult filterResult =
+            new CandidateFilterResult(List.of(takeOutFriendly), List.of(), Map.of(), Map.of(), Map.of());
+
+        Recommendation recommendation =
+            serviceAt(WEEKEND_LUNCH_INSTANT).recommend(filterResult, sessionContext(null), profile());
+
+        assertThat(recommendation.scoreBreakdown().get("crowdingContextScore")).isEqualTo(0.0);
+        assertThat(recommendation.recommendationReasons())
+            .doesNotContain("지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.");
+    }
+
     // ------------------------------------------------------------------
     // fixtures
     // ------------------------------------------------------------------
@@ -264,6 +392,26 @@ class RecommendationEngineServiceTest {
             "CHICKEN_SPICY_LEVEL_PREFERENCE", "HOT", List.of("HOT"));
     }
 
+    private RuleEvaluationResult boneTypeMismatch() {
+        return RuleEvaluationResult.fail(
+            "CHICKEN_BONE_TYPE_PREFERENCE", "WARN", "BONE_TYPE_MISMATCH", "BONELESS", List.of("BONE"));
+    }
+
+    private RuleEvaluationResult boneTypePass() {
+        return RuleEvaluationResult.pass(
+            "CHICKEN_BONE_TYPE_PREFERENCE", "BONELESS", List.of("BONELESS"));
+    }
+
+    private RuleEvaluationResult cupOptionMismatch() {
+        return RuleEvaluationResult.fail(
+            "CHICKEN_CUP_OPTION_PREFERENCE", "WARN", "CUP_OPTION_MISMATCH", "PAPER_CUP", List.of("NO_CUP"));
+    }
+
+    private RuleEvaluationResult cupOptionPass() {
+        return RuleEvaluationResult.pass(
+            "CHICKEN_CUP_OPTION_PREFERENCE", "PAPER_CUP", List.of("PAPER_CUP"));
+    }
+
     private RuleEvaluationResult allergenReconfirm() {
         return RuleEvaluationResult.reconfirm(
             "CHICKEN_ALLERGEN_HARD_CONSTRAINT", "LOW_CONFIDENCE_RECONFIRMATION_REQUIRED", "UNKNOWN");
@@ -278,28 +426,11 @@ class RecommendationEngineServiceTest {
         );
     }
 
-    private Candidate candidate(String candidateId, Double price, List<String> spicyLevels, List<String> boneTypes) {
-        return new Candidate(
-            candidateId, "테스트 후보", "chicken-store", true, "SYNTHETIC_MOCK",
-            price, null,
-            Map.of(
-                "SERVICE_TYPE", List.of("DINE_IN", "TAKE_OUT"),
-                "SPICY_LEVEL", spicyLevels,
-                "BONE_TYPE", boneTypes
-            ),
-            Map.of(), Map.of(), Map.of()
-        );
-    }
-
     private ChickenStoreSessionContext sessionContext(java.math.BigDecimal maxPriceKrw) {
-        return sessionContext(maxPriceKrw, null);
-    }
-
-    private ChickenStoreSessionContext sessionContext(java.math.BigDecimal maxPriceKrw, BoneType boneType) {
         return new ChickenStoreSessionContext(
             new SessionIntent(SessionTask.ORDER_FOOD),
             new ChickenStoreFacts(),
-            new ChickenStorePreferences(ServiceType.TAKE_OUT, SpicyLevel.HOT, boneType, null, null),
+            new ChickenStorePreferences(ServiceType.TAKE_OUT, SpicyLevel.HOT, null, null, null),
             new ChickenStoreHardConstraints(List.of(), maxPriceKrw),
             new ChickenStoreCapabilities(),
             Map.of()

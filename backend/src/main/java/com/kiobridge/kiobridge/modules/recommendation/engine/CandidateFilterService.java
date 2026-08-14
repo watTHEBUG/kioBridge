@@ -63,7 +63,11 @@ public class CandidateFilterService {
                     candidate.candidateId(),
                     CANDIDATE_UNAVAILABLE,
                     "available=false",
-                    exclusionMessages.resolve(CANDIDATE_UNAVAILABLE, null)
+                        exclusionMessages.resolve(
+                                CANDIDATE_UNAVAILABLE,
+                                null,
+                                null
+                        )
                 ));
                 continue;
             }
@@ -89,7 +93,11 @@ public class CandidateFilterService {
                                     "ruleId=" + rule.ruleId()
                                         + ", sourceValue=" + result.sourceValue()
                                         + ", candidateValue=" + result.candidateValue(),
-                                    exclusionMessages.resolve(result.errorCode(), result.sourceValue())
+                                        exclusionMessages.resolve(
+                                                result.errorCode(),
+                                                result.sourceValue(),
+                                                result.candidateValue()
+                                        )
                                 ));
                             }
                             blocked = true;

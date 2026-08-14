@@ -1,5 +1,7 @@
 package com.kiobridge.kiobridge.contracts;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -31,14 +33,17 @@ public record ExecutionPlan(
 
     public ExecutionPlan {
         Objects.requireNonNull(planId, "planId는 null일 수 없습니다.");
-        if (!VALIDATION_MODE.equals(validationMode)) {
-            throw new IllegalArgumentException("validationMode는 \"" + VALIDATION_MODE + "\" 고정입니다.");
-        }
-        if (!EXECUTION_ENVIRONMENT.equals(executionEnvironment)) {
-            throw new IllegalArgumentException("executionEnvironment는 \"" + EXECUTION_ENVIRONMENT + "\" 고정입니다.");
+        if (!VALIDATION_MODE.equals(validationMode) || !EXECUTION_ENVIRONMENT.equals(executionEnvironment)) {
+            // Kit ERROR_CATALOG.md 5.상태·안전경계: validationMode·executionEnvironment 위반
+            throw new ApiException(
+                "INVALID_FIXED_PRINCIPLE",
+                "validationMode는 \"" + VALIDATION_MODE + "\", executionEnvironment는 \""
+                    + EXECUTION_ENVIRONMENT + "\" 로 고정입니다."
+            );
         }
         if (actualDeviceCommandSent) {
-            throw new IllegalArgumentException("actualDeviceCommandSent는 반드시 false여야 합니다.");
+            // Kit ERROR_CATALOG.md 5.상태·안전경계: actualDeviceCommandSent가 false가 아님
+            throw new ApiException("ACTUAL_DEVICE_COMMAND", "actualDeviceCommandSent는 반드시 false여야 합니다.");
         }
         Objects.requireNonNull(actions, "actions는 null일 수 없습니다 (빈 배열은 허용).");
     }

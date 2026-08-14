@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, createTeamBackend, type Backend, type EvidenceSummary, type RecommendationResult } from "./backend";
 import { KioBridgeError, getSheet, registerSheet } from "./client";
 import type { OrderSheet } from "@/domain/types";
+import { 알레르기설정 } from "@/api/allergy";
 
 // 백엔드가 아직 없으므로, 명세서대로 응답하는 가짜를 만들어 조립이 맞는지 본다.
 // 이 테스트가 통과한다는 건 "백엔드가 명세대로 주면 화면이 돈다" 는 뜻이다.
@@ -12,6 +13,7 @@ const 후보표시 = {
 };
 
 const 기본추천 = (over: Partial<RecommendationResult> = {}): RecommendationResult => ({
+  scoredAxes: [],
   unmetConditions: [],
   recommendedCandidateId: "candidate-alpha",
   alternativeCandidateIds: [],
@@ -430,6 +432,31 @@ describe("evidence 를 화면이 아는 상태로 옮긴다", () => {
     expect(s.steps[2]).toBe("failed");
     expect(s.abort?.recoverable).toBe(false);
   });
+
+  it("동작 수가 단계 수보다 많아도 전부 완료로 보이지 않는다", async () => {
+    /*
+     * reachedStep 은 '실행한 동작 수' 이고 STEPS 는 다섯 칸이라 단위가 다르다.
+     * 백엔드가 만드는 동작은 9~10개라 중단이 나면 거의 항상 5 이상이 된다.
+     *
+     * 자르지 않으면 다섯 칸이 전부 i < reachedStep 에 걸려 모두 done 이 되고,
+     * 화면 위쪽은 "안전을 위해 멈췄어요" 인데 아래는 다 끝난 것처럼 보인다.
+     */
+    const b = 가짜백엔드({
+      getEvidence: async () => ({
+        state: "aborted", reachedStep: 8,
+        abort: { code: "SAFETY_STOP", title: "안전을 위해 멈췄어요", message: "예상하지 못한 화면", userAction: "직원을 불러 주세요" },
+      }),
+    });
+    const api = createApi(b);
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    const { planId } = await api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" });
+    const s = await api.getPlanStatus(planId);
+    expect(s.steps.every((x) => x === "done")).toBe(false);
+    // 실패 칸이 반드시 하나 찍힌다. 멈췄다는 사실이 단계에도 남아야 한다.
+    expect(s.steps.filter((x) => x === "failed")).toHaveLength(1);
+    expect(s.steps[s.steps.length - 1]).toBe("failed");
+  });
 });
 
 // ─── 팀 백엔드 어댑터 ─────────────────────────────────────────────────────────
@@ -439,7 +466,18 @@ describe("evidence 를 화면이 아는 상태로 옮긴다", () => {
 // 화면이 아는 값으로 옮겨지는지 본다. 명세와 구현이 달라서 둘 다 필요하다.
 
 const 원래fetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = 원래fetch; });
+afterEach(() => {
+  globalThis.fetch = 원래fetch;
+  /*
+   * 알레르기설정 은 모듈 저장소라 시험 사이에 그대로 남는다. 시험 하나가 중간에
+   * 실패하면 켜 둔 값이 다음 시험으로 새어 나가고, 엉뚱한 시험이 알 수 없는
+   * 이유로 깨진다 — 그때는 실패한 시험이 아니라 뒤따르는 시험을 들여다보게 된다.
+   *
+   * 시험 안에서 try/finally 로 감싸는 것보다 여기서 한 번에 치우는 편이 낫다.
+   * 앞으로 생길 시험까지 덮는다.
+   */
+  알레르기설정.비우기();
+});
 
 const 응답 = (body: unknown, status = 200) =>
   ({ ok: status < 400, status, text: async () => JSON.stringify(body), json: async () => body }) as Response;
@@ -536,6 +574,318 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 주문표 });
     await b.submit("s1", { pairingId: "s1", sheetId: "p1", mappingResult: "exact", profile: 주문표 });
   };
+
+  it("재확인이 필요하면 돌아갈 길이 있는 오류로 알린다", async () => {
+    /*
+     * 이 분기가 죽어 있었다.
+     *
+     * 백엔드는 reconfirmationFields 가 비지 않을 때만 RECONFIRMATION_REQUIRED 를
+     * 내고, 그 필드는 contractValidation.errors 에서 골라 만든다. 킷은
+     * HARD_CONSTRAINT_UNKNOWN 을 warning 이 아니라 error 로 넣는다.
+     *
+     * 즉 RECONFIRMATION_REQUIRED 이면 valid 는 반드시 false 다. INVALID 검사가
+     * 위에 있으면 항상 그쪽이 먼저 던지고, 알레르기를 모르는 분에게
+     * 돌아갈 길 없는(recoverable: false) 오류와 킷 원문이 그대로 나간다.
+     */
+    const b = 붙이기({
+      "session-context-normalizations": {
+        status: "RECONFIRMATION_REQUIRED",
+        sessionContext: 정규화응답.맥락.sessionContext,
+        reconfirmationFields: [{ field: "allergenIds", message: "알레르기를 다시 확인해 주세요" }],
+        contractValidation: {
+          valid: false,
+          errors: [{ code: "HARD_CONSTRAINT_UNKNOWN", message: "allergenIds 가 UNKNOWN 입니다. 임의로 추론하지 말고..." }],
+        },
+      },
+    });
+    const e = await b.recommend({
+      environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표,
+    }).then(() => null, (err: KioBridgeError) => err);
+
+    expect(e?.code).toBe("RECONFIRM_REQUIRED");
+    // 돌아갈 길을 준다. 이게 이 분기를 만든 이유다.
+    expect(e?.recoverable).toBe(true);
+    // 킷 원문이 아니라 재확인 쪽 문장을 쓴다.
+    expect(e?.message).toBe("알레르기를 다시 확인해 주세요");
+    expect(e?.message).not.toContain("UNKNOWN");
+  });
+
+  it("서버가 준 규칙 판정을 그대로 쓴다", async () => {
+    /*
+     * 예전에는 이 셋을 버리고 attributes.supportedOptions 로 같은 판단을 다시 했다.
+     * 같은 판단을 두 곳에서 하면 언젠가 갈라진다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-alpha": [{ ruleId: "CHICKEN_BONE_TYPE_PREFERENCE", result: "FAIL", severity: "WARN", errorCode: "BONE_TYPE_MISMATCH" }],
+        },
+        passesByCandidateId: {
+          "candidate-alpha": [{ ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "PASS", errorCode: "SPICY_LEVEL_MISMATCH" }],
+        },
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+
+    const 표 = Object.fromEntries(rec.matchedOptions.map((o) => [o.label, o.matched]));
+    expect(표["형태"]).toBe(false);   // WARN 이 왔다
+    expect(표["맵기"]).toBe(true);    // PASS 가 왔다
+    /*
+     * 이용 방식은 어느 쪽에도 안 왔다. WARN 이 없다는 사실만으로는 '일치한다' 를
+     * 뜻하지 않는다 - SKIPPED 면 '비교한 적이 없다' 다. 아무 말도 하지 않는다.
+     */
+    expect(표["이용 방식"]).toBeUndefined();
+  });
+
+  it("서버가 비교한 값을 우리말로 바꿔 적는다", async () => {
+    /*
+     * 예전에는 어느 축이든 "오늘은 이 조합이 없어요" 한 문장이었다. 무엇으로
+     * 바뀌는지를 안 말해 줘서, 사용자가 이걸 담아도 되는지 판단할 근거가 없었다.
+     * 서버는 candidateValue 를 실어 보내고 있었는데 우리가 안 읽었다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-alpha", name: "닭강정", price: 6000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-alpha": [{
+            ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "FAIL", severity: "WARN",
+            errorCode: "SPICY_LEVEL_MISMATCH", sourceValue: "HOT", candidateValue: ["MILD"],
+          }],
+        },
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+
+    const 맵기 = rec.matchedOptions.find((o) => o.label === "맵기");
+    expect(맵기?.matched).toBe(false);
+    // enum 이 아니라 우리말로. "MILD" 가 화면에 뜨면 안 된다.
+    expect(맵기?.note).toBe("이 메뉴는 순한맛이에요");
+    expect(맵기?.note).not.toContain("MILD");
+  });
+
+  it("모르는 enum 이면 원문을 띄우지 않고 예전 문장으로 돌아간다", async () => {
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-alpha", name: "닭강정", price: 6000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-alpha": [{
+            ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "FAIL", severity: "WARN",
+            errorCode: "SPICY_LEVEL_MISMATCH", sourceValue: "HOT", candidateValue: ["SERVER_ADDED_THIS"],
+          }],
+        },
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+
+    const 맵기 = rec.matchedOptions.find((o) => o.label === "맵기");
+    expect(맵기?.note).toBe("오늘은 이 조합이 없어요");
+    expect(맵기?.note).not.toContain("SERVER_ADDED_THIS");
+  });
+
+  it("severity 가 BLOCK 이면 후보에서 뺀다", async () => {
+    /*
+     * warningsByCandidateId 에는 WARN 만 담기게 돼 있어서 지금은 한 번도 안 걸린다.
+     * 그래도 남긴다 - BLOCK 은 알레르기.품절 같은 절대 조건에 붙는 severity 라,
+     * 그런 후보를 "조금 다른 메뉴" 로 내밀면 안 된다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [
+          { candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true },
+          { candidateId: "candidate-beta", name: "순한 순살 닭강정", price: 7000, available: true },
+        ],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          // ruleId 와 errorCode 가 같은 축을 가리켜야 한다. 예전에는 알레르기 규칙에
+          // 맵기 코드를 붙여 놓고 "맵기 때문에 뺐어요" 를 기대값으로 못 박았다 —
+          // 알레르기 코드를 규칙축 표에 넣는 날 이 시험이 틀린 기대를 지킨다.
+          "candidate-beta": [{
+            ruleId: "CHICKEN_SPICY_LEVEL_PREFERENCE", result: "FAIL", severity: "BLOCK",
+            errorCode: "SPICY_LEVEL_MISMATCH",
+          }],
+        },
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: ["candidate-beta"] },
+    });
+    const f = await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+
+    expect(f.survivingCandidateIds).toEqual(["candidate-alpha"]);
+    // 조용히 사라지면 "왜 없지?" 가 된다. 뺐다고 말하고, 어느 축인지도 짚는다.
+    const 뺀 = f.excluded.find((e) => e.candidateId === "candidate-beta");
+    expect(뺀?.reasonCode).toBe("BLOCKED");
+    expect(뺀?.explanation).toContain("맵기");
+
+    // 추천 응답이 대안으로 올려보내도 다시 걸러진다.
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.alternativeCandidateIds).toEqual([]);
+  });
+
+  it("정규화 도중에 알레르기가 바뀌어도 키와 보낸 값이 갈라지지 않는다", async () => {
+    /*
+     * 예전에는 캐시키를 만들 때 한 번, 요청을 보낼 때 또 한 번 값을 읽었다.
+     * 그 사이에 await 이 있어서, 그동안 알레르기를 바꾸면 **키와 실제 보낸 값이
+     * 서로 다른 조건을 가리켰다.** 알레르기가 빠진 맥락이 '알레르기가 있는' 키에
+     * 저장되고, 다음에 같은 키로 찾으면 걸러졌어야 할 후보가 안 걸러진다.
+     *
+     * 첫 요청(profile-normalizations)이 나가는 순간 알레르기를 비워서 그 틈을
+     * 흉내 낸다. 두 번째 요청에는 처음 값이 실려야 한다.
+     */
+    알레르기설정.되살리기(["PEANUT"]);
+    const 보낸것: Record<string, unknown>[] = [];
+    globalThis.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const 주소 = String(u);
+      const 본문 = JSON.parse(String(init?.body ?? "{}"));
+      보낸것.push({ 주소, 본문 });
+      // 첫 요청이 나가자마자 설정이 바뀐 상황
+      if (주소.includes("profile-normalizations")) 알레르기설정.비우기();
+      return 응답(경로별응답({})(주소, 본문));
+    }) as unknown as typeof fetch;
+
+    const b = createTeamBackend("");
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+
+    const 맥락 = 보낸것.find((x) => String(x.주소).includes("session-context-normalizations"));
+    expect((맥락?.본문 as { contextInput: { allergenIds: string[] } }).contextInput.allergenIds)
+      .toEqual(["PEANUT"]);
+    // 치우는 것은 afterEach 가 한다. 여기서 부르면 실패로 빠져나갈 때 안 불린다.
+  });
+
+  it("규칙축에 없는 errorCode 면 축을 짚지 않고 뭉뚱그린다", async () => {
+    // 알레르기(ALLERGEN_CONFLICT)는 규칙축 표에 없다. 없는 것을 억지로 짚느니
+    // "조건에 맞지 않아서" 라고만 말한다 — 틀린 축을 짚으면 그게 더 나쁘다.
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{ candidateId: "candidate-beta", name: "땅콩 토핑 닭강정", price: 7000, available: true }],
+        excludedCandidates: [],
+        warningsByCandidateId: {
+          "candidate-beta": [{
+            ruleId: "CHICKEN_ALLERGEN_HARD_CONSTRAINT", result: "FAIL", severity: "BLOCK",
+            errorCode: "ALLERGEN_CONFLICT",
+          }],
+        },
+        passesByCandidateId: {},
+      },
+    });
+    const f = await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    expect(f.survivingCandidateIds).toEqual([]);
+    const 뺀것 = f.excluded.find((e) => e.candidateId === "candidate-beta");
+    // 문장은 고정문, 이름은 menuName 으로 따로 온다. 문장에 이름을 섞으면
+    // 매번 다른 문장이 되어 영어 화면에서 통째로 못 옮긴다(#101 리뷰).
+    expect(뺀것?.explanation).toBe("조건에 맞지 않아서 뺐어요");
+    expect(뺀것?.menuName).toBe("땅콩 토핑 닭강정");
+  });
+
+  it("점수가 양수인 축만 이름으로 뽑고 숫자는 버린다", async () => {
+    /*
+     * 0.0259 는 이 앱을 쓰는 분들에게 읽을 수 없는 값이다. 다만 이유 문장이
+     * 빠뜨리는 것이 있어서(가격 한도를 정해도 서버 이유에는 가격 얘기가 안 나온다)
+     * 축 이름만 남긴다. 깎인 축과 모르는 칸은 뺀다.
+     */
+    const b = 붙이기({
+      recommendations: {
+        ...목추천,
+        scoreBreakdown: { serviceTypeMatch: 1.0, spicyLevelMatch: -0.5, priceScore: 0.0259, serverAddedThis: 3 },
+      },
+    });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.scoredAxes).toEqual(["이용 방식", "가격"]);
+  });
+
+  it("점수가 안 오면 빈 배열이다 — 화면이 그 줄을 안 그린다", async () => {
+    const b = 붙이기();
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.scoredAxes).toEqual([]);
+  });
+
+  it("규칙 판정이 아예 안 오면 예전처럼 우리가 맞춰 본다", async () => {
+    // 옛 백엔드에서도 확인 카드가 비지 않아야 한다.
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{
+          candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true,
+          attributes: { spicyLevel: "HOT", boneType: "BONELESS" },
+          supportedOptions: { SERVICE_TYPE: ["TAKE_OUT"], CUP: ["PAPER"] },
+        }],
+        excludedCandidates: [],
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    /*
+     * length 만 보면 안 된다. 확인표() 는 수량을 늘 matched: true 로 넣어서,
+     * 이용 방식.맵기.형태.컵 비교가 전부 깨져도 length 는 1 이상이 된다.
+     */
+    expect(rec.matchedOptions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "맵기", matched: true }),
+      expect.objectContaining({ label: "형태", matched: true }),
+    ]));
+  });
+
+  it("판정 필드가 있는데 그 후보 항목만 없으면 우리가 다시 계산하지 않는다", async () => {
+    /*
+     * 후보별 항목이 없는 것은 '이 후보는 비교한 축이 하나도 없다' 는 뜻이다.
+     * 여기서 확인표() 로 물러나면 서버가 비교한 적 없다고 한 축을 우리가
+     * 맞다.틀리다로 말하게 된다 - 이 변경이 없애려던 바로 그 문제다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{
+          candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true,
+          attributes: { spicyLevel: "HOT", boneType: "BONELESS" },
+          supportedOptions: { SERVICE_TYPE: ["TAKE_OUT"], CUP: ["PAPER"] },
+        }],
+        excludedCandidates: [],
+        // 필드는 왔는데 이 후보에 대한 항목은 없다.
+        warningsByCandidateId: {},
+        passesByCandidateId: {},
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    expect(rec.matchedOptions).toEqual([]);
+  });
+
+  it("재확인 판정만 와도 우리가 다시 계산하지 않는다", async () => {
+    /*
+     * 예전에는 warnings·passes 둘만 보고 '서버가 판정했나' 를 정했다. 재확인
+     * 판정만 실려 오면 그 검사가 거짓이 되어 확인표() 로 물러났고, 서버가
+     * "비교하지 못했다" 고 한 축을 우리가 맞다고 말하게 된다.
+     */
+    const b = 붙이기({
+      "candidate-filters": {
+        eligibleCandidates: [{
+          candidateId: "candidate-alpha", name: "매운 순살 닭강정", price: 6000, available: true,
+          attributes: { spicyLevel: "HOT", boneType: "BONELESS" },
+          supportedOptions: { SERVICE_TYPE: ["TAKE_OUT"], CUP: ["PAPER"] },
+        }],
+        excludedCandidates: [],
+        // 앞의 둘은 아예 없고 이것만 온다.
+        reconfirmationsByCandidateId: {
+          "candidate-alpha": [{ ruleId: "CHICKEN_ALLERGEN_HARD_CONSTRAINT", result: "RECONFIRM", errorCode: "ALLERGEN_CONFLICT" }],
+        },
+      },
+      recommendations: { ...목추천, recommendedCandidateId: "candidate-alpha", alternativeCandidateIds: [] },
+    });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    const rec = await b.recommend({ environmentId: "chicken-store", profileId: "p1", survivingCandidateIds: [], profile: 목주문표 });
+    // 후보에 attributes·supportedOptions 를 채워 뒀다. 물러났다면 값이 들어찬다.
+    expect(rec.matchedOptions).toEqual([]);
+  });
 
   it("submit-and-run 한 번으로 검증·실행·증거를 모두 채운다", async () => {
     const b = 붙이기();
@@ -721,7 +1071,7 @@ describe("팀 백엔드가 실제로 주는 모양을 화면 값으로 옮긴다
     const e = await b.getEvidence("s1");
     /*
      * 상품 ID 나 좌표 모양을 값으로 쓰지 않는다. 테스트 데이터여도 그 형식이
-     * frontend/src 아래 남는다. 거르는 기준이 값의 모양이 아니라 '아는 값인지'
+     * 소스 트리에 남는다. 거르는 기준이 값의 모양이 아니라 '아는 값인지'
      * 라서, 중립적인 값으로도 똑같이 검증된다.
      */
     const 통째로 = JSON.stringify(e.한일);
@@ -1168,7 +1518,11 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     } });
     const r = await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
     expect(r.survivingCandidateIds).toEqual(["candidate-alpha", "candidate-beta"]);
-    expect(r.display?.["candidate-alpha"]).toEqual({ displayName: "매운 순살 닭강정", priceText: "6,000원" });
+    // 숫자 price 도 같이 싣는다. priceText 는 글자라 수량과 곱할 수 없다 —
+    // 한 개 값 한도를 넘는지 보려면 숫자가 있어야 한다.
+    expect(r.display?.["candidate-alpha"]).toEqual({
+      displayName: "매운 순살 닭강정", priceText: "6,000원", price: 6000,
+    });
     // 규칙 추적 문자열이 화면으로 새지 않는다.
     expect(r.excluded[0].explanation).toBe("[PEANUT] 알레르기와 겹쳐서 제외됐어요.");
     expect(JSON.stringify(r.excluded)).not.toContain("ruleId=");

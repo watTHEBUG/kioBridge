@@ -2,13 +2,19 @@ import type {
   ApproveInput, CartResult, MappedOption, RejectInput, MappingResponse, PairingResult, PlanCreated, PlanStatus, OrderSheet, StepStatus,
 } from "@/domain/types";
 import {
-  toChickenStoreContext, toContextNormalizationInput, toProfileNormalizationInput,
+  toChickenStoreContext, toContextNormalizationInput, toProfileNormalizationInput, 우리말들,
+  type ContextNormalizationInput, type ProfileNormalizationInput,
   type CanonicalProfile, type ChickenStoreSessionContext,
 } from "@/api/canonical";
 import { KioBridgeError, clearSheets, type KioBridgeApi } from "@/api/client";
 import { STEPS } from "@/domain/catalog";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정 } from "@/api/a11y";
+import { 돈 } from "@/i18n/apply";
+import { 가격한도 } from "@/api/budget";
+import { 개인정보동의 } from "@/api/consent";
+import { 입력출처 } from "@/api/inputsource";
+import { 알레르기설정 } from "@/api/allergy";
 
 /**
  * 팀 API 명세서의 경로와 1:1 로 맞춘 계층.
@@ -46,9 +52,15 @@ export interface Backend {
    */
   filterCandidates(input: { environmentId: string; profileId: string; profile?: OrderSheet }): Promise<{
     survivingCandidateIds: string[];
-    excluded: { candidateId: string; reasonCode: string; explanation: string }[];
+    /**
+     * menuName 은 품절·차단처럼 **display 에 못 실리는 후보**의 이름이다.
+     * 그런 후보는 이름찾기() 가 못 찾아서, 문장에 이름을 섞으면 영어 화면에서
+     * 통째로 못 옮긴다(#101 리뷰). 문장은 옮길 수 있는 고정문으로 두고
+     * 이름은 여기로 따로 나른다.
+     */
+    excluded: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[];
     /** 후보 표시 정보. 서버가 이름·가격을 함께 주면 여기 실린다. */
-    display?: Record<string, { displayName: string; priceText: string; imageUrl?: string }>;
+    display?: Record<string, { displayName: string; priceText: string; price?: number; imageUrl?: string }>;
   }>;
 
   /** POST /api/v1/recommendations — 1순위 추천·이유·대안·제외 사유·확신도 */
@@ -96,7 +108,8 @@ export interface Backend {
 export interface RecommendationResult {
   recommendedCandidateId: string | null;
   alternativeCandidateIds: string[];
-  excludedCandidates: { candidateId: string; reasonCode: string; explanation: string }[];
+  // menuName 은 후보 필터가 실어 준 이름이다(Backend.filterCandidates 주석).
+  excludedCandidates: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[];
   recommendationReasons: string[];
   /**
    * 서버가 맞추지 못한 조건.
@@ -109,7 +122,15 @@ export interface RecommendationResult {
   confidence: number;
   requiresReconfirmation: boolean;
   /** 후보 표시 정보. 상품 ID 가 아니라 사람이 읽는 값이어야 한다. */
-  display: Record<string, { displayName: string; priceText: string; imageUrl?: string }>;
+  /**
+   * 후보를 화면에 보여 줄 값.
+   *
+   * priceText 는 이미 "8,000원" 으로 적어 둔 글자다. 화면이 그대로 쓰면 되지만
+   * **계산은 못 한다.** 한 개 값 한도를 넘는지 보려면 수량과 곱해야 하고, 그러려면
+   * 숫자가 있어야 한다. 글자에서 숫자를 도로 뽑아내는 것보다 둘 다 싣는 편이 낫다 —
+   * 글자를 파싱하면 통화 표기가 바뀌는 날 조용히 틀린다.
+   */
+  display: Record<string, { displayName: string; priceText: string; price?: number; imageUrl?: string }>;
   /** 사용자가 고른 조건이 반영됐는지 항목별로. 1순위 추천 기준이다. */
   matchedOptions: { label: string; value: string; matched: boolean; note?: string }[];
   /**
@@ -122,6 +143,14 @@ export interface RecommendationResult {
    * 없으면 화면이 후보별 불일치를 표시하지 않는다. 짐작하지 않는다.
    */
   unmatchedLabelsByCandidate?: Record<string, string[]>;
+  /**
+   * 서버가 점수를 매길 때 이 후보를 **밀어 준** 축들. 숫자는 안 싣는다.
+   *
+   * scoreBreakdown 을 그대로 띄우지 않고 양수인 칸의 이름만 남긴 것이다.
+   * 이유 문장(recommendationReasons)이 빠뜨리는 것이 여기 남는다 — 가격 한도를
+   * 정해도 서버의 이유 문장에는 가격 얘기가 한 줄도 안 나온다(실측).
+   */
+  scoredAxes: string[];
 }
 
 /** evidence 중 화면이 쓰는 부분. 39개 필드 전부를 화면이 알 필요는 없다. */
@@ -295,11 +324,92 @@ export function createApi(
        * 실서버 경로에만 걸면 목에서는 안 걸리는데, 화면으로 나가는 길은 여기
        * 하나다. 막는 자리는 나가는 자리여야 한다.
        */
+      /*
+       * 서버 문장에 **무엇에 대한 얘기인지**를 붙인다.
+       *
+       * 서버는 "지금은 품절이라 제외됐어요" 라고만 한다. 어느 메뉴가 품절인지는
+       * 말해 주지 않는다. 후보가 여럿일 때 사용자는 무엇이 빠졌는지 알 수 없고,
+       * 화면은 이유를 보여 주면서 정작 대상을 감추는 셈이 된다.
+       *
+       * 추천 쪽도 같다. "선호하신 맵기와 맞는 메뉴라" 는 어느 맵기를 말하는지
+       * 안 밝힌다. 자기가 고른 값이 무엇이었는지는 사용자가 기억해야 했다.
+       *
+       * **서버 문장은 그대로 둔다.** 앞뒤에 우리가 아는 사실만 덧댄다 — 문장을
+       * 고쳐 쓰면 그건 인용이 아니라 우리가 지어낸 말이 된다.
+       */
+      const 이름찾기 = (id: string): string | undefined => rec.display[id]?.displayName;
+      const 이름붙이기 = (id: string, 글: string): string => {
+        const 이름 = 이름찾기(id);
+        return 이름 ? `${이름} — ${글}` : 글;
+      };
+      /*
+       * 고른 값을 이유 문장에 붙이지 않는다.
+       *
+       * 예전에는 서버 문장에 축 이름이 들어 있으면("컵", "맵기") 그 축에서 사용자가
+       * 고른 값을 찾아 "(고르신 값: 종이컵)" 으로 이어 붙였다. 부분 문자열이라
+       * **선택 근거가 아닌 문장에도 붙었다** — 서버가 재고 안내에서 "컵" 을 한 번
+       * 쓰기만 해도, 사용자가 고른 컵이 추천 근거인 것처럼 화면에 떴다(#101 리뷰).
+       *
+       * 정확히 붙이려면 그 문장이 어느 축 얘기인지 알아야 하는데, 계약에 그 값이
+       * 없다. `recommendationReasons` 는 `string[]` 이고 킷 계약의 정의도
+       * "<사용자가 읽을 이유>" 라 축 식별자가 없다(킷 5.1.6 examples/ 의 표준 문장은
+       * "사용자 조건에 맞는 항목입니다." 로 축 단어가 아예 없다). 알려진 문장과
+       * 정확 일치로 바꾸는 길도 비교할 문장 표가 없어서 못 쓴다.
+       *
+       * 그래서 **짐작하지 않는다.** 이유 문장은 서버가 준 그대로 두고, 사용자가 고른
+       * 값은 조건표가 따로 보여 준다. 틀린 근거를 보여 주는 것보다 근거를 덜 보여
+       * 주는 쪽이 낫다 — 이 앱이 말 안 한 것을 고르지 않는 것과 같은 판단이다.
+       *
+       * 서버가 이유마다 축 식별자(킷의 SERVICE_TYPE·SPICY_LEVEL·BONE_TYPE·CUP)를
+       * 같이 주면 그때 다시 붙일 수 있다. RecommendationReason 의 고른값 칸이 그
+       * 자리다. docs/BACKEND_INTEGRATION.md 에 요청으로 적어 두었다.
+       */
       const reasons: MappingResponse["reasons"] = [
-        ...rec.recommendationReasons.map((text) => ({ kind: "used" as const, text })),
-        ...rec.unmetConditions.map((text) => ({ kind: "unmet" as const, text })),
-        ...제외.map((e) => ({ kind: "excluded" as const, text: e.explanation })),
+        ...rec.recommendationReasons.map((text) => ({
+          kind: "used" as const,
+          text: rec.recommendedCandidateId
+            ? 이름붙이기(rec.recommendedCandidateId, text)
+            : text,
+          문장: text,
+          ...(rec.recommendedCandidateId && 이름찾기(rec.recommendedCandidateId)
+            ? { 메뉴: 이름찾기(rec.recommendedCandidateId) }
+            : {}),
+        })),
+        ...rec.unmetConditions.map((text) => ({
+          kind: "unmet" as const,
+          text,
+          문장: text,
+        })),
+        /*
+         * 사람이 읽는 문장은 reasonText 다. explanation 은 규칙 추적용 문자열이라
+         * ("ruleId=..., sourceValue=[PEANUT]") 그대로 내보내면 화면에 규칙 식별자가
+         * 뜬다. 같은 파일의 사유문장() 이 이미 그 자리를 알고 있었는데 여기만
+         * explanation 을 읽고 있었다(#101 리뷰).
+         *
+         * reasonText 가 비면 그 줄을 아예 안 만든다. 빈 문장에 메뉴 이름만 붙이면
+         * "순살 닭강정 — " 이 되고, 이유를 말한다면서 아무 이유도 안 적는 셈이다.
+         */
+        ...제외
+          .map((e) => ({ e, 글: 뺀사유(e) }))
+          .filter(({ 글 }) => 글 !== "")
+          .map(({ e, 글 }) => {
+            // 품절·차단 후보는 display 에 없어서 이름찾기() 가 못 찾는다.
+            // 후보 필터가 menuName 으로 실어 준 이름이 그 빈자리를 채운다(#101 리뷰).
+            const 메뉴 = 이름찾기(e.candidateId) ?? e.menuName;
+            return {
+              kind: "excluded" as const,
+              text: 메뉴 ? `${메뉴} — ${글}` : 글,
+              문장: 글,
+              ...(메뉴 ? { 메뉴 } : {}),
+            };
+          }),
       ].filter((r) => 보여도되나(r.text));
+      /*
+       * 서버가 점수를 매길 때 본 축들. 담을 것이 정해진 뒤에만 뜻이 있어서
+       * not_found 에는 싣지 않는다 — 고른 메뉴가 없는데 "이걸 보고 골랐어요" 는
+       * 말이 안 된다.
+       */
+      const 점수본것 = rec.scoredAxes.length > 0 ? { scoredAxes: rec.scoredAxes } : {};
 
       // 서버가 display 를 빠뜨리면 이름 없는 후보가 화면에 뜬다.
       // 빈칸을 보여 주느니 그 후보를 빼는 게 낫다.
@@ -320,7 +430,7 @@ export function createApi(
           return { result: "not_found", reasons, message: "담을 수 있는 메뉴가 없어요" };
         }
         return {
-          result, reasons,
+          result, reasons, ...점수본것,
           reason: "비슷한 메뉴가 여러 개예요",
           // 목에만 넣고 여기를 빼면, 실서버로 바꾸는 순간 조건표가 다시 통째로
           // 사라진다. 사용자는 포장인지 종이컵인지 못 보고 승인하게 된다.
@@ -348,7 +458,7 @@ export function createApi(
         return { result: "not_found", reasons, message: "담을 수 있는 메뉴가 없어요" };
       }
       return {
-        result, reasons,
+        result, reasons, ...점수본것,
         ...(result === "changed" ? { diffNote: "저장하신 주문과 달라진 점이 있어요. 이대로 진행할까요?" } : {}),
         item: { ...고름, options: rec.matchedOptions },
       };
@@ -495,9 +605,25 @@ export function createApi(
     async getPlanStatus(planId): Promise<PlanStatus> {
       const sessionId = planId.split("::")[0];
       const e = await backend.getEvidence(sessionId);
+      /*
+       * reachedStep 은 '실행한 동작 수' 이고 STEPS 는 다섯 칸이다. 단위가 다르다.
+       *
+       * 백엔드가 만드는 동작은 9~10개다(select_service · select_menu ·
+       * select_option x4 · confirm_option x2 · open_cart_review · verify_cart).
+       * 그래서 중단됐을 때 reachedStep 이 거의 항상 5 이상이 되고, 다섯 칸이
+       * 전부 i < reachedStep 에 걸려 **모두 '완료'** 로 칠해졌다.
+       *
+       * 화면 위쪽은 "안전을 위해 멈췄어요" 인데 아래 단계는 다 끝난 것처럼
+       * 보인다. 같은 화면이 정반대 말을 한다.
+       *
+       * 마지막 칸을 넘지 않게 자른다. 실패 칸이 적어도 제자리 근처에는 찍힌다.
+       * 정확한 자리는 서버가 준 실행 내역(한일)이 아래에서 그대로 보여 준다 -
+       * 개수가 맞는 것은 그쪽이라 그 자리에 맡긴다.
+       */
+      const 멈춘칸 = Math.min(e.reachedStep, STEPS.length - 1);
       const steps: StepStatus[] =
         e.state === "aborted"
-          ? STEPS.map((_, i) => (i < e.reachedStep ? "done" : i === e.reachedStep ? "failed" : "waiting"))
+          ? STEPS.map((_, i) => (i < 멈춘칸 ? "done" : i === 멈춘칸 ? "failed" : "waiting"))
           : e.state === "cart_ready"
             ? STEPS.map(() => "done")
             : STEPS.map((_, i) => (i < e.reachedStep ? "done" : i === e.reachedStep ? "active" : "waiting"));
@@ -762,21 +888,168 @@ interface KitExcluded {
 }
 
 /** POST /api/v1/candidate-filters 응답 (CandidateFilterResult). */
+/** 규칙 하나에 대한 서버 판정. 후보별로 묶여서 온다. */
+interface 규칙판정 {
+  ruleId?: string;
+  result?: "PASS" | "FAIL" | "RECONFIRM" | "SKIPPED";
+  /**
+   * BLOCK · WARN. 서버가 이 규칙을 얼마나 세게 보는지.
+   *
+   * warningsByCandidateId 에는 WARN 만 담기게 돼 있다(CandidateFilterResult 문서).
+   * 그래도 읽는다 — 여기에 BLOCK 이 섞여 오면 서버가 '담으면 안 된다' 고 한 후보를
+   * 우리가 "조금 다른 메뉴" 로 내미는 것이 된다. 그럴 땐 후보에서 뺀다.
+   */
+  severity?: string;
+  errorCode?: string;
+  /** 서버가 비교에 쓴 우리 쪽 값. enum 이다("MILD"). */
+  sourceValue?: unknown;
+  /** 후보 쪽 값. 여럿일 수 있어 배열로 온다(["HOT"] · ["DINE_IN","TAKE_OUT"]). */
+  candidateValue?: unknown;
+}
+
 interface CandidateFilterResponse {
   eligibleCandidates?: KitCandidate[];
   excludedCandidates?: KitExcluded[];
+  /*
+   * 후보별 규칙 판정. 서버가 이미 계산해서 보내 준다.
+   *
+   * 예전에는 이 셋을 버리고 확인표() 에서 attributes.supportedOptions 로 같은
+   * 판단을 다시 했다. 같은 판단을 두 곳에서 하면 언젠가 갈라진다.
+   *
+   * 그리고 다시 하는 쪽이 알 수 없는 것이 있다 - **WARN 이 없다는 사실만으로는
+   * "일치한다" 를 뜻하지 않는다.** 값이 없거나, NO_PREFERENCE 같은 중립값이거나,
+   * unknownPolicy 가 IGNORE 거나, 후보가 그 항목을 아예 선언 안 했으면 SKIPPED 라
+   * 경고에 아무것도 안 남지만 실제로는 "비교한 적이 없다" 일 뿐이다.
+   * passes 를 함께 봐야 '맞음' 과 '비교 안 함' 이 갈린다.
+   */
+  warningsByCandidateId?: Record<string, 규칙판정[]>;
+  /*
+   * 재확인이 필요한 판정. **이 흐름에서는 여기까지 오지 않는다.**
+   *
+   * 서버에 직접 쏴 보면 이건 allergenIds 에 UNKNOWN 이 섞였을 때만 채워진다
+   * (CHICKEN_ALLERGEN_HARD_CONSTRAINT). 그런데 그 경우는 그보다 앞인 정규화에서
+   * 이미 막힌다 — session-context-normalizations 가 status: RECONFIRMATION_REQUIRED
+   * 를 돌려주고, 정규화() 가 거기서 RECONFIRM_REQUIRED 를 던진다. filterCandidates
+   * 는 정규화() 를 먼저 부르므로 후보 필터까지 도달하지 못한다.
+   *
+   * 그래도 서버판정있음 검사에는 넣는다. 안 넣으면 이것만 실려 오는 응답에서
+   * 우리가 다시 맞춰 보는 쪽으로 물러나고, 서버가 "비교하지 못했다" 고 한 축을
+   * 맞다고 말하게 된다.
+   *
+   * 안 읽는 이유를 적어 두는 까닭 — 선언만 보고 "안 쓰네" 하면 닿지도 않는 길을
+   * 화면에 이으려다 아무도 지나가지 않는 코드를 만들게 된다. (팀 #94 리뷰)
+   */
+  reconfirmationsByCandidateId?: Record<string, 규칙판정[]>;
+  passesByCandidateId?: Record<string, 규칙판정[]>;
 }
+
+/*
+ * 규칙 이름을 화면의 축 이름으로 옮긴다.
+ *
+ * errorCode 로 잇는다 - ruleId 는 환경마다 접두어가 붙지만(CHICKEN_...) errorCode 는
+ * 무엇이 어긋났는지를 가리키는 이름이라 더 안정적이다. 모르는 코드는 넘긴다.
+ */
+/**
+ * 점수 칸 이름을 화면의 축 이름으로. 모르는 칸은 넘긴다.
+ *
+ * 서버가 칸을 늘리면 여기 없는 이름이 들어오는데, 그때 원문("boneTypeMatch")을
+ * 띄우느니 조용히 빠지는 편이 낫다.
+ */
+/*
+ * 서버가 점수를 매길 때 본 축들. scoreBreakdown 의 열쇠를 화면 이름으로 옮긴다.
+ *
+ * 셋만 적어 두어서 나머지 셋(형태·컵·혼잡 시간대)이 조용히 버려졌다. 추천 순위에는
+ * 이미 반영된 값인데 "이걸 보고 골랐어요" 목록에서만 빠져서, 사용자는 자기가 고른
+ * 형태와 컵이 계산에 안 들어간 줄 안다(팀원 지적).
+ *
+ * 여기 없는 열쇠는 안 보여 준다 — 서버가 새 축을 더해도 우리가 이름을 모르면
+ * 영어 열쇠를 그대로 화면에 내보내는 것보다 조용한 편이 낫다.
+ */
+const 점수축: Record<string, string> = {
+  serviceTypeMatch: "이용 방식",
+  spicyLevelMatch: "맵기",
+  boneTypeMatch: "형태",
+  cupOptionMatch: "컵",
+  priceScore: "가격",
+  // 사용자가 고른 값이 아니라 가게 사정이다. 그래서 '조건' 이 아니라 시간대라고 적는다.
+  crowdingContextScore: "혼잡 시간대",
+};
+
+/**
+ * 표에서 축 이름을 찾는다. 우리가 적어 둔 칸일 때만 돌려준다.
+ *
+ * 객체 리터럴은 Object.prototype 을 물려받아서, 키가 "constructor" 면 생성자
+ * 함수가 나오고 그게 truthy 라 아래 Boolean 검사를 그냥 통과한다. 그러면
+ * label 자리에 함수가 들어간다. 키는 서버 응답에서 오므로 우리가 정하는 값이
+ * 아니다 — session.ts 의 대신갈곳 과 같은 이유로 막는다.
+ */
+const 축찾기 = (표: Record<string, string>, 키: string | undefined): string | undefined =>
+  키 !== undefined && Object.hasOwn(표, 키) ? 표[키] : undefined;
+
+/** 이 후보를 밀어 준 축들. 양수인 칸만 고른다 — 깎인 축은 다른 자리가 말한다. */
+const 도움된축 = (점수: Record<string, number> | undefined): string[] =>
+  Object.entries(점수 ?? {})
+    .filter(([, v]) => typeof v === "number" && v > 0)
+    .map(([k]) => 축찾기(점수축, k))
+    .filter((x): x is string => Boolean(x));
+
+const 규칙축: Record<string, string> = {
+  SERVICE_TYPE_MISMATCH: "이용 방식",
+  SPICY_LEVEL_MISMATCH: "맵기",
+  BONE_TYPE_MISMATCH: "형태",
+  CUP_OPTION_MISMATCH: "컵",
+};
 
 /** 사람이 읽을 문장만 고른다. 없으면 비운다 — 규칙 추적 문자열을 보여 주지 않는다. */
 const 사유문장 = (e: KitExcluded): string => e.reasonText ?? "";
+
+/**
+ * 화면에 내보낼 제외 사유.
+ *
+ * reasonText 가 사람이 읽는 자리다. explanation 은 규칙 추적용이라
+ * ("ruleId=..., sourceValue=[PEANUT]") 그대로 내보내면 화면에 규칙 식별자가 뜬다.
+ *
+ * 그런데 두 자리를 다 쓰는 응답이 있다 — 어떤 경로는 explanation 에 사람이 읽는
+ * 문장을 담아 준다. reasonText 를 먼저 보고 없을 때만 물러난다. 둘 다 비면 빈
+ * 문자열이고, 부르는 쪽이 그 줄을 아예 안 만든다 — 빈 문장에 메뉴 이름만 붙이면
+ * "순살 닭강정 — " 이 되어 이유를 말한다면서 아무 이유도 안 적는 셈이다(#101 리뷰).
+ */
+const 뺀사유 = (e: KitExcluded): string => {
+  // 각각 다듬고 나서 고른다. 붙여서 고르면 공백뿐인 reasonText 가 truthy 라
+  // explanation 을 안 보고, 그 뒤 trim 으로 빈 문자열이 된다 — 사람이 읽을 수 있는
+  // 사유가 있는데도 제외 이유가 사라진다(#101 리뷰).
+  const 글 = 사유문장(e).trim() || (e.explanation ?? "").trim();
+  // 규칙 추적 문자열은 사람에게 보여 줄 말이 아니다.
+  return /(^|\s)(ruleId|sourceValue)\s*=/.test(글) ? "" : 글;
+};
 
 /** POST /api/v1/recommendations 응답 (Recommendation). */
 interface RecommendationResponse {
   recommendedCandidateId: string | null;
   alternativeCandidateIds?: string[];
-  excludedCandidates?: { candidateId: string; reasonCode?: string; explanation?: string }[];
+  /*
+   * candidate-filters 와 같은 모양이다. 예전에는 여기만 reasonText 없이 적어 두었는데,
+   * 사유문장() 은 reasonText 를 읽는다 — 구조적 타이핑 덕에 우연히 통하고 있었다.
+   * 서버는 여기서도 reasonText 를 보낸다(실측).
+   */
+  excludedCandidates?: KitExcluded[];
   recommendationReasons?: string[];
   unmetConditions?: string[];
+  /**
+   * 축별 점수. 서버가 무엇을 보고 이 후보를 1순위로 골랐는지 남긴 것이다.
+   *
+   * 칸은 셋뿐이고(RecommendationEngineService.buildScoreBreakdown) **음수가 나올 수 있다.**
+   *
+   *   serviceTypeMatch  일치 보너스 · 불일치 벌점
+   *   spicyLevelMatch   위와 같음. 한 칸 차이면 벌점이 작다
+   *   priceScore        가격 한도 대비 남는 비율. 한도를 안 정하면 늘 0
+   *
+   * 숫자는 화면에 안 띄운다. 이 앱을 쓰는 분들에게 0.0259 는 읽을 수 없는 값이
+   * 하나 더 느는 것이다. 대신 **양수인 축의 이름만** 뽑아서 "이걸 보고 골랐어요"
+   * 로 옮긴다(아래 점수축). 깎인 축은 여기서 말하지 않는다 — 그건 이미
+   * unmetConditions 와 어긋난 줄이 자기 말로 하고 있다.
+   */
+  scoreBreakdown?: Record<string, number>;
   confidence?: number;
   requiresReconfirmation?: boolean;
 }
@@ -822,7 +1095,14 @@ function 확인표(c: KitCandidate | undefined, p: OrderSheet): MappedOption[] {
   return 행;
 }
 
-const 원 = (n: number | undefined) => (typeof n === "number" ? `${n.toLocaleString("ko-KR")}원` : "");
+/*
+ * 값 표기. 우리가 만드는 글자라 화면 언어를 따라간다("6,000원" vs "KRW 6,000").
+ *
+ * 통화는 원 그대로다 — 이 앱은 한국 키오스크 앞에서 쓰는 것이고, 환산해서 적으면
+ * 화면의 값과 키오스크 화면의 값이 달라진다.
+ */
+const 원 = (n: number | undefined) =>
+  typeof n === "number" ? 돈(n, 접근성설정.읽기().language === "en-US") : "";
 
 /**
  * 받침이 있으면 '은', 없으면 '는'.
@@ -850,6 +1130,9 @@ const 앱말투: Record<string, string> = {
   "실행할 수 없습니다.": "담을 수 없어요",
   "안전하게 중단되었습니다.": "안전을 위해 멈췄어요",
   "처리 중 문제가 발생했습니다.": "끝까지 담지 못했어요",
+  // OrchestratorController 가 증거를 못 읽었을 때 내는 문장. 표에 없으면
+  // 조용히 안 보여 주게 되는데, 그 경우야말로 서버 말을 인용할 자리다.
+  "결과를 처리하는 중 문제가 발생했습니다.": "끝까지 담지 못했어요",
 };
 
 /*
@@ -873,12 +1156,6 @@ function 고른것반영(rec: RecommendationResponse, 고른: string | undefined
   if (rec.recommendedCandidateId && rec.recommendedCandidateId !== 고른) 대안.unshift(rec.recommendedCandidateId);
   return { ...rec, recommendedCandidateId: 고른, alternativeCandidateIds: 대안 };
 }
-
-const 은는 = (w: string) => {
-  const c = w.charCodeAt(w.length - 1);
-  if (c < 0xac00 || c > 0xd7a3) return "는";
-  return (c - 0xac00) % 28 === 0 ? "는" : "은";
-};
 
 export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 보내기 = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -965,6 +1242,85 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 실행단계 = new Map<string, { text: string; ok: boolean }[]>();
   // 후보 필터가 준 후보들. 이름·가격과 축별 값이 여기 있다.
   const 후보 = new Map<string, Map<string, KitCandidate>>();
+  /*
+   * candidate-filters 가 준 후보별 규칙 판정. 주문표 id 로 묶어 둔다.
+   *
+   * 여기 있으면 확인표() 대신 이것을 쓴다. 서버가 이미 내린 판단이라
+   * 우리가 다시 계산할 이유가 없고, 다시 하면 언젠가 갈라진다.
+   */
+  const 규칙판정들 = new Map<string, {
+    /*
+     * 응답에 판정 필드가 **있었는가**. 후보별 배열이 있었는가와 다르다.
+     *
+     * 이 둘을 구분하지 않으면, 서버가 판정을 보냈는데 그 후보에 대한 항목만
+     * 없는 경우(전부 SKIPPED)에 우리가 다시 계산하는 쪽으로 물러난다. 그러면
+     * 서버가 '비교한 적 없다' 고 한 축을 우리가 맞다.틀리다로 말하게 된다 -
+     * 이 변경이 없애려던 바로 그 문제다.
+     *
+     * 필드 자체가 없을 때(옛 백엔드)만 물러난다.
+     */
+    서버판정있음: boolean;
+    warn: Record<string, 규칙판정[]>;
+    pass: Record<string, 규칙판정[]>;
+  }>();
+
+  /*
+   * 축별 일치 여부를 만든다.
+   *
+   * 서버가 후보별 규칙 판정을 줬으면 그것을 쓴다. FAIL 이면 어긋난 것,
+   * PASS 면 맞은 것이다. 둘 중 어느 쪽에도 없으면 **아무 말도 하지 않는다** -
+   * SKIPPED 라는 뜻이고, 그건 '맞았다' 가 아니라 '비교한 적이 없다' 이다.
+   *
+   * 판정이 아예 안 오면(옛 백엔드) 예전처럼 우리가 맞춰 본다.
+   */
+  const 축맞춤 = (profileId: string, candidateId: string, c: KitCandidate | undefined, p: OrderSheet): MappedOption[] => {
+    const 판정 = 규칙판정들.get(profileId);
+    // 필드 자체가 없을 때만 우리가 맞춰 본다. 후보별 항목이 없는 것은
+    // '이 후보는 비교한 축이 하나도 없다' 는 뜻이라 빈 것이 맞는 답이다.
+    if (!판정?.서버판정있음) return 확인표(c, p);
+    const warn = 판정.warn[candidateId];
+    const pass = 판정.pass[candidateId];
+
+    const 고른값 = p.selections ?? {};
+    /**
+     * @param 이메뉴는 후보가 가진 값을 우리말로 옮긴 것. 없으면 빈 문자열이다.
+     *
+     * 어긋난 줄에 무엇이 어긋났는지를 적는다. 예전에는 어느 축이든
+     * "오늘은 이 조합이 없어요" 한 문장이었다 — 무엇으로 바뀌는지는 말해 주지 않아서,
+     * 사용자가 이걸 담아도 되는지 판단할 근거가 없었다. 서버가 비교한 값을
+     * 실어 보내 주고 있었는데(candidateValue) 우리가 안 읽고 있었다.
+     */
+    const 한줄 = (축: string, matched: boolean, 이메뉴는 = ""): MappedOption | null => {
+      const 값 = 고른값[축]?.[0];
+      if (!값) return null;   // 사용자가 안 고른 축은 보여 줄 것이 없다
+      if (matched) return { label: 축, value: 값, matched: true };
+      return {
+        label: 축, value: 값, matched: false,
+        // 옮기지 못한 값(모르는 enum)이면 예전 문장으로 돌아간다. 원문을 띄우지 않는다.
+        note: 이메뉴는 ? `이 메뉴는 ${이메뉴는}이에요` : "오늘은 이 조합이 없어요",
+      };
+    };
+
+    const 행: MappedOption[] = [];
+    const 본축 = new Set<string>();
+    for (const r of warn ?? []) {
+      const 축 = 축찾기(규칙축, r.errorCode);
+      if (!축 || 본축.has(축)) continue;
+      본축.add(축);
+      const x = 한줄(축, false, 우리말들(r.candidateValue));
+      if (x) 행.push(x);
+    }
+    for (const r of pass ?? []) {
+      const 축 = 축찾기(규칙축, r.errorCode)
+        ?? 축찾기(규칙축, (r.ruleId ?? "").replace(/^CHICKEN_/, "").replace(/_PREFERENCE$/, "_MISMATCH"));
+      if (!축 || 본축.has(축)) continue;
+      본축.add(축);
+      const x = 한줄(축, true);
+      if (x) 행.push(x);
+    }
+    return 행;
+  };
+
   // 정규화를 거친 주문표·세션 맥락. 매핑과 승인이 같은 값을 쓴다.
   // 키는 환경 + 정규화에 넣은 입력 전체다. 주문표 id 만 쓰면 주문표를 고치거나
   // 다른 키오스크에 붙었을 때 낡은 값을 그대로 쓰게 된다.
@@ -984,12 +1340,30 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
    * 제출할 수 있다. 그때는 키를 pairingId(또는 서버 sessionId)로 옮겨야 한다.
    */
 
-  const 캐시키 = (environmentId: string, p: OrderSheet) => {
+  /**
+   * @param contextInput 이미 만들어 둔 것을 받는다. **여기서 다시 만들지 않는다.**
+   *
+   * 예전에는 이 안에서 한 번, 요청을 보낼 때 또 한 번 만들었다. 그 사이에
+   * `await` 이 하나 있어서, 그동안 사용자가 알레르기나 가격 한도를 바꾸면
+   * **키와 실제 보낸 값이 서로 다른 조건을 가리켰다.**
+   *
+   * 알레르기가 빠진 맥락이 '알레르기가 있는' 키에 저장되고, 다음에 같은 키로
+   * 찾으면 그 맥락이 그대로 쓰인다 — 걸러졌어야 할 후보가 안 걸러진다.
+   * 알레르기는 빠뜨려도 되는 값이 아니다.
+   */
+  const 캐시키 = (
+    environmentId: string,
+    p: OrderSheet,
+    profileInput: ProfileNormalizationInput,
+    contextInput: ContextNormalizationInput["contextInput"],
+  ) => {
     // collectedAt 은 부를 때마다 달라진다(현재 시각). 키에 넣으면 캐시가 한 번도
     // 안 맞는다. 결과를 바꾸는 건 고른 조건과 접근성 설정이라 그것만 넣는다.
     // 접근성 설정이 바뀌면 표준형도 달라진다. 키에 그대로 들어가므로 캐시가 자동으로 갈린다.
-    const { collectedAt: _버림, ...주문표 } = toProfileNormalizationInput(p, { 접근성: 접근성설정.읽기() });
-    const 키 = `${environmentId}|${JSON.stringify(주문표)}|${JSON.stringify(toContextNormalizationInput(p).contextInput)}`;
+    const { collectedAt: _버림, ...주문표 } = profileInput;
+    // 가격 한도.알레르기가 바뀌면 후보 자체가 달라진다. 키에 들어가므로 고치면
+    // 캐시가 자동으로 갈라진다 — 접근성 설정과 같은 방식이다.
+    const 키 = `${environmentId}|${JSON.stringify(주문표)}|${JSON.stringify(contextInput)}`;
     마지막키.set(p.id, 키);
     return 키;
   };
@@ -1007,7 +1381,23 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
   const 정규화 = async (environmentId: string, p: OrderSheet) => {
     // 같은 주문표라도 붙은 키오스크가 다르면 표준형이 달라질 수 있다.
     // 주문표 내용을 고쳤을 때도 낡은 값을 쓰면 안 된다. 둘 다 키에 넣는다.
-    const 키 = 캐시키(environmentId, p);
+    /*
+     * 정규화에 넣을 값을 여기서 **한 번만** 만든다. 아래 요청과 위 캐시키가 같은
+     * 객체를 봐야 한다 — 두 번 만들면 그 사이의 설정 변경이 둘을 갈라놓는다.
+     *
+     * 프로필 쪽도 같은 규칙이다. 지금은 두 자리 사이에 await 이 없어서 갈라질
+     * 일이 없지만, 나중에 하나라도 끼면 캐시키와 보내는 값이 어긋난다(#96 리뷰).
+     */
+    const 프로필입력 = toProfileNormalizationInput(p, {
+      접근성: 접근성설정.읽기(),
+      personalization: 개인정보동의.읽기(),
+      말로채웠나: 입력출처.말로채운적있나(),
+    });
+    const 정규화입력 = toContextNormalizationInput(p, {
+      예산: 가격한도.읽기(),
+      알레르기: 알레르기설정.읽기(),
+    });
+    const 키 = 캐시키(environmentId, p, 프로필입력, 정규화입력.contextInput);
     const 있음 = 정규화됨.get(키);
     if (있음) return 있음;
 
@@ -1018,27 +1408,51 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       environmentId,
       // 큰 글씨를 켜 놓고 주문해도 서버가 몰랐다 — opts 를 안 넘겨서 일곱이 전부
       // false 로 나가고 있었다. 화면이 묻는 값을 그대로 보낸다.
-      profileInput: toProfileNormalizationInput(p, { 접근성: 접근성설정.읽기() }),
+      profileInput: 프로필입력,
     });
 
     const sr = await 보내기<{
       status: string; sessionContext: ChickenStoreSessionContext;
-      reconfirmationFields?: { path?: string; message?: string }[];
+      /*
+       * 재확인이 필요한 칸들. 실측한 모양:
+       *   { path: "/sessionContext/hardConstraints/allergenIds",
+       *     reasonCode: "HARD_CONSTRAINT_UNKNOWN",
+       *     message: "allergenIds 가 UNKNOWN 입니다. ..." }
+       *
+       * 화면은 message 만 쓴다. path 와 reasonCode 는 어느 칸인지를 가리키는데,
+       * 지금 이 분기에 닿는 상황이 알레르기 하나뿐이라 둘로 갈라 말할 것이 없다.
+       * 칸이 늘면 그때 path 로 짚는다 — 그러려면 선언이 먼저 있어야 한다.
+       */
+      reconfirmationFields?: { path?: string; reasonCode?: string; message?: string }[];
       contractValidation?: { valid: boolean; errors?: { message?: string }[] };
-    }>("/api/v1/session-context-normalizations", { environmentId, ...toContextNormalizationInput(p) });
+    }>("/api/v1/session-context-normalizations", { environmentId, ...정규화입력 });
 
+    /*
+     * 재확인을 먼저 가른다. 순서가 뒤집혀 있어서 이 분기가 죽어 있었다.
+     *
+     * 백엔드는 reconfirmationFields 가 비지 않을 때만 RECONFIRMATION_REQUIRED 를
+     * 낸다. 그 필드는 contractValidation.errors 에서 HARD_CONSTRAINT_UNKNOWN 등을
+     * 골라 만든 것이고, 킷은 그것을 **warning 이 아니라 error** 로 넣는다.
+     *
+     * 그래서 RECONFIRMATION_REQUIRED 이면 contractValidation.valid 는 반드시
+     * false 다. 아래 INVALID 검사가 위에 있으면 항상 그쪽이 먼저 던진다.
+     *
+     * 무엇을 잃었나 - 알레르기가 UNKNOWN 인 분에게 recoverable: true 로
+     * 돌아갈 길을 주려던 것이 recoverable: false 가 됐고, 문구도 킷 원문이
+     * 그대로 나갔다("allergenIds 가 UNKNOWN 입니다. 임의로 추론하지 말고...").
+     * 앱이 모르는 알레르기를 가진 분을 위해 만든 문인데 정작 그 상황에서
+     * 한 줄도 닿지 않았다.
+     */
+    if (sr.status === "RECONFIRMATION_REQUIRED") {
+      const 첫줄 = sr.reconfirmationFields?.[0]?.message;
+      throw new KioBridgeError("RECONFIRM_REQUIRED", 첫줄 ?? "저장하신 조건을 다시 확인해 주세요", true);
+    }
     // 서버가 못 쓰겠다고 하면 거기서 멈춘다. 조용히 넘기면 승인 직전에 터진다.
     for (const r of [pr, sr]) {
       if (r.status === "INVALID" || r.contractValidation?.valid === false) {
         const 첫줄 = r.contractValidation?.errors?.[0]?.message;
         throw new KioBridgeError("PROFILE_INVALID", 첫줄 ?? "저장하신 조건을 서버가 읽지 못했어요", false);
       }
-    }
-    // 재확인이 필요하다는 건 우리가 확신도를 낮게 적었을 때만 나온다.
-    // 이 앱은 사용자가 직접 눌러 고르므로 여기 걸리면 보내는 쪽이 잘못된 것이다.
-    if (sr.status === "RECONFIRMATION_REQUIRED") {
-      const 첫줄 = sr.reconfirmationFields?.[0]?.message;
-      throw new KioBridgeError("RECONFIRM_REQUIRED", 첫줄 ?? "저장하신 조건을 다시 확인해 주세요", true);
     }
 
     // 마지막 관문. 주문표와 세션 맥락을 합쳐 놓고 다시 본다.
@@ -1096,9 +1510,18 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
     const 합계 = typeof r.total === "number"
       ? r.total
       : items.reduce((s, i) => s + (Number(i?.price) || 0) * (Number(i?.quantity) || 0), 0);
+    /*
+     * 값 표기만 언어를 따라간다. 나머지 세 문장은 우리말 그대로 두고 화면 쪽에서
+     * 옮긴다(i18n/en.ts) — 여기서 옮기면 같은 문장을 두 곳에서 관리하게 된다.
+     */
+    const 영어 = 접근성설정.읽기().language === "en-US";
+    /*
+     * 개수도 여기서 만든다. "1개" 를 표에 넣으면 수량 칩의 "1개" 까지 같이 바뀐다 —
+     * 같은 우리말이 자리마다 다른 영어가 되는 곳은 표로 풀 수 없다.
+     */
     return {
-      itemCountText: `${개수}개`,
-      totalText: `${합계.toLocaleString("ko-KR")}원`,
+      itemCountText: 영어 ? `${개수} item${개수 === 1 ? "" : "s"}` : `${개수}개`,
+      totalText: 돈(합계, 영어),
       evidenceLabel: "화면 인식으로 확인됨",
       handoff: "키오스크 화면에서 장바구니를 확인해 주세요",
     };
@@ -1131,6 +1554,17 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       // 다른 기계 앞에 서 있어도 같은 세션을 받는다는 뜻이다.
       // 백엔드가 아직 이 값을 받지 않지만, 여기서 빼 두면 받게 되는 날에도
       // 아무도 눈치채지 못한다. 보내고, 서버가 무시하면 서버 사정이다.
+      /*
+       * initialState 는 읽지 않는다. 실측 응답에 늘 실려 오지만("SERVICE_TYPE")
+       * 이건 **키오스크가 지금 어느 화면인지가 아니라 환경 설정값**이다 —
+       * environments/chicken-store/manifest.json 의 initialState 를 그대로 돌려주는
+       * 것이고, 같은 가게면 언제 불러도 같은 값이다(다른 환경은 "WELCOME").
+       *
+       * 그래서 '앞사람이 쓰던 화면이 남아 있나' 같은 걸 여기서 알 수는 없다.
+       * 쓸 자리가 있다면 우리가 박아 둔 STEPS 의 첫 단계와 맞는지 보는 것인데,
+       * 지금 붙는 환경이 닭강정집 하나뿐이라(백엔드가아는장소) 그 검사는 늘 통과한다.
+       * 환경이 늘면 그때 여기서 짚는다.
+       */
       const r = await 보내기<{ sessionId: string; environmentId?: string; initialState: string; submissionEndpoint: string }>(
         "/internal/simulation/session", { environmentId, claimCode },
       );
@@ -1139,10 +1573,16 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // 서버가 세션 생성 시점의 값을 그대로 돌려준다. 조립 계층이 이후 단계에서
         // 이 값을 쓴다 — 화면이 보낸 값을 다시 믿지 않는다.
         ...(r.environmentId ? { environmentId: r.environmentId } : {}),
-        // 백엔드가 키오스크 이름과 만료를 아직 안 준다. 받게 되면 여기서 쓴다.
-        // 만료를 클라이언트 시계로 가정하고 있어서, 서버가 먼저 끝내면 앱은 모른다.
-        // docs/BACKEND_INTEGRATION.md 질문 ① 이 이것이다.
-        kioskName: "키오스크",
+        /*
+         * 백엔드가 키오스크 이름과 만료를 아직 안 준다. 받게 되면 여기서 쓴다.
+         * 만료를 클라이언트 시계로 가정하고 있어서, 서버가 먼저 끝내면 앱은 모른다.
+         * docs/BACKEND_INTEGRATION.md 질문 ① 이 이것이다.
+         *
+         * 그때까지는 킷이 적어 둔 이름을 쓴다 — environments/chicken-store/
+         * manifest.json 의 displayName 이 "닭강정 가게" 다. 지점 번호는 킷 어디에도
+         * 없어서 안 붙인다. 지어내면 화면이 사실이 아닌 것을 말하게 된다.
+         */
+        kioskName: "닭강정 가게",
         expiresAt: Date.now() + 5 * 60 * 1000,
       };
     },
@@ -1159,26 +1599,85 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       const { sessionContext } = await 정규화(environmentId, profile);
       const r = await 보내기<CandidateFilterResponse>("/api/v1/candidate-filters", { environmentId, sessionContext });
 
+      /*
+       * 서버가 '담으면 안 된다' 고 한 후보인가.
+       *
+       * warningsByCandidateId 에는 WARN 만 담기게 돼 있다(CandidateFilterResult 문서).
+       * 그래서 여기 BLOCK 이 있으면 그건 서버 쪽이 어긋난 것인데, 어긋난 쪽으로
+       * 기울 방향이 정해져 있다 — BLOCK 은 알레르기·품절 같은 절대 조건에 붙는
+       * severity 다. 그런 후보를 "조금 다른 메뉴" 로 내밀면 안 된다.
+       *
+       * 지금은 한 번도 안 걸린다(실측: severity 가 전부 "WARN" 또는 null).
+       * available 검사와 같은 이유로 남긴다 — 한쪽만 막으면 언젠가 샌다.
+       */
+      const 막힌후보 = (id: string): boolean =>
+        (r.warningsByCandidateId?.[id] ?? []).some((x) => x.severity === "BLOCK" && x.result === "FAIL");
+
       // 지금 팔지 않는 것은 후보가 아니다. 심사 필수 기준이 '선택 불가능 후보
       // 추천 0건' 이고, 서버가 available:false 를 남겨 보내는 걸 확인했다.
       // 서버가 나중에 걸러 주더라도 여기 검사는 남긴다 — 한쪽만 막으면 언젠가 샌다.
-      const 담을수있는 = (r.eligibleCandidates ?? []).filter((c) => c?.candidateId && c.available !== false);
+      const 담을수있는 = (r.eligibleCandidates ?? [])
+        .filter((c) => c?.candidateId && c.available !== false && !막힌후보(c.candidateId));
 
-      const display: Record<string, { displayName: string; priceText: string }> = {};
+      const display: Record<string, { displayName: string; priceText: string; price?: number }> = {};
       for (const c of 담을수있는) {
-        if (c.name) display[c.candidateId] = { displayName: c.name, priceText: 원(c.price) };
+        if (c.name) {
+          display[c.candidateId] = {
+            displayName: c.name,
+            priceText: 원(c.price),
+            /*
+             * 숫자도 같이 싣는다. 화면이 수량과 곱해 한도를 넘는지 본다.
+             *
+             * 쓸 수 있는 값일 때만 싣는다. NaN 이나 Infinity 가 들어오면 곱한
+             * 결과도 그것들이라 "NaN원이에요" 같은 문장이 화면에 나간다. 음수도
+             * 값이 될 수 없다 — 없는 것으로 두면 화면이 안내를 안 띄운다(#100 리뷰).
+             */
+            ...(typeof c.price === "number" && Number.isFinite(c.price) && c.price >= 0
+              ? { price: c.price } : {}),
+          };
+        }
       }
       후보.set(profile.id, new Map(담을수있는.map((c) => [c.candidateId, c])));
+      규칙판정들.set(profile.id, {
+        // 셋 중 하나라도 오면 '서버가 판정했다' 로 본다. 예전에는 앞의 둘만 봐서,
+        // 재확인 판정만 온 응답에서 우리가 다시 맞춰 보는 쪽으로 물러났다.
+        // 서버가 '비교하지 못했다' 고 한 축을 우리가 맞다고 말하게 되는 자리다.
+        서버판정있음: Boolean(
+          r.warningsByCandidateId || r.passesByCandidateId || r.reconfirmationsByCandidateId,
+        ),
+        warn: r.warningsByCandidateId ?? {},
+        pass: r.passesByCandidateId ?? {},
+      });
 
-      const 뺀것 = (r.excludedCandidates ?? []).map((e) => ({
-        candidateId: e.candidateId,
-        reasonCode: e.reasonCode ?? "EXCLUDED",
-        explanation: 사유문장(e),
-      })).filter((e) => e.explanation);
-      // 품절이라 뺀 것도 사용자에게 말해 준다. 조용히 사라지면 "왜 없지?" 가 된다.
+      const 뺀것: { candidateId: string; reasonCode: string; explanation: string; menuName?: string }[] =
+        (r.excludedCandidates ?? []).map((e) => ({
+          candidateId: e.candidateId,
+          reasonCode: e.reasonCode ?? "EXCLUDED",
+          explanation: 사유문장(e),
+        })).filter((e) => e.explanation);
+      /*
+       * 품절이라 뺀 것도 사용자에게 말해 준다. 조용히 사라지면 "왜 없지?" 가 된다.
+       *
+       * 이름은 문장에 넣지 않고 menuName 으로 따로 나른다. 품절·차단 후보는
+       * display 에 안 실려서 요청 매핑의 이름찾기() 가 못 찾는데, 예전처럼
+       * "품절 닭강정은 지금 팔지 않아서 뺐어요" 로 붙여 두면 매번 다른 문장이
+       * 되어 영어 화면에서 통째로 못 옮겼다(#101 리뷰). 문장은 표로 옮길 수
+       * 있는 고정문만 남긴다.
+       */
       for (const c of (r.eligibleCandidates ?? [])) {
         if (c?.available === false && c.name) {
-          뺀것.push({ candidateId: c.candidateId, reasonCode: "UNAVAILABLE", explanation: `${c.name}${은는(c.name)} 지금 팔지 않아서 뺐어요` });
+          뺀것.push({ candidateId: c.candidateId, reasonCode: "UNAVAILABLE", explanation: "지금 팔지 않아서 뺐어요", menuName: c.name });
+        } else if (c?.candidateId && 막힌후보(c.candidateId) && c.name) {
+          // 우리가 뺐으면 뺐다고 말한다. 어느 축 때문인지는 서버가 준 errorCode 로 짚는다.
+          const 축 = (r.warningsByCandidateId?.[c.candidateId] ?? [])
+            .filter((x) => x.severity === "BLOCK").map((x) => 축찾기(규칙축, x.errorCode)).find(Boolean);
+          뺀것.push({
+            candidateId: c.candidateId, reasonCode: "BLOCKED",
+            explanation: 축
+              ? `${축}이(가) 맞지 않아서 뺐어요`
+              : "조건에 맞지 않아서 뺐어요",
+            menuName: c.name,
+          });
         }
       }
 
@@ -1218,16 +1717,19 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         unmetConditions: r.unmetConditions ?? [],
         confidence: r.confidence ?? 0,
         requiresReconfirmation: r.requiresReconfirmation ?? false,
+        scoredAxes: 도움된축(r.scoreBreakdown),
         // 이름·가격은 candidate-filters 에서 온다. 추천 응답에는 없다.
         display: {},
-        // 후보가 들고 있는 값과 사용자가 고른 값을 축별로 맞춰 본다.
-        // 서버가 matchedOptions 를 주면 그때는 이걸 걷어내고 그대로 쓴다.
-        matchedOptions: 고름 ? 확인표(알려진후보?.get(고름), profile) : [],
+        // 축별 일치 여부. 서버 판정이 있으면 그것을 쓰고, 없으면 우리가 맞춰 본다.
+        matchedOptions: 고름 ? 축맞춤(profile.id, 고름, 알려진후보?.get(고름), profile) : [],
         // 후보를 고르는 화면에서도 어느 축이 어긋나는지 보여 준다.
         unmatchedLabelsByCandidate: Object.fromEntries(
           [고름, ...(r.alternativeCandidateIds ?? [])]
             .filter((id): id is string => id !== null && 담을수있나(id))
-            .map((id) => [id, 확인표(알려진후보?.get(id), profile).filter((o) => !o.matched).map((o) => o.label)]),
+            .map((id) => [
+              id,
+              축맞춤(profile.id, id, 알려진후보?.get(id), profile).filter((o) => !o.matched).map((o) => o.label),
+            ]),
         ),
       };
     },
@@ -1260,7 +1762,10 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
         // 사용자가 다른 후보를 골랐으면 그것이 1순위다. 서버가 조립할 때 그 값을 쓴다.
         //
         // 1순위만 덮으면 그 후보가 대안에도 남아 두 필드가 겹친다.
-        // 백엔드 RecommendationValidator 가 ALTERNATIVE_DUPLICATES_RECOMMENDED 로 막는다.
+        // 1순위와 대안에 같은 후보가 겹치면 서버가 무엇을 담을지 알 수 없다.
+        // (백엔드 RecommendationValidator 에 그 규칙이 있지만 그건
+        //  /api/v1/recommendation-output-validations 에서만 돌고 승인 경로에는
+        //  안 걸린다. 그러니 여기서 겹치지 않게 보내는 것이 유일한 방어다.)
         // 고른 것을 대안에서 빼고, 원래 1순위를 대안으로 옮긴다.
         recommendation: 고른것반영(rec, input.candidateId),
         // note 는 선택 필드다. null 을 보내면 킷 스키마가 'must be string' 으로 막는다.

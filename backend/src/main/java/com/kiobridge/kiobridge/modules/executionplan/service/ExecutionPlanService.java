@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.executionplan.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.contracts.Action;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExecutionPlan;
@@ -15,6 +16,7 @@ import com.kiobridge.kiobridge.contracts.client.dto.SessionCreateResponse;
 import com.kiobridge.kiobridge.contracts.client.dto.ValidationResult;
 import com.kiobridge.kiobridge.contracts.input.context.ChickenStorePreferences;
 import com.kiobridge.kiobridge.contracts.input.context.SessionContextBase;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -87,7 +89,9 @@ public class ExecutionPlanService {
 
         String candidateId = recommendation.recommendedCandidateId();
         if (candidateId == null || candidateId.isBlank()) {
-            throw new IllegalStateException(
+            // Kit 카탈로그엔 없는 우리 파이프라인 내부 전제조건 위반 — recommendation 자체가 후보를 안 정함
+            throw new ApiException(
+                "RECOMMENDATION_CANDIDATE_MISSING",
                 "승인된 결정(userDecision.approved=true)인데 recommendation.recommendedCandidateId가 없습니다. "
                     + "buildExecutionPlan은 추천 후보 없이 실행계획을 만들 수 없습니다."
             );
@@ -95,7 +99,13 @@ public class ExecutionPlanService {
 
         String environmentId = simulationApiClient.getSession(sessionId).environmentId();
         if (environmentId == null || environmentId.isBlank()) {
-            throw new IllegalStateException(
+            // getSession()이 여기까지 왔다는 건 Kit이 200으로 응답했다는 뜻이다(그렇지 않았다면
+            // RestClientException/ResourceAccessException으로 먼저 걸러진다) — 즉 세션 자체는
+            // 찾았는데 그 안의 environmentId가 비어있는, Kit 응답 데이터 자체의 문제다. 호출자가
+            // 같은 sessionId로 재시도해도 고쳐지지 않으므로 400이 아니라 502다(CodeRabbit 지적 사항).
+            throw new ApiException(
+                HttpStatus.BAD_GATEWAY,
+                "SESSION_ENVIRONMENT_UNRESOLVED",
                 "sessionId(" + sessionId + ")에 대한 세션을 Simulation API에서 찾지 못했거나 environmentId가 없습니다."
             );
         }
@@ -104,12 +114,15 @@ public class ExecutionPlanService {
         Candidate candidate = fixture.candidates().stream()
             .filter(c -> candidateId.equals(c.candidateId()))
             .findFirst()
-            .orElseThrow(() -> new IllegalStateException(
+            .orElseThrow(() -> new ApiException(
+                // Kit ERROR_CATALOG.md 2.후보(Stage A): 존재하지 않는 후보 추천
+                "CANDIDATE_NOT_FOUND",
                 "추천된 candidateId(" + candidateId + ")가 " + environmentId + " fixture 후보 목록에 없습니다."
             ));
 
         if (!(sessionContext.preferences() instanceof ChickenStorePreferences preferences)) {
-            throw new IllegalStateException(
+            throw new ApiException(
+                "UNSUPPORTED_SESSION_CONTEXT_TYPE",
                 "buildExecutionPlan은 현재 chicken-store 환경(ChickenStorePreferences)만 지원합니다."
             );
         }

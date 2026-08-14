@@ -20,13 +20,16 @@ public class AuthService {
 
     private final AppUserRepository appUserRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SessionTokenService sessionTokenService;
 
     public AuthService(
             AppUserRepository appUserRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            SessionTokenService sessionTokenService
     ) {
         this.appUserRepository = appUserRepository;
         this.passwordEncoder = passwordEncoder;
+        this.sessionTokenService = sessionTokenService;
     }
 
     @Transactional
@@ -57,12 +60,18 @@ public class AuthService {
             throw e;
         }
 
+        SessionTokenService.IssuedSession session =
+                sessionTokenService.issue(user);
+
         return new SignupResponse(
                 user.getId(),
-                user.getLoginId()
+                user.getLoginId(),
+                session.accessToken(),
+                session.expiresAt()
         );
     }
 
+    @Transactional
     public LoginResponse login(LoginRequest request) {
         String loginId = request.loginId().trim();
 
@@ -79,9 +88,14 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
 
+        SessionTokenService.IssuedSession session =
+                sessionTokenService.issue(user);
+
         return new LoginResponse(
                 user.getId(),
-                user.getLoginId()
+                user.getLoginId(),
+                session.accessToken(),
+                session.expiresAt()
         );
     }
 }

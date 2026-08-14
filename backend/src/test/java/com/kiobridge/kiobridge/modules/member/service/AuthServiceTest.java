@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,13 +35,17 @@ class AuthServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private SessionTokenService sessionTokenService;
+
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         authService = new AuthService(
                 appUserRepository,
-                passwordEncoder
+                passwordEncoder,
+                sessionTokenService
         );
     }
 
@@ -62,14 +67,28 @@ class AuthServiceTest {
                     return user;
                 });
 
+        Instant expiresAt =
+                Instant.parse("2099-01-01T00:00:00Z");
+
+        when(sessionTokenService.issue(any(AppUser.class)))
+                .thenReturn(
+                        new SessionTokenService.IssuedSession(
+                                "signup-token",
+                                expiresAt
+                        )
+                );
+
         SignupResponse response = authService.signup(request);
 
         assertThat(response.userId()).isEqualTo(1L);
         assertThat(response.loginId()).isEqualTo("hyunwoo");
+        assertThat(response.accessToken()).isEqualTo("signup-token");
+        assertThat(response.expiresAt()).isEqualTo(expiresAt);
 
         verify(passwordEncoder).encode("1234");
         verify(appUserRepository)
                 .saveAndFlush(any(AppUser.class));
+        verify(sessionTokenService).issue(any(AppUser.class));
     }
 
     @Test
@@ -86,6 +105,7 @@ class AuthServiceTest {
         verify(passwordEncoder, never()).encode(any());
         verify(appUserRepository, never())
                 .saveAndFlush(any());
+        verify(sessionTokenService, never()).issue(any());
     }
 
     @Test
@@ -103,12 +123,27 @@ class AuthServiceTest {
                 "encoded-password"
         )).thenReturn(true);
 
+        Instant expiresAt =
+                Instant.parse("2099-01-01T00:00:00Z");
+
+        when(sessionTokenService.issue(user))
+                .thenReturn(
+                        new SessionTokenService.IssuedSession(
+                                "login-token",
+                                expiresAt
+                        )
+                );
+
         LoginResponse response = authService.login(
                 new LoginRequest("hyunwoo", "1234")
         );
 
         assertThat(response.userId()).isEqualTo(1L);
         assertThat(response.loginId()).isEqualTo("hyunwoo");
+        assertThat(response.accessToken()).isEqualTo("login-token");
+        assertThat(response.expiresAt()).isEqualTo(expiresAt);
+
+        verify(sessionTokenService).issue(user);
     }
 
     @Test
@@ -132,6 +167,8 @@ class AuthServiceTest {
                         )
                 )
         ).isInstanceOf(InvalidCredentialsException.class);
+
+        verify(sessionTokenService, never()).issue(any());
     }
 
     @Test
@@ -147,5 +184,6 @@ class AuthServiceTest {
 
         verify(passwordEncoder, never())
                 .matches(any(), any());
+        verify(sessionTokenService, never()).issue(any());
     }
 }

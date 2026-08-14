@@ -11,6 +11,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
+
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,7 +34,12 @@ class AuthControllerTest {
     void 회원가입에_성공하면_201을_반환한다() throws Exception {
         when(authService.signup(any()))
                 .thenReturn(
-                        new SignupResponse(1L, "hyunwoo")
+                        new SignupResponse(
+                                1L,
+                                "hyunwoo",
+                                "signup-token",
+                                Instant.parse("2099-01-01T00:00:00Z")
+                        )
                 );
 
         mockMvc.perform(
@@ -50,6 +57,14 @@ class AuthControllerTest {
                 .andExpect(
                         jsonPath("$.loginId")
                                 .value("hyunwoo")
+                )
+                .andExpect(
+                        jsonPath("$.accessToken")
+                                .value("signup-token")
+                )
+                .andExpect(
+                        jsonPath("$.expiresAt")
+                                .value("2099-01-01T00:00:00Z")
                 );
     }
 
@@ -76,7 +91,12 @@ class AuthControllerTest {
 
         when(authService.login(any()))
                 .thenReturn(
-                        new LoginResponse(1L, "hyunwoo")
+                        new LoginResponse(
+                                1L,
+                                "hyunwoo",
+                                "login-token",
+                                Instant.parse("2099-01-01T00:00:00Z")
+                        )
                 );
 
         mockMvc.perform(
@@ -94,6 +114,14 @@ class AuthControllerTest {
                 .andExpect(
                         jsonPath("$.loginId")
                                 .value("hyunwoo")
+                )
+                .andExpect(
+                        jsonPath("$.accessToken")
+                                .value("login-token")
+                )
+                .andExpect(
+                        jsonPath("$.expiresAt")
+                                .value("2099-01-01T00:00:00Z")
                 );
     }
 
@@ -132,7 +160,12 @@ class AuthControllerTest {
 
         when(authService.signup(any()))
                 .thenReturn(
-                        new SignupResponse(1L, "hyunwoo")
+                        new SignupResponse(
+                                1L,
+                                "hyunwoo",
+                                "signup-token",
+                                Instant.parse("2099-01-01T00:00:00Z")
+                        )
                 );
 
         mockMvc.perform(
@@ -171,7 +204,12 @@ class AuthControllerTest {
 
         when(authService.login(any()))
                 .thenReturn(
-                        new LoginResponse(1L, "hyunwoo")
+                        new LoginResponse(
+                                1L,
+                                "hyunwoo",
+                                "login-token",
+                                Instant.parse("2099-01-01T00:00:00Z")
+                        )
                 );
 
         mockMvc.perform(

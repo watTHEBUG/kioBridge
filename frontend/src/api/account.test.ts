@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { 접근토큰 } from "./token";
 import {
   clearAccountMock, createTeamAccount, mockAccount, setAccountMockDelay,
   아이디검사, 비밀번호검사, 못올리는이유,
@@ -81,6 +82,24 @@ describe("못올리는이유 — 서버가 받아 주지 않을 주문표를 미
     expect(못올리는이유(주문표())).toBeNull();
   });
 
+  /*
+   * 팀 #79 가 selections 값에 @NotEmpty 를 걸었다. 빈 배열이 섞이면 저장이
+   * 400 으로 막히는데, 그 400 은 code 도 message 도 없는 스프링 기본 응답이라
+   * 화면이 무엇이 문제인지 말해 줄 수 없다. 여기서 먼저 가른다.
+   */
+  it("값이 빈 축이 있으면 이유를 돌려준다", () => {
+    expect(못올리는이유(주문표({ selections: { 맵기: [] } }))).toContain("비어 있는");
+  });
+
+  it("값이 다 차 있으면 통과한다", () => {
+    expect(못올리는이유(주문표({ selections: { 맵기: ["매운맛"] } }))).toBeNull();
+  });
+
+  it("축이 아예 없는 것은 문제가 아니다", () => {
+    // 안 고른 것과 빈 배열은 뜻이 같다. 서버가 받아 주는 것은 앞의 것뿐이다.
+    expect(못올리는이유(주문표({ selections: {} }))).toBeNull();
+  });
+
   // 상한은 양쪽을 본다. 넘는 쪽만 보면 `>` 가 `>=` 로 바뀌어도 이 테스트는 통과하고,
   // 그러면 딱 100자인 메뉴 이름이 조용히 저장되지 않는데 아무도 모른다.
   it(`메뉴 이름은 ${MENU_NAME_MAX}자까지 올라가고 그 다음부터 막힌다`, () => {
@@ -108,6 +127,24 @@ describe("못올리는이유 — 서버가 받아 주지 않을 주문표를 미
     }
   });
 
+  it("메뉴 이름에도 같은 검사가 걸린다", () => {
+    /*
+     * 자유롭게 적는 칸이 메모와 메뉴 이름 둘이고, 저장되는 길은 같다(이 기기 +
+     * 로그인했으면 서버). 메모만 막으면 막힌 칸을 피해 다른 칸에 적는 것을
+     * 못 막는다(#101 리뷰).
+     */
+    for (const menuName of ["010-1234-5678", "900101-1234567", "역삼로 12길 5"]) {
+      expect(못올리는이유(주문표({ menuName }))).not.toBeNull();
+    }
+  });
+
+  it("메뉴 이름다운 이름은 막지 않는다", () => {
+    // 숫자가 들어간다고 막으면 안 된다. 수량과 가격은 메뉴 이름에 흔하다.
+    for (const menuName of ["아이스 아메리카노 2개", "닭강정 1인분", "3000원짜리 세트"]) {
+      expect(못올리는이유(주문표({ menuName }))).toBeNull();
+    }
+  });
+
   it("주문에 필요한 말은 막지 않는다", () => {
     // 너무 넓게 잡으면 정상적인 메모가 막힌다. 장소를 가리키는 말은 주문에
     // 필요한 정보다 — 사는 곳이 아니다. 번지·호수까지 있어야 주소로 본다.
@@ -130,6 +167,24 @@ describe("못올리는이유 — 서버가 받아 주지 않을 주문표를 미
      * 메모는 거기서 예외다. 문서도 그렇게 적었다.
      */
     expect(못올리는이유(주문표({ memo: "김할머니 앞으로 해주세요" }))).toBeNull();
+  });
+
+  it("메뉴 이름도 실명·환자번호는 못 거른다 — 같은 한계다", () => {
+    /*
+     * 자유 입력 칸이 둘이 되면서 한계도 둘이 됐다. 메뉴 이름에도 같은 모양 검사를
+     * 걸었지만(#101 리뷰), 모양이 없는 값은 여기서도 그대로 통과한다.
+     *
+     * **통과하는 것이 맞다.** 이 자리는 그 사실을 코드에 못박아 두는 곳이다 —
+     * 검사를 하나 더 걸었다고 "이제 개인정보가 안 들어간다" 고 말하면 그게 거짓이
+     * 된다. 환자번호는 자리수도 형식도 기관마다 달라서 정규식으로 잡을 수 없고,
+     * 잡으려 들면 "3000원짜리 세트" 같은 멀쩡한 메뉴 이름이 막힌다.
+     *
+     * 실제로 막는 것은 두 가지다 — 모양이 있는 값(전화번호·주민번호·주소)을
+     * 걸러 내는 것과, 애초에 이름을 묻는 칸을 두지 않는 것. 메뉴 이름은 메뉴를
+     * 묻는 칸이지 사람을 묻는 칸이 아니다.
+     */
+    expect(못올리는이유(주문표({ menuName: "김순자" }))).toBeNull();
+    expect(못올리는이유(주문표({ menuName: "환자번호 12345678" }))).toBeNull();
   });
 
   it(`주문표 id 는 ${PROFILE_ID_MAX}자까지 올라간다`, () => {
@@ -491,5 +546,104 @@ describe("팀 백엔드 — 서버가 준 값을 화면 타입으로 좁힌다",
 
     expect((e as KioBridgeError).code).toBe("TIMEOUT");
     expect((e as KioBridgeError).recoverable).toBe(true);
+  });
+});
+
+describe("주문표 삭제 (팀 #79)", () => {
+  it("서버에 저장된 주문표를 지운다", async () => {
+    const a = await mockAccount.signup("지우미", "비밀번호12");
+    await mockAccount.saveSheet(a.userId, 주문표());
+    expect(await mockAccount.listSheets(a.userId)).toHaveLength(1);
+
+    await mockAccount.deleteSheet(a.userId, 주문표().id);
+    expect(await mockAccount.listSheets(a.userId)).toHaveLength(0);
+  });
+
+  it("없는 것을 지워도 오류로 두지 않는다", async () => {
+    /*
+     * '이 기기에서 정보 지우기' 는 화면에 있는 것을 전부 지우려 드는데,
+     * 그중 서버에 안 올라간 것도 섞여 있다. 거기서 오류가 나면 지우는
+     * 도중에 멈춘다. 서버가 204 라 목도 같게 둔다.
+     */
+    const a = await mockAccount.signup("없는거", "비밀번호12");
+    await expect(mockAccount.deleteSheet(a.userId, "없는-주문표")).resolves.toBeUndefined();
+  });
+
+  it("남의 주문표는 건드리지 않는다", async () => {
+    const 갑 = await mockAccount.signup("갑", "비밀번호12");
+    const 을 = await mockAccount.signup("을", "비밀번호12");
+    await mockAccount.saveSheet(갑.userId, 주문표());
+    await mockAccount.saveSheet(을.userId, 주문표());
+
+    await mockAccount.deleteSheet(갑.userId, 주문표().id);
+    expect(await mockAccount.listSheets(갑.userId)).toHaveLength(0);
+    expect(await mockAccount.listSheets(을.userId)).toHaveLength(1);
+  });
+});
+
+describe("팀 백엔드 — 실제 로그인 계약(accessToken)", () => {
+  /*
+   * 이 묶음이 지키는 것 — **테스트가 예전 계약을 붙들고 있지 않게.**
+   *
+   * 위쪽 테스트들은 서버가 `{userId, loginId}` 만 준다고 가정하고 씁니다. 실제
+   * 백엔드는 `accessToken` 을 함께 주고, 주문표 경로는 그 토큰을 요구합니다.
+   * 예전 모양으로만 확인하면 CI 는 초록인데 실제 연동은 깨집니다(팀원 지적).
+   */
+  afterEach(() => 접근토큰.비우기());
+
+  it("로그인 응답의 accessToken 을 붙들어 둔다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "eyJ.abc.def" })) as unknown as typeof fetch;
+
+    const a = await createTeamAccount().login("할머니1", "1234");
+
+    expect(접근토큰.읽기()).toBe("eyJ.abc.def");
+    // 화면으로는 계정만 간다. 토큰은 session.ts 가 sessionStorage 에 적는 값에
+    // 섞이면 안 된다(token.ts).
+    expect(a).toEqual({ userId: 7, loginId: "할머니1" });
+    expect(a).not.toHaveProperty("accessToken");
+  });
+
+  it("가입 응답의 accessToken 도 붙든다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t1" }, 201)) as unknown as typeof fetch;
+    await createTeamAccount().signup("할머니1", "1234");
+    expect(접근토큰.읽기()).toBe("t1");
+  });
+
+  it("주문표 요청에 Authorization: Bearer 를 붙인다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t2" })) as unknown as typeof fetch;
+    const 계정 = createTeamAccount();
+    await 계정.login("할머니1", "1234");
+
+    globalThis.fetch = vi.fn(async () => 응답([])) as unknown as typeof fetch;
+    await 계정.listSheets(7);
+
+    const [, init] = 부른것()[0];
+    const 헤더 = init.headers as Record<string, string>;
+    expect(헤더.authorization).toBe("Bearer t2");
+  });
+
+  it("로그인 전에는 Authorization 을 안 붙인다", async () => {
+    // 가입·로그인은 아직 토큰이 없는 상태에서 부르는 요청이다. 빈 값을 Bearer
+    // 뒤에 붙여 보내면 서버가 그걸 어떻게 읽을지 알 수 없다.
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: "할머니1" })) as unknown as typeof fetch;
+    await createTeamAccount().login("할머니1", "1234");
+    const [, init] = 부른것()[0];
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined();
+  });
+
+  it("401 을 받으면 토큰을 버린다", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      응답({ userId: 7, loginId: "할머니1", accessToken: "t3" })) as unknown as typeof fetch;
+    const 계정 = createTeamAccount();
+    await 계정.login("할머니1", "1234");
+
+    globalThis.fetch = vi.fn(async () => 응답({ message: "unauthorized" }, 401)) as unknown as typeof fetch;
+    await expect(계정.listSheets(7)).rejects.toThrow();
+    // 지난 토큰을 들고 있으면 다음 요청도 같은 401 을 받는다. 다시 로그인하라는
+    // 말이 나갈 수 있게 비운다.
+    expect(접근토큰.읽기()).toBeNull();
   });
 });
