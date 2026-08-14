@@ -49,6 +49,16 @@ test {
 	}
 }
 
+tasks.register('externalTest', Test) {
+	useJUnitPlatform {
+		includeTags 'external'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	group = 'verification'
+	description = 'Runs tests tagged @external (requires OPENAI_API_KEY, local PostgreSQL)'
+}
+
 tasks.named('bootJar') {
 	archiveFileName = 'app.jar'
 }
