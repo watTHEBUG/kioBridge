@@ -47,10 +47,10 @@ export interface ChickenStoreSessionContext {
   fieldMetadata: Record<string, never>;
 }
 
-const 이용방식: Record<string, ServiceType> = { "먹고 가기": "DINE_IN", "포장하기": "TAKE_OUT" };
-const 맵기: Record<string, SpicyLevel> = { "순한맛": "MILD", "보통맛": "MEDIUM", "매운맛": "HOT" };
-const 형태: Record<string, BoneType> = { "뼈": "BONE", "순살": "BONELESS" };
-const 컵: Record<string, CupOption> = { "종이컵": "PAPER", "일반컵": "REGULAR" };
+const 이용방식: Record<string, ServiceType> = { "먹고 가기": "DINE_IN", "포장하기": "TAKE_OUT", "상관없음": "NO_PREFERENCE" };
+const 맵기: Record<string, SpicyLevel> = { "순한맛": "MILD", "보통맛": "MEDIUM", "매운맛": "HOT", "상관없음": "NO_PREFERENCE" };
+const 형태: Record<string, BoneType> = { "뼈": "BONE", "순살": "BONELESS", "상관없음": "NO_PREFERENCE" };
+const 컵: Record<string, CupOption> = { "종이컵": "PAPER", "일반컵": "REGULAR", "상관없음": "NO_PREFERENCE" };
 const 알레르기: Record<string, AllergenId> = {
   "땅콩": "PEANUT", "대두": "SOY", "우유": "MILK", "계란": "EGG", "밀": "WHEAT", "새우": "SHRIMP",
 };
