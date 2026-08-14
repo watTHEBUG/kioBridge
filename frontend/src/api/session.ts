@@ -61,6 +61,8 @@ const 대신갈곳: Partial<Record<Screen, Screen>> = {
    * 건지 알 수 없다.
    */
   "save-choice": "saved",
+  // 말로 채우던 값도 메모리에만 있었다. 빈 채로 되살리느니 목록에서 다시 시작한다.
+  "voice-sheet": "saved",
 };
 
 const 장소들: PlaceType[] = ["카페", "음식점", "병원", "관공서", null];
@@ -182,11 +184,16 @@ const 계정읽기 = (v: unknown): Account | null => {
  * 화면에서 뺀 도움 항목.
  *
  * 켜도 이 앱은 아무것도 안 하고, 이번 환경(chicken-store)의 결과도 달라지지 않는다.
- * 킷의 simulation-driver 는 이 값을 받기는 한다 — 다만 닭강정 환경 데이터에 이
- * 값을 보는 곳이 없다. 자세한 근거는 App.tsx 의 전해드릴것 주석에 적었다.
+ * **받는 쪽이 없어서가 아니라, 이번 환경이 안 쓰기 때문이다** — 킷의
+ * simulation-driver 는 두 값을 uiState.accessibilityMode 로 받지만, chicken-store
+ * 환경 데이터(candidates·option-groups·screens·transitions)에는 이 값을 보는 곳이
+ * 없다(킷 5.1.6 확인). **hospital 은 다르다**: environments/hospital/candidates.json
+ * 의 supports 에 hearingSupport 를 가진 후보가 있어서, 병원 환경까지 내보내게 되면
+ * 화면에 두 스위치를 되살리고 이 목록에서 빼야 한다.
  *
- * 목록을 비운 자리가 App.tsx 의 전해드릴것 이다 — 여기와 그쪽이 같이 비어 있어야
- * 한다. 병원 환경까지 내보내게 되면 둘 다 다시 채워야 한다.
+ * 화면 쪽은 '키오스크에 전해 드려요' 무리를 통째로 뺐다(App.tsx). 빈 무리 위에
+ * 제목만 남아 있었기 때문이다. 화면이 다시 묻기 시작하면 여기서도 빼야 한다 —
+ * 안 빼면 되살린 값이 여기서 도로 false 가 된다.
  */
 const 이제안묻는칸 = ["visualGuidance", "hearingSupport"] as const;
 
