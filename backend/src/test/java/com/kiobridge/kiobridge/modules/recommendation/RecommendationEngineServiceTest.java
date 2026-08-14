@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.recommendation;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kiobridge.kiobridge.contracts.Candidate;
 import com.kiobridge.kiobridge.contracts.ExcludedCandidate;
@@ -405,7 +406,14 @@ class RecommendationEngineServiceTest {
 
         // PR의 진짜 목적은 "허용 오차 안에 든다"가 아니라 "직렬화된 JSON에 15~16자리
         // 연속 숫자가 없다"이다 — 킷의 detectPersonalData가 정확히 이 문자열을 스캔한다.
-        String json = new ObjectMapper().writeValueAsString(recommendation);
+        // 전체 문자열에 대한 정규식 부재 확인만으로는 confidence 필드 자체가 빠지거나
+        // 값이 달라져도 통과해버린다 — JSON을 파싱해서 그 필드를 직접 짚어 확인한다.
+        ObjectMapper mapper = new ObjectMapper();
+        String json = mapper.writeValueAsString(recommendation);
+        JsonNode root = mapper.readTree(json);
+        assertThat(root.has("confidence")).isTrue();
+        assertThat(root.get("confidence").isNumber()).isTrue();
+        assertThat(root.get("confidence").doubleValue()).isEqualTo(0.695);
         assertThat(json).doesNotContainPattern("\\b(?:\\d[ -]?){15,16}\\b");
     }
 
