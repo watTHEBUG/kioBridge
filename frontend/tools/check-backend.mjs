@@ -70,7 +70,9 @@ const 프로필 = {
     mobilitySupport: false, highContrast: false, staffAssistancePreferred: false,
   },
   interaction: { preferredInput: "TOUCH", language: "ko-KR", confirmationRequired: true },
-  consent: { personalization: true, retentionPolicy: "SESSION_ONLY" },
+  // 앱이 실제로 보내는 값과 같게 둔다(api/canonical.ts). 주문표가 창을 닫아도
+  // 남게 되면서 SESSION_ONLY 에서 바뀌었다.
+  consent: { personalization: true, retentionPolicy: "UNTIL_USER_DELETES" },
 };
 
 const 맥락입력 = {
