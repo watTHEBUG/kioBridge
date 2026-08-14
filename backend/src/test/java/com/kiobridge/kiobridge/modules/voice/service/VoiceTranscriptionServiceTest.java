@@ -12,7 +12,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.http.HttpMethod.POST;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -58,6 +60,58 @@ class VoiceTranscriptionServiceTest {
                         """, MediaType.APPLICATION_JSON));
 
         assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("네");
+    }
+
+    @Test
+    void 브라우저가_보낸_형식대로_확장자를_붙인다() {
+        /*
+         * Whisper 는 파일 확장자로 컨테이너 형식을 판별한다.
+         *
+         * Safari 는 MediaRecorder 에서 webm 을 아예 지원하지 않아 audio/mp4 로만
+         * 녹음한다. 여기서 이름을 clip.webm 으로 덮으면 m4a 바이트가 webm 으로
+         * 위장돼 형식 불일치로 거절당하고, iOS 사용자는 음성 주문을 통째로 못 쓴다.
+         */
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andExpect(content().string(containsString("filename=\"clip.m4a\"")))
+                .andRespond(withSuccess("""
+                        { "text": "네" }
+                        """, MediaType.APPLICATION_JSON));
+
+        service.transcribe(
+                new MockMultipartFile("audio", "clip.m4a", "audio/mp4", new byte[]{1, 2, 3}), "ko-KR");
+
+        server.verify();
+    }
+
+    @Test
+    void 모르는_확장자는_믿지_않고_webm_으로_떨어뜨린다() {
+        // 프론트가 준 이름을 그대로 믿지 않겠다는 원래 의도는 지킨다.
+        // 아는 것만 받고, 나머지는 기본값으로 간다.
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andExpect(content().string(containsString("filename=\"clip.webm\"")))
+                .andRespond(withSuccess("""
+                        { "text": "네" }
+                        """, MediaType.APPLICATION_JSON));
+
+        service.transcribe(
+                new MockMultipartFile("audio", "clip.exe", "application/octet-stream", new byte[]{1, 2, 3}), "ko-KR");
+
+        server.verify();
+    }
+
+    @Test
+    void 이름이_없어도_webm_으로_보낸다() {
+        // 이름을 안 붙이는 옛 프론트나 직접 부르는 요청이 여기 온다.
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andExpect(content().string(containsString("filename=\"clip.webm\"")))
+                .andRespond(withSuccess("""
+                        { "text": "네" }
+                        """, MediaType.APPLICATION_JSON));
+
+        service.transcribe(
+                new MockMultipartFile("audio", null, "audio/webm", new byte[]{1, 2, 3}), "ko-KR");
+
+        server.verify();
     }
 
     @Test

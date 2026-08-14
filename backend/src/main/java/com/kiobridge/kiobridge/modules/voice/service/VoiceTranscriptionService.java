@@ -16,7 +16,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 음성을 글로 바꾼다.
@@ -98,13 +100,28 @@ public class VoiceTranscriptionService {
             throw new ApiException("STT_AUDIO_READ_FAILED", "오디오를 읽지 못했어요.", e);
         }
 
-        // 파일 이름은 여기서 고정한다. 브라우저가 붙인 이름을 그대로 실어 보내면
-        // 프론트가 주는 값을 신뢰하는 셈이 된다 — Whisper 가 형식을 알아보려면
-        // 확장자만 있으면 되므로, 실제 인코딩(webm/opus)에 맞는 이름 하나로 고정.
+        /*
+         * 파일 이름은 확장자만 쓴다. Whisper 는 그것으로 컨테이너 형식을 판별한다.
+         *
+         * 예전에는 "clip.webm" 으로 고정했다. 브라우저가 붙인 이름을 그대로
+         * 믿지 않겠다는 뜻이었고 그 판단 자체는 옳다 — 다만 **모든 브라우저가
+         * webm 을 만든다는 전제**가 틀렸다.
+         *
+         * Safari 는 MediaRecorder 에서 webm 을 아예 지원하지 않아 audio/mp4 로만
+         * 녹음한다. 프론트도 그걸 알고 형식에 맞춰 이름을 붙여 보내는데
+         * (listen.ts 의 확장자()), 여기서 덮어쓰면 m4a 바이트가 .webm 이름을 달고
+         * 나간다. Whisper 는 형식 불일치로 거절하고, **iOS 사용자는 음성 주문을
+         * 아예 못 쓰게 된다.**
+         *
+         * 그래서 믿지 않되 버리지도 않는다 — 프론트가 보낸 확장자를 쓰되 아는
+         * 것만 받고, 모르면 webm 으로 떨어뜨린다. 경로나 특수문자가 섞여 들어올
+         * 자리도 없다(확장자만 떼어 쓰므로).
+         */
+        String 파일명 = "clip." + 아는확장자(audio.getOriginalFilename());
         ByteArrayResource file = new ByteArrayResource(bytes) {
             @Override
             public String getFilename() {
-                return "clip.webm";
+                return 파일명;
             }
         };
 
@@ -128,6 +145,25 @@ public class VoiceTranscriptionService {
         } catch (RestClientException e) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "STT_API_ERROR", "음성 인식에 실패했어요.", e);
         }
+    }
+
+    /**
+     * OpenAI 가 받는 형식만 추린 목록.
+     *
+     * 여기 없는 것을 넘기면 어차피 거절당하므로, 모르는 확장자는 webm 으로
+     * 떨어뜨린다 — 프론트가 형식을 안 알려 준 옛 판이나, 이름 없이 온 요청이
+     * 그 경우다.
+     */
+    private static final Set<String> 아는확장자 =
+        Set.of("webm", "ogg", "oga", "m4a", "mp4", "mp3", "mpga", "wav", "flac");
+
+    /** 보낸 이름에서 확장자만 떼어 온다. 아는 것이 아니면 webm 으로 본다. */
+    private static String 아는확장자(String 원래이름) {
+        if (원래이름 == null) return "webm";
+        int 점 = 원래이름.lastIndexOf('.');
+        if (점 < 0 || 점 == 원래이름.length() - 1) return "webm";
+        String 확장 = 원래이름.substring(점 + 1).toLowerCase(Locale.ROOT);
+        return 아는확장자.contains(확장) ? 확장 : "webm";
     }
 
     private static String 짧게(String language) {
