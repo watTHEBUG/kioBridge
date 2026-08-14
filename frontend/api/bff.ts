@@ -53,6 +53,8 @@ const 허용경로 = [
   /^api\/v1\/canonical-inputs\/validate$/,
   /^api\/v1\/profile-normalizations$/,
   /^api\/v1\/session-context-normalizations$/,
+  // 짧은 녹음을 백엔드 STT로 넘긴다. 본문 상한은 아래 1MB가 그대로 적용된다.
+  /^api\/v1\/voice\/transcriptions$/,
   /*
    * 계정 계열 (AuthController · UserProfileController)
    *
@@ -171,7 +173,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   // 브라우저가 오래 매달리지 않게 여기서도 끊는다. 화면 쪽 타임아웃과 같은 이유다.
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 15_000);
+  // 음성 전사는 일반 JSON API보다 오래 걸릴 수 있다. 녹음 경로에만 여유를 더 준다.
+  const t = setTimeout(() => ac.abort(), 경로 === "api/v1/voice/transcriptions" ? 18_000 : 15_000);
   try {
     const 본문 = req.method === "GET" || req.method === "HEAD" ? undefined : await 본문읽기(req);
     const 인증 = 인증헤더(req);

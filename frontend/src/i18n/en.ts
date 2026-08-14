@@ -38,6 +38,13 @@ export const EN: Record<string, string> = {
   "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
     "The microphone is not available. Please choose by hand above.",
   "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",
+  "녹음이 너무 길어요. 다시 말씀해 주시거나 위에서 골라 주세요.":
+    "The recording is too long. Please try again, or choose above.",
+  "음성 서비스가 잠시 안 돼요. 위에서 손으로 골라 주세요.":
+    "Voice service is temporarily unavailable. Please choose by hand above.",
+  "음성을 글로 바꾸기 위해 녹음한 소리를 OpenAI로 전송해요. 이 앱과 백엔드는 음성 파일을 저장하지 않아요.":
+    "We send the recording to OpenAI to turn your speech into text. This app and its backend do not store the audio file.",
+  "음성 전송에 동의해요": "I agree to send my voice recording",
   "그만 듣기": "Stop listening",
   "건너뛰기": "Skip",
   "끝내기": "Done",
@@ -448,6 +455,9 @@ export const EN: Record<string, string> = {
     "We keep only what you wrote on your order card (take-out, hot, boneless, paper cup, and so on) — in plain words. Right now it stays on this device. We keep it inside this window so an accidental refresh doesn’t make you type it again, and we erase it when the window closes.",
   "실제 이름·주소·전화번호·주민등록번호는 받지도, 저장하지도 않아요. 결제 정보도 다루지 않아요. 부르는 호칭은 화면에 띄우는 데만 쓰고 이 기기 밖으로 나가지 않아요.":
     "We never ask for or keep your real name, address, phone number, or ID number. We don’t handle payment details either. The name you’re greeted by is only shown on screen and never leaves this device.",
+  "음성 입력을 고르면": "If you choose voice input",
+  "기기 안 음성 인식이 되지 않는 경우에만 별도로 동의를 여쭤요. 동의하고 말하기를 누르면 짧게 녹음한 소리를 글로 바꾸기 위해 OpenAI로 보내요. 이 앱과 백엔드는 음성 파일을 저장하지 않고, 받은 글에서도 화면에 있는 선택값만 사용해요. 동의하지 않거나 음성 서비스가 안 되어도 손으로 모두 고를 수 있어요.":
+    "Only when on-device recognition is unavailable, we ask for separate consent. If you agree and tap Speak, we send a short recording to OpenAI to convert it to text. This app and its backend do not store the audio file, and use only choices shown on screen from the returned text. You can still choose everything by hand if you decline or the voice service is unavailable.",
   "직접 지으신 아이디와 비밀번호만 받아요. 실제 이름이나 전화번호는 묻지 않아요. 비밀번호는 서버에서 알아볼 수 없는 형태로 바꿔 저장하고, 이 앱은 적으신 비밀번호를 어디에도 남기지 않아요. 로그인 상태는 새로고침해도 그대로지만, 이 창을 닫으면 풀립니다.":
     "We only take an ID and password you make up yourself. We never ask for your real name or phone number. The server stores your password in a form it can’t read back, and this app keeps it nowhere. You stay logged in across a refresh, but closing this window logs you out.",
   "QR로 연결할 때는 이번 주문에만 쓰는 짧은 연결 표만 오가요. 시간이 지나면 저절로 만료돼요.":

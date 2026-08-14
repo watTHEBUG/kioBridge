@@ -31,3 +31,10 @@ management:
   endpoint:
     health:
       show-details: never
+
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  transcription-model: ${OPENAI_TRANSCRIPTION_MODEL:gpt-transcribe}
+  connect-timeout-ms: ${OPENAI_CONNECT_TIMEOUT_MS:3000}
+  # 외부 STT가 멈춰도 선택 기능 하나만 빠르게 실패하고 나머지 API는 계속 동작한다.
+  transcription-read-timeout-ms: ${OPENAI_TRANSCRIPTION_READ_TIMEOUT_MS:12000}

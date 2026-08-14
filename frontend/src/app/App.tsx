@@ -22,6 +22,7 @@ import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
 import { 들을수있나, 들어보기, 모델있나, 모델받아두기, type 못들은이유 } from "@/api/listen";
+import { 서버로들을수있나, 서버로들어보기, type 서버음성실패 } from "@/api/transcribe";
 import { 말에서고르기, 예아니오 } from "@/api/voice";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
@@ -238,18 +239,20 @@ function PrimaryBtn({
   );
 }
 
-function OutlineBtn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function OutlineBtn({ children, onClick, disabled = false }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         width: "100%", height: BTN_H, borderRadius: RADIUS.button,
         fontSize: 17, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.02em",
         backgroundColor: SURFACE,
-        color: TEXT_BTN,
+        color: disabled ? TEXT_2 : TEXT_BTN,
         border: "none",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.65 : 1,
         transition: "background-color 0.15s",
       }}
     >
@@ -1013,7 +1016,9 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    * 보인다. 말로채우기가 한칸씩말하기로 바뀌면서 그 상태를 여기로 옮겨 왔다.
    */
   const [상태, set상태] = useState<"쉬는중" | "받는중" | "듣는중">("쉬는중");
-  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
+  const [못들음, set못들음] = useState<못들은이유 | 서버음성실패 | "못골랐어요" | null>(null);
+  // 서버 STT는 음성이 기기 밖으로 나가므로 기존 개인정보 동의와 따로 받는다.
+  const [서버음성동의, set서버음성동의] = useState(false);
   const 듣던것 = useRef<{ 그만두기: () => void } | null>(null);
   const 회차 = useRef(0);
 
@@ -1046,7 +1051,9 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set못들음(null);
   }, [place]);
 
-  if (!들을수있나() || 축들.length === 0) return null;
+  const 로컬로듣나 = 들을수있나();
+  const 서버로듣나 = 서버로들을수있나();
+  if ((!로컬로듣나 && !서버로듣나) || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
 
@@ -1070,6 +1077,13 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     회차.current += 1;
     const 내회차 = 회차.current;
     const 이축 = 지금축;
+
+    // 온디바이스 인식이 없는 기기에서는 별도 동의를 받은 뒤 서버 STT를 쓴다.
+    if (!로컬로듣나) {
+      if (!서버음성동의) { set상태("쉬는중"); return; }
+      듣던것.current = 서버로들어보기(언어, (r) => 결과처리(내회차, 이축, r));
+      return;
+    }
 
     /*
      * 듣기 전에 기기 안 모델부터 본다.
@@ -1103,27 +1117,32 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   };
 
   const 시작하기 = (내회차: number, 이축: DetailOption) => {
-    듣던것.current = 들어보기(언어, (r) => {
-      if (내회차 !== 회차.current) return;
-      듣던것.current = null;
-      set상태("쉬는중");
-      if (!("들은말" in r)) { set못들음(r.못들은이유); return; }
+    듣던것.current = 들어보기(언어, (r) => 결과처리(내회차, 이축, r));
+  };
 
-      // 첫째 길 — 보기 이름을 그대로 말했나. 기존 맞추기를 그대로 쓴다.
-      const 고른값 = 말에서고르기(r.들은말, place, 언어 === "en-US").고른값[이축.label];
-      if (고른값 && 고른값.length > 0) { 넣기(고른값[0]); return; }
+  /** 로컬 인식과 서버 STT는 여기부터 같은 길을 탄다. 외부 실패도 이 카드에서만 끝난다. */
+  const 결과처리 = (
+    내회차: number,
+    이축: DetailOption,
+    r: { 들은말: string } | { 못들은이유: 못들은이유 | 서버음성실패 },
+  ) => {
+    if (내회차 !== 회차.current) return;
+    듣던것.current = null;
+    set상태("쉬는중");
+    if (!("들은말" in r)) { set못들음(r.못들은이유); return; }
 
-      /*
-       * 둘째 길 — 예/아니오. 화면이 첫 보기를 물어보고 있으므로 '네' 는 그 보기다.
-       *
-       * 보기가 셋 이상일 때 '아니오' 로는 아무것도 안 고른다. 아니라는 말만으로는
-       * 무엇을 고를지 알 수 없고, 짐작해서 넣으면 안 고른 것이 골라진다.
-       */
-      const 답 = 예아니오(r.들은말, 언어 === "en-US");
-      if (답 === true) { 넣기(이축.choices[0]); return; }
-      if (답 === false) { 이축.choices.length === 2 ? 넣기(이축.choices[1]) : 다음으로(); return; }
-      set못들음("못골랐어요");
-    });
+    // 첫째 길 — 보기 이름을 그대로 말했나. 기존 맞추기를 그대로 쓴다.
+    const 고른값 = 말에서고르기(r.들은말, place, 언어 === "en-US").고른값[이축.label];
+    if (고른값 && 고른값.length > 0) { 넣기(고른값[0]); return; }
+
+    /*
+     * 둘째 길 — 예/아니오. 화면이 첫 보기를 물어보고 있으므로 '네' 는 그 보기다.
+     * 보기가 셋 이상일 때 '아니오' 로는 무엇을 고를지 짐작하지 않는다.
+     */
+    const 답 = 예아니오(r.들은말, 언어 === "en-US");
+    if (답 === true) { 넣기(이축.choices[0]); return; }
+    if (답 === false) { 이축.choices.length === 2 ? 넣기(이축.choices[1]) : 다음으로(); return; }
+    set못들음("못골랐어요");
   };
 
   /*
@@ -1200,12 +1219,29 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
         <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 12, lineHeight: 1.7 }}>
           {못들음 === "권한없음"
             ? "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요."
+            : 못들음 === "너무큼"
+              ? "녹음이 너무 길어요. 다시 말씀해 주시거나 위에서 골라 주세요."
+            : 못들음 === "서버안됨"
+              ? "음성 서비스가 잠시 안 돼요. 위에서 손으로 골라 주세요."
             : 못들음 === "모델없음"
               ? "이 기기에 말을 알아듣는 준비가 안 돼 있어요. 위에서 손으로 골라 주세요."
               : 못들음 === "못골랐어요"
                 ? "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요."
                 : "잘 안 들렸어요. 다시 말씀해 주세요."}
         </p>
+      )}
+
+      {!로컬로듣나 && (
+        <div style={{ marginTop: 14 }}>
+          <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.7, marginBottom: 6 }}>
+            음성을 글로 바꾸기 위해 녹음한 소리를 OpenAI로 전송해요. 이 앱과 백엔드는 음성 파일을 저장하지 않아요.
+          </p>
+          <CheckRow
+            checked={서버음성동의}
+            onToggle={() => set서버음성동의((v) => !v)}
+            label="음성 전송에 동의해요"
+          />
+        </div>
       )}
 
       {/* 모델을 받는 동안. 없으면 단추를 누르고 한참 아무 일도 없는 것처럼 보인다(#102). */}
@@ -1216,7 +1252,10 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
       )}
 
       <div className="flex" style={{ gap: 8, marginTop: 16 }}>
-        <OutlineBtn onClick={상태 !== "쉬는중" ? 그만듣기 : 듣기시작}>
+        <OutlineBtn
+          onClick={상태 !== "쉬는중" ? 그만듣기 : 듣기시작}
+          disabled={상태 === "쉬는중" && !로컬로듣나 && !서버음성동의}
+        >
           {상태 !== "쉬는중" ? "그만 듣기" : "말하기"}
         </OutlineBtn>
         {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
@@ -3015,6 +3054,10 @@ const 개인정보항목 = (guest: boolean): { title: string; body: string }[] =
     {
       title: "저장하지 않는 것",
       body: "실제 이름·주소·전화번호·주민등록번호는 받지도, 저장하지도 않아요. 결제 정보도 다루지 않아요. 부르는 호칭은 화면에 띄우는 데만 쓰고 이 기기 밖으로 나가지 않아요.",
+    },
+    {
+      title: "음성 입력을 고르면",
+      body: "기기 안 음성 인식이 되지 않는 경우에만 별도로 동의를 여쭤요. 동의하고 말하기를 누르면 짧게 녹음한 소리를 글로 바꾸기 위해 OpenAI로 보내요. 이 앱과 백엔드는 음성 파일을 저장하지 않고, 받은 글에서도 화면에 있는 선택값만 사용해요. 동의하지 않거나 음성 서비스가 안 되어도 손으로 모두 고를 수 있어요.",
     },
     {
       title: "로그인은 어떻게 하나요",

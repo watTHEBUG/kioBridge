@@ -26,6 +26,11 @@ const 허용경로 = 정규식들(소스.slice(소스.indexOf("const 허용경�
 const 경로가되나 = (p: string) => 허용경로.some((r) => r.test(p));
 
 describe("BFF 통과 규칙", () => {
+  it("음성 전사 경로가 배포 BFF에서도 열려 있다", () => {
+    expect(경로가되나("api/v1/voice/transcriptions")).toBe(true);
+    expect(경로가되나("api/v1/voice/transcriptions/다른길")).toBe(false);
+  });
+
   it("주문표 하나를 가리키는 경로가 열려 있다", () => {
     // 이게 없으면 삭제 요청이 배포본에서 404 로 막힌다.
     expect(경로가되나("api/v1/users/7/profiles/p1")).toBe(true);
