@@ -31,6 +31,19 @@ describe("서버 음성 전사", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("취소 신호가 오면 Base64 변환과 서버 요청을 중단한다", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(음성을글로(
+      new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }),
+      "ko-KR",
+      controller.signal,
+    )).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("서버 오류 문구를 호출자에게 돌려준다", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
       JSON.stringify({ message: "음성 인식 서버가 아직 설정되지 않았어요." }),

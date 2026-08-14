@@ -1160,6 +1160,12 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set못들음(null);
   };
 
+  const 서버음성동의바꾸기 = () => {
+    const 다음동의 = !서버음성동의;
+    if (!다음동의 && 상태 !== "쉬는중") 그만듣기();
+    set서버음성동의(다음동의);
+  };
+
   /*
    * 손으로 고르거나 건너뛸 때도 듣던 것을 먼저 끊는다.
    *
@@ -1238,7 +1244,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
           </p>
           <CheckRow
             checked={서버음성동의}
-            onToggle={() => set서버음성동의((v) => !v)}
+            onToggle={서버음성동의바꾸기}
             label="음성 전송에 동의해요"
           />
         </div>
