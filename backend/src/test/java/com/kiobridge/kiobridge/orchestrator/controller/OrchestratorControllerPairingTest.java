@@ -122,4 +122,36 @@ class OrchestratorControllerPairingTest {
             .isInstanceOfSatisfying(ApiException.class,
                 e -> assertThat(e.code()).isEqualTo("PAIRING_NOT_FOUND"));
     }
+
+    @Test
+    void 프로필_불일치로_예약에_실패해도_pairing을_폐기한다() {
+        PairingRegistry registry = new PairingRegistry();
+        CanonicalProfile boundProfile = mock(CanonicalProfile.class);
+        CanonicalProfile changedProfile = mock(CanonicalProfile.class);
+        ChickenStoreSessionContext context = mock(ChickenStoreSessionContext.class);
+        Recommendation recommendation = mock(Recommendation.class);
+        UserDecision decision = mock(UserDecision.class);
+        String pairingId = registry.register(
+            "SIM-SECRET-001", "chicken-store", "SERVICE_TYPE"
+        ).pairingId();
+        registry.bindInput(pairingId, boundProfile, context);
+
+        OrchestratorController controller = new OrchestratorController(
+            mock(SubmissionOrchestrator.class),
+            mock(EvidenceParsingService.class),
+            mock(EvidenceSummaryService.class),
+            mock(ValidationErrorMessageService.class),
+            mock(RunSummaryService.class),
+            registry
+        );
+
+        assertThatThrownBy(() -> controller.approve(new OrchestratorRunRequest(
+            pairingId, changedProfile, context, recommendation, decision
+        ))).isInstanceOfSatisfying(ApiException.class,
+            e -> assertThat(e.code()).isEqualTo("PAIRING_PROFILE_MISMATCH"));
+
+        assertThatThrownBy(() -> registry.bindInput(pairingId, boundProfile, context))
+            .isInstanceOfSatisfying(ApiException.class,
+                e -> assertThat(e.code()).isEqualTo("PAIRING_NOT_FOUND"));
+    }
 }

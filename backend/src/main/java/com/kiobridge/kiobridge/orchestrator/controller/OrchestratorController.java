@@ -62,7 +62,7 @@ public class OrchestratorController {
     public ApprovalResult approve(@RequestBody OrchestratorRunRequest request) {
         try {
             PairingRegistry.Reservation reservation = pairingRegistry.reserveForExecution( // 검증을 마친 실제 RC5 실행 권한
-                    request.pairingId(), request.profile(), request.sessionContext()
+                request.pairingId(), request.profile(), request.sessionContext()
             );
 
             ExecuteResult result = submissionOrchestrator.runApprovalFlow( // RC5 제출·검증·실행 원본 결과
