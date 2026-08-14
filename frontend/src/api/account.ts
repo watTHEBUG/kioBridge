@@ -56,6 +56,18 @@ export interface AccountApi {
    * 거기서 오류가 나면 지우는 도중에 멈춘다.
    */
   deleteSheet(userId: number, profileId: string): Promise<void>;
+  /**
+   * 계정을 지운다. 던지지 않고 셋 중 하나로 답한다.
+   *
+   *   "지웠음"    서버가 지웠다
+   *   "경로없음"  지우는 경로가 아직 서버에 없다(404·405) — BACKEND_INTEGRATION.md 요청
+   *   "못지움"    경로는 모르겠고 이번 요청이 실패했다(시간 초과·서버 오류 등)
+   *
+   * 뒤의 둘을 가르는 이유 — 화면이 하는 말이 달라야 한다. 경로가 없으면 "아직
+   * 못 지우는 기능" 이고, 요청이 실패한 것이면 "다음에 다시 시도할 일" 이다.
+   * 하나로 뭉치면 일시 장애에도 "기능이 없다" 고 잘못 말하게 된다(#106 리뷰).
+   */
+  deleteAccount(userId: number): Promise<"지웠음" | "경로없음" | "못지움">;
 }
 
 // ─── 입력 규칙 — 백엔드 제약을 그대로 옮긴다 ──────────────────────────────────
@@ -335,6 +347,16 @@ export const mockAccount: AccountApi = {
     // 없는 것을 지워도 오류로 두지 않는다. 서버가 204 라 목도 같게 둔다.
     서버주문표.get(userId)?.delete(profileId);
   },
+
+  async deleteAccount(userId) {
+    await delay(목지연);
+    // 계정과 그 계정에 딸린 것을 전부 지운다. 같은 아이디로 다시 가입할 수 있어진다.
+    for (const [아이디, 계정] of 계정들) {
+      if (계정.userId === userId) 계정들.delete(아이디);
+    }
+    서버주문표.delete(userId);
+    return "지웠음";
+  },
 };
 
 /** 테스트가 목 저장소를 비운다. 앱은 부르지 않는다. */
@@ -550,6 +572,24 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         "DELETE",
         `/api/v1/users/${encodeURIComponent(userId)}/profiles/${encodeURIComponent(profileId)}`,
       );
+    },
+
+    async deleteAccount(userId) {
+      /*
+       * 던지지 않는다 — 여기서 던지면 기기 정리까지 끝난 마당에 오류 화면이 떠서,
+       * 나가려는 사람을 붙잡는다. 대신 실패의 종류를 가른다(AccountApi 주석).
+       *
+       * 경로 없음의 신호 셋: 백엔드 404(HTTP_404) · 405(HTTP_405) · BFF 허용
+       * 목록에 안 실린 옛 배포본의 404(NOT_ALLOWED). 그 밖은 전부 '이번 실패' 다.
+       */
+      try {
+        await 부르기<void>("DELETE", `/api/v1/users/${encodeURIComponent(userId)}`);
+        return "지웠음";
+      } catch (e) {
+        const 코드 = (e as KioBridgeError)?.code;
+        return 코드 === "HTTP_404" || 코드 === "HTTP_405" || 코드 === "NOT_ALLOWED"
+          ? "경로없음" : "못지움";
+      }
     },
   };
 }

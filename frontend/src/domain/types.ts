@@ -5,6 +5,7 @@ export type Screen =
   | "setup"     // 가입 직후 한 번 묻는 도움 설정. 'profile' 이라 부르지 않는다 —
                 // 백엔드가 주문표를 profile 이라 불러서 그 이름은 이미 임자가 있다.
   | "greeting" | "sheet"
+  | "voice-sheet"  // 말로만 한 칸씩 채우는 주문표 만들기. 터치 화면(sheet)과 따로 간다.
   | "save-choice"  // 만든 주문표를 이 기기에 남길지 묻는다. 비로그인일 때만 지난다.
   | "saved"
   | "order-confirm" | "execution"
