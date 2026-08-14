@@ -2547,6 +2547,42 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
   };
   const handleRescan = () => setPhase("scan");
 
+  /*
+   * 단계가 바뀌면 그 패널의 제목으로 포커스를 옮긴다.
+   *
+   * App 의 화면 전환 효과는 screen·tab 이 바뀔 때만 돈다. 여기서 일어나는 것은
+   * **같은 화면 안의 단계 변화**라 그 효과가 안 닿는다. 그래서 스캐너가 사라지는
+   * 순간 포커스가 <body> 로 떨어졌고, QR 을 막 찍어 연결에 성공한 사람이
+   * '주문표 선택하기' 까지 문서 맨 위에서부터 Tab 을 눌러 내려와야 했다.
+   *
+   * 읽어 주는 일은 아래 그릇의 aria-live 가 이미 한다. 여기는 포커스만 옮긴다.
+   * 제목이 없는 단계에서는 아무것도 하지 않는다 — 엉뚱한 곳을 잡느니 그대로 둔다.
+   */
+  const 패널 = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // 스캐너는 제 포커스를 스스로 잡는다(QrScannerModal).
+    if (phase === "scan") return;
+    const 제목 = 패널.current?.querySelector<HTMLElement>("h1, h2");
+    if (!제목) return;
+    if (!제목.hasAttribute("tabindex")) 제목.setAttribute("tabindex", "-1");
+    /*
+     * 보이게 한 다음에 포커스를 준다.
+     *
+     * 이 패널은 overflow-y-auto 다(바로 아래 주석). 앞 단계에서 아래로 내려가
+     * 있었다면 스크롤 위치가 그대로 남아, 포커스만 옮기면 **화면 밖에 있는
+     * 제목에 포커스가 가 있는** 상태가 된다. 키보드로 쓰는 사람은 자기가 어디에
+     * 있는지 보이지 않고, 다음 Tab 이 어디서 이어질지도 알 수 없다.
+     *
+     * 그 패널이 넘치는 것은 글씨를 더 키운 사람에게서 실제로 일어난다 —
+     * 이 PR 이 돕는 바로 그 사람이다.
+     *
+     * nearest 로 최소한만 굴린다. 화면이 통째로 튀지 않고, 이미 보이면
+     * 아무것도 안 한다. 굴린 뒤라 focus 의 preventScroll 은 그대로 둔다.
+     */
+    제목.scrollIntoView({ block: "nearest", inline: "nearest" });
+    제목.focus({ preventScroll: true });
+  }, [phase]);
+
   if (phase === "scan") {
     return <QrScannerModal onClose={() => setPhase("idle")} onDetected={handleScanned} />;
   }
@@ -2565,7 +2601,7 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
        * 사용자가 브라우저·OS 글씨 크기를 더 키우면 1.6배 근처부터 넘친다(측정값 102px).
        * auto 로 두면 넘칠 때만 스크롤이 생기고, 넘치지 않으면 지금과 똑같이 보인다.
        */}
-      <div className="flex-1 flex flex-col overflow-y-auto" style={{ minHeight: 0 }} role="status" aria-live="polite">
+      <div ref={패널} className="flex-1 flex flex-col overflow-y-auto" style={{ minHeight: 0 }} role="status" aria-live="polite">
         {phase === "idle" && <PairingIdle onScan={handleRescan} />}
         {phase === "connecting" && <PairingConnecting />}
         {phase === "connected" && pairing && (
@@ -2629,7 +2665,20 @@ function AccountScreen({
               : <span style={{ fontFamily: SERIF, fontSize: 24, color: PAPER }}>{name ? name[0] : "?"}</span>}
           </div>
           <div>
-            <p style={{ ...TYPE.title, color: TEXT_1 }}>{guest ? "게스트로 이용 중" : `${name || "사용자"}님`}</p>
+            {/*
+              이 화면의 제목이다. p 였는데 h1 으로 바꿨다.
+
+              화면이 바뀌면 포커스를 제목으로 옮기는 효과가 h1·h2·[data-screen-title]
+              을 찾는다(아래 '화면이 바뀌면 포커스가' 효과). 계정 화면에는 그 셋이
+              하나도 없어서 대상을 못 찾고 그냥 돌아갔고, 포커스는 사라진 버튼과
+              함께 <body> 로 떨어졌다 — 키보드 사용자는 탭 탐색을 문서 처음부터
+              다시 해야 했고, 스크린리더 사용자는 화면이 바뀐 것도 듣지 못했다.
+              개인정보 겹을 닫고 이 화면으로 돌아올 때도 같았다.
+
+              보이는 모양은 그대로다(TYPE.title). 바뀐 것은 이 글이 제목이라고
+              말해 주는 것뿐이다.
+            */}
+            <h1 style={{ ...TYPE.title, color: TEXT_1 }}>{guest ? "게스트로 이용 중" : `${name || "사용자"}님`}</h1>
             <p style={{ fontSize: 14, color: TEXT_2, marginTop: 2 }}>
               {guest ? "로그인 없이 모든 기능을 쓰고 있어요" : "키오브릿지 회원"}
             </p>
@@ -5407,8 +5456,14 @@ export default function App() {
       {로그모드 === "겹" && <BackendLog onClose={() => set로그모드("닫힘")} />}
       {/*
         큰 글씨 모드. 화면 크기(휴대폰 틀)는 그대로 두고 안쪽 내용만 키운다.
-        바깥 틀은 실제 크기(FRAME_W × FRAME_H)를 잡고, 안쪽은 그 크기를 배율로 나눠 잡는다.
-        zoom 이 다시 배율을 곱하므로 최종 렌더 크기는 틀과 정확히 같아진다.
+        안쪽은 **바깥이 실제로 차지한 만큼**을 배율로 나눠 잡는다. zoom 이 다시
+        배율을 곱하므로 최종 렌더 크기는 바깥과 정확히 같아진다.
+
+        예전에는 FRAME_W 를 그대로 나눠 썼다. 바깥은 width:100% 라 화면이 좁으면
+        390 보다 작아지는데 안쪽은 늘 390 으로 렌더돼서, **390px 보다 좁은 화면에서
+        큰 글씨를 켜면 가로 스크롤이 생겼다.** 375px 휴대폰이 그렇고, 200% 로 확대해
+        폭이 절반이 되면 문서가 창의 두 배가 넘었다 — 글씨를 키워야 하는 사람이
+        가로로도 밀어 가며 읽어야 했다.
       */}
       <div style={{ width: "100%", maxWidth: FRAME_W, height: FRAME_H }}>
         <div
@@ -5426,8 +5481,8 @@ export default function App() {
           className="kb-paper overflow-hidden flex flex-col"
           style={{
             zoom: largeText ? LARGE_TEXT_SCALE : 1,
-            width: largeText ? FRAME_W / LARGE_TEXT_SCALE : "100%",
-            height: largeText ? FRAME_H / LARGE_TEXT_SCALE : FRAME_H,
+            width: largeText ? `${100 / LARGE_TEXT_SCALE}%` : "100%",
+            height: largeText ? `${100 / LARGE_TEXT_SCALE}%` : FRAME_H,
 
             // absolute 로 띄우는 것들(확인 시트·QR 스캐너)이 이 안에 갇히려면
             // 여기가 컨테이닝 블록이어야 한다. overflow-hidden 만으로는
