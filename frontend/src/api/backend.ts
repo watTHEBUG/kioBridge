@@ -326,9 +326,24 @@ export function createApi(
        * 않고 같은 입력이면 멱등해서(PairingRegistry.bindInput), 다시 시도가
        * 실제로 통한다. 만료·소실이면 서버가 recoverable=false 로 알려 준다.
        */
-      if (backend.bindPairing && profile) {
+      /*
+       * profile 이 있는지는 보지 않는다.
+       *
+       * 그건 **백엔드 사정**이다. 팀 백엔드는 주문표 저장소가 없어서 내용을 함께
+       * 받아야 하지만(위 getSheet 주석), 서버가 id 로 찾아 주는 구현은 그럴 필요가
+       * 없다 — 그런 구현에게 "화면이 주문표를 들고 있지 않으니 고정도 건너뛴다"
+       * 고 정해 주는 것은 이 층이 할 말이 아니다.
+       *
+       * 여기서 걸러 버리면 그 구현은 매핑까지 다 해 놓고 pairing 만 안 고정된
+       * 채로 승인에 들어간다. 방금 없앤 것과 똑같은 조용한 구멍이 하나 더 생기는
+       * 셈이다. 무엇이 필요한지는 각 bindPairing 이 스스로 보고 못 하면 던진다.
+       *
+       * 열쇠도 sheetId 로 보낸다. 바로 위 filterCandidates·recommend 가 이미
+       * profileId 로 그 값을 쓰고 있어서, 여기만 profile.id 를 쓸 이유가 없다.
+       */
+      if (backend.bindPairing) {
         try {
-          await backend.bindPairing({ pairingId, profileId: profile.id });
+          await backend.bindPairing({ pairingId, profileId: sheetId });
         } catch (e) {
           // 고정 안 된 연결의 추천을 들고 있어 봐야 승인에서 막힌다.
           // 지워 두면 다시 매핑할 때 bind 부터 새로 한다.

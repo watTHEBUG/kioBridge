@@ -254,6 +254,34 @@ describe("주문 입력을 pairing 에 고정하지 못하면 승인까지 가�
     expect(execute).toHaveBeenCalled();
   });
 
+  it("화면이 주문표를 안 들고 있어도 고정은 시도한다", async () => {
+    /*
+     * getSheet 이 없는 것은 **서버가 주문표를 id 로 찾아 주는** 구현이라는 뜻이다
+     * (createApi 의 getSheet 주석: 그렇게 되면 이 인자는 빼면 된다). 그 구현은
+     * 화면이 주문표를 안 들고 있어도 pairing 을 고정할 수 있다.
+     *
+     * 여기서 건너뛰면 그 백엔드는 매핑을 다 해 놓고 고정만 안 된 채로 승인에
+     * 들어간다. 무엇이 필요한지는 각 bindPairing 이 스스로 보고, 못 하면 던진다.
+     */
+    const bindPairing = vi.fn(async () => {});
+    const api = createApi(가짜백엔드({ bindPairing }));
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    // 열쇠는 sheetId 다. 바로 위 filterCandidates·recommend 가 쓰는 값과 같다.
+    expect(bindPairing).toHaveBeenCalledWith({ pairingId: "s1", profileId: "p1" });
+  });
+
+  it("주문표를 안 들고 있을 때도 고정에 실패하면 매핑이 멈춘다", async () => {
+    const execute = vi.fn(async () => ({ planId: "pln_1" }));
+    const api = createApi(가짜백엔드({ execute, bindPairing: async () => { throw new Error("network"); } }));
+    await api.claimPairing("kb");
+    await expect(api.requestMapping("s1", "p1")).rejects.toThrow();
+    await expect(
+      api.approve({ pairingId: "s1", sheetId: "p1", mappingResult: "exact" }),
+    ).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("bindPairing 이 없는 옛 백엔드는 그냥 지나간다", async () => {
     // 목(mockApi)과 #108 이전 서버에는 이 경로가 없다. 없다고 멈추면 안 된다.
     const { api, execute } = 차림(undefined);
