@@ -3398,11 +3398,18 @@ function 도움목록({ 항목들, 설정, onChange }: {
  * 골격은 한칸씩말하기 와 같다(듣기 → 받기, 회차로 경쟁 상태 정리). 다른 것은
  * 판정뿐이다 — 이쪽은 늘 예아니오() 다.
  */
-function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
+function 도움설정말로채우기({ 언어, 설정, onChange, onDone, on마이크막힘 }: {
   언어: string;
   설정: 도움설정;
   onChange: (한칸: Partial<도움설정>) => void;
   onDone: () => void;
+  /**
+   * 마이크가 막혀 여기서는 답할 수 없다.
+   *
+   * 부르는 쪽이 손으로 고르는 목록으로 내려 준다. 이걸 안 주면 막다른 화면이
+   * 된다 — 답할 수 없는 물음만 남고 되돌아갈 문이 없다.
+   */
+  on마이크막힘?: () => void;
 }) {
   const 축들 = 쓸수있는것(바로바꾸는것).filter((r) => r.key !== "voiceGuide");
   const [칸, set칸] = useState(0);
@@ -3472,7 +3479,8 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
         set못들음(r.못들은이유);
         // 못 들었다 — 한칸씩말하기 와 같은 그물(권한이 막혔으면 바로 접는다).
         잇단실패.current += 1;
-        if (r.못들은이유 === "권한없음" || 잇단실패.current >= 2) { 이어서.current = false; return; }
+        if (r.못들은이유 === "권한없음") { 이어서.current = false; on마이크막힘?.(); return; }
+        if (잇단실패.current >= 2) { 이어서.current = false; return; }
         이어서예약();
         return;
       }
@@ -3645,16 +3653,24 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
   진행표시?: boolean;
 }) {
   /*
-   * 말로 답할지 손으로 고를지.
+   * 말로 답할지 손으로 고를지 — **첫 화면의 스위치가 정한다.**
    *
-   * 기본은 손으로 고르기다. 말로 채우는 쪽은 이 기기에서 될 때만 문을
-   * 보여 준다(소리로주고받나()) — 사용자가 '말로 답할게요' 를 눌러 연다.
+   * 쓰는 분이 둘로 갈린다. 눈으로 보고 손으로 고르는 분과, 화면을 못 보고
+   * 말로 하는 분이다. 그 갈림길은 첫 화면의 '소리로 듣고 답하기' 하나이고,
+   * 여기서 그 선택을 그대로 잇는다.
+   *
+   * 여태 여기서 한 번 더 물었다 — 목록을 먼저 보여 주고 '말로 답할게요' 라는
+   * 링크를 눌러야 열렸다. 그런데 그 링크를 찾아 누르는 일이 **바로 그
+   * 링크가 필요한 분에게 가장 어렵다.** 앞에서 이미 고른 것을 여기서 다시
+   * 묻는 셈이기도 했다.
+   *
+   * 스위치를 끈 분에게는 아무것도 안 바뀐다 — 목록을 손으로 고른다.
    *
    * 도움설정말로채우기 가 끝나면(onDone) 다시 손으로 고르는 목록으로 돌아온다.
    * 여기서 답한 값이 스위치에 그대로 반영돼 있으니, 말로 답한 뒤에도 눈으로
    * 확인하고 손으로 고칠 수 있다 — "음성 없이도 다 된다" 는 같은 원칙이다.
    */
-  const [음성모드, set음성모드] = useState(false);
+  const [음성모드, set음성모드] = useState(() => 소리로주고받나());
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -3678,23 +3694,18 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
             설정={설정}
             onChange={onChange}
             onDone={() => set음성모드(false)}
+            /*
+             * 마이크가 막혔다. 손으로 고르는 목록으로 물러난다.
+             *
+             * 여기서 안 물러나면 막다른 화면이 된다 — '말로 답할게요' 단추를
+             * 없앴으므로 되돌아갈 문이 없고, 답할 수도 없는 물음만 남는다.
+             * 목록으로 내려 주면 적어도 손으로는 다 할 수 있다.
+             */
+            on마이크막힘={() => set음성모드(false)}
           />
         ) : (
           <>
             <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
-            {소리로주고받나() && (
-              <button
-                type="button"
-                onClick={() => set음성모드(true)}
-                style={{
-                  minHeight: 44, marginTop: 4, padding: "8px 0", background: "none", border: "none",
-                  fontFamily: FONT, fontSize: 14, fontWeight: 700, color: TEXT_1, textDecoration: "underline",
-                  cursor: "pointer", textAlign: "left",
-                }}
-              >
-                말로 답할게요
-              </button>
-            )}
           </>
         )}
         {/*
