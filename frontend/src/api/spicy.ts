@@ -50,18 +50,19 @@ export type 맵기결과 =
   | { 못함: true };
 
 /**
- * 서버가 준 enum 목록을 화면 칩 이름으로.
+ * 서버가 준 enum 목록을 화면 칩 이름으로. 화면에 없는 이름은 뺀다.
  *
- * 모르는 값이 있었는지도 같이 돌려준다. 그걸 조용히 버리면 **서버의 '모르겠다'
- * 가 우리 쪽에서 '확정' 으로 바뀐다** — 서버가 [MEDIUM, EXTRA_HOT] 을 놓고
- * 확신 못 한다고 했는데, 우리가 EXTRA_HOT 을 버리면 보통맛 하나만 남아서
- * 마치 정해진 것처럼 보인다. 서버가 망설인 것을 우리가 없앨 수는 없다.
+ * 몇 개가 빠졌는지는 이제 안 센다. 예전에는 셌다 — 후보가 하나만 남으면 그것을
+ * 확정으로 삼았기 때문에, 우리가 버려서 하나가 된 것인지 원래 하나였는지를
+ * 갈라야 했다. 지금은 **확신 못 한 답은 개수와 상관없이 늘 되묻는다**(아래).
+ * 그래서 그 구분이 필요 없어졌다.
  */
-const 이름으로 = (값들: unknown): { 이름들: string[]; 모르는것있나: boolean } => {
-  if (!Array.isArray(값들)) return { 이름들: [], 모르는것있나: false };
-  const 글자만 = 값들.filter((v): v is string => typeof v === "string");
-  const 이름들 = 글자만.map((v) => 칩이름[v]).filter(Boolean);
-  return { 이름들, 모르는것있나: 이름들.length !== 글자만.length };
+const 이름으로 = (값들: unknown): string[] => {
+  if (!Array.isArray(값들)) return [];
+  return 값들
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => 칩이름[v])
+    .filter(Boolean);
 };
 
 /**
@@ -113,7 +114,7 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
     { confident?: boolean; matchedLevel?: string; candidates?: unknown } | null;
   if (!본문) return { 못함: true };
 
-  const { 이름들: 후보, 모르는것있나 } = 이름으로(본문.candidates);
+  const 후보 = 이름으로(본문.candidates);
 
   if (본문.confident === true && typeof 본문.matchedLevel === "string") {
     const 이름 = 칩이름[본문.matchedLevel];
@@ -121,7 +122,23 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
     return 이름 ? { 고른값: 이름 } : { 못함: true };
   }
 
+  /*
+   * 여기부터는 서버가 **확신하지 못한** 답이다. 하나만 남아도 우리가 고르지
+   * 않는다.
+   *
+   * 예전에는 후보가 하나면 그것을 확정으로 삼았다. 그런데 서버는 그때 되물을
+   * 문장까지 같이 보낸다 — 실측이다:
+   *
+   *   "하나도 안 맵게"
+   *     confident=false  candidates=["NO_PREFERENCE"]
+   *     clarificationQuestion="\"하나도 안 맵게\"은(는) 상관없음인가요?"
+   *
+   * 서버가 묻고 싶다고 한 것을 우리가 대신 골라 버리면, 맵기를 못 드셔서 그렇게
+   * 말한 분의 주문이 '상관없음' 으로 넘어간다. 물어본 적도 없이.
+   *
+   * 부정어 방어를 걷어낸 지금은 이 겹이 더 중요하다 — 예전에는 우리 부정어 표에
+   * 걸리면 되물음으로 내려가는 길이 하나 더 있었지만, 이제 없다.
+   */
   if (후보.length === 0) return { 못함: true };
-  if (후보.length === 1 && !모르는것있나) return { 고른값: 후보[0] };
   return { 되물을것: 후보 };
 };

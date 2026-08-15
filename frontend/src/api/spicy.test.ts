@@ -54,9 +54,24 @@ describe("서버가 잡아 준 맵기를 화면 이름으로 옮긴다", () => {
     expect(await 맵기물어보기("얼큰한맛")).toEqual({ 되물을것: ["보통맛"] });
   });
 
-  it("모르는 값이 없으면 하나 남은 후보는 그대로 쓴다", async () => {
+  it("확신 못 한 답은 후보가 하나여도 되묻는다", async () => {
+    /*
+     * 실서버 실측이다. 서버는 이때 되물을 문장까지 같이 보낸다:
+     *
+     *   "하나도 안 맵게"
+     *     confident=false  candidates=["NO_PREFERENCE"]
+     *     clarificationQuestion="\"하나도 안 맵게\"은(는) 상관없음인가요?"
+     *
+     * 서버가 묻고 싶다고 한 것을 우리가 대신 고르면, 맵기를 못 드셔서 그렇게
+     * 말한 분의 주문이 물어본 적도 없이 '상관없음' 으로 넘어간다.
+     */
+    붙이기({ confident: false, matchedLevel: null, candidates: ["NO_PREFERENCE"] });
+    expect(await 맵기물어보기("하나도 안 맵게")).toEqual({ 되물을것: ["상관없음"] });
+  });
+
+  it("확신한 답은 예전처럼 그대로 확정한다", async () => {
     // 위 시험이 '언제나 되묻는다' 로 헛통과하지 않도록 지킨다.
-    붙이기({ confident: false, matchedLevel: null, candidates: ["MEDIUM"] });
+    붙이기({ confident: true, matchedLevel: "MEDIUM", candidates: ["MEDIUM"] });
     expect(await 맵기물어보기("얼큰한맛")).toEqual({ 고른값: "보통맛" });
   });
 });
