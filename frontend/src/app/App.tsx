@@ -997,11 +997,17 @@ function 순살제안시트({ onAnswer, onCancel }: {
   onCancel: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const 이전포커스 = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    이전포커스.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (이전포커스.current?.isConnected) 이전포커스.current.focus();
+    };
   }, [onCancel]);
   const 가두기 = 포커스가두기(ref, onCancel);
 
