@@ -69,8 +69,8 @@ public class RecommendationEngineService {
     private static final double PREFERENCE_MISMATCH_PENALTY = -0.3;
     private static final double PREFERENCE_PARTIAL_MISMATCH_PENALTY = -0.15;
     private static final double PREFERENCE_UNKNOWN_SCORE = 0.0;
-    private static final double BONE_TYPE_MATCH_BONUS = 0.5;
-    private static final double BONE_TYPE_MISMATCH_PENALTY = -0.15;
+    private static final double BONE_TYPE_MATCH_BONUS = 1.0;
+    private static final double BONE_TYPE_MISMATCH_PENALTY = -0.3;
     private static final double CUP_OPTION_MATCH_BONUS = 0.5;
     private static final double CUP_OPTION_MISMATCH_PENALTY = -0.15;
     private static final double CROWDING_TAKE_OUT_BONUS = 0.1;
@@ -86,7 +86,7 @@ public class RecommendationEngineService {
     private static final double CONFIDENCE_BASE_FLOOR = 0.5;
     private static final double CONFIDENCE_GAP_SCALE = 0.3;
     private static final double RECONFIRMATION_CONFIDENCE_CAP = 0.5;
-    private static final double LOW_CONFIDENCE_THRESHOLD = 0.6;
+    private static final double LOW_CONFIDENCE_THRESHOLD = 0.7;
     private static final double MIN_CONFIDENCE = 0.0;
     private static final double MAX_CONFIDENCE = 1.0;
 
