@@ -76,7 +76,9 @@ const 서버로보내기 = async (
   폼.append("audio", 오디오, `clip.${확장자(오디오.type)}`);
   폼.append("language", 언어);
 
-  const 경로 = "/api/bff/api/v1/voice/transcribe";
+  // 경로 모양을 backend.ts 와 맞춘다 — 이유는 spicy.ts 의 같은 자리 주석에 있다.
+  const 경로 = "/api/v1/voice/transcribe";
+  const 부를곳 = "/api/bff" + 경로;
   const 시작 = 팀백엔드모드 ? performance.now() : 0;
   /*
    * 오간 것에 남긴다. 맵기 매칭과 같은 이유로 여태 빠져 있었다 — 이 호출도
@@ -98,20 +100,19 @@ const 서버로보내기 = async (
    * 무엇이 오갔는지는 상태·걸린시간·오디오 형식·크기·언어로 충분하다 —
    * 자료로서 아쉬운 것과 사람의 말이 화면에 남는 것은 무게가 다르다.
    */
-  const 적기 = (상태: number | "실패") => {
+  const 적기 = (상태: number | "실패", 응답본문?: string) => {
     if (!팀백엔드모드) return;
     연동기록.남기기({
       방법: "POST", 경로, 상태,
       걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
       요청: JSON.stringify({ 오디오: 오디오.type || "(형식없음)", 바이트: 오디오.size, 언어 }),
-      // 응답은 그 사람이 한 말이다. 안 남긴다 — 위 주석 참고.
-      가림: true,
+      ...(응답본문 === undefined ? {} : { 응답: 응답본문 }),
     });
   };
 
   let res: Response;
   try {
-    res = await fetch(경로, { method: "POST", body: 폼 });
+    res = await fetch(부를곳, { method: "POST", body: 폼 });
   } catch {
     적기("실패");
     return { 못들은이유: "안됨" };
@@ -132,7 +133,7 @@ const 서버로보내기 = async (
    */
   // 글로 먼저 읽어 기록에 남기고 해석한다 — 이유는 spicy.ts 의 같은 자리와 같다.
   const 받은글 = await res.text().catch(() => "");
-  적기(res.status);
+  적기(res.status, 받은글);
   if (!res.ok) return { 못들은이유: "안됨" };
   let 본문: { text?: string } | null = null;
   try { 본문 = 받은글 ? JSON.parse(받은글) : null; } catch { 본문 = null; }

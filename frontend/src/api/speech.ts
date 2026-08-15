@@ -242,3 +242,28 @@ export const 그만읽기 = (): void => {
     /* 읽고 있던 것이 없으면 할 일도 없다. */
   }
 };
+
+/*
+ * 페이지를 떠나면 읽던 것도 끊는다.
+ *
+ * speechSynthesis 의 대기열은 **페이지가 아니라 브라우저에** 붙어 있다. 그래서
+ * 탭을 닫거나 다른 곳으로 옮겨 가도, 넣어 둔 문장이 남아 있으면 계속 읽는다 —
+ * 화면은 이미 없는데 소리만 나는 상태가 된다. 실제로 그랬다.
+ *
+ * 언제 끊나:
+ *
+ *   pagehide         탭을 닫거나 다른 주소로 갈 때. beforeunload 대신 이걸 쓴다 —
+ *                    beforeunload 는 휴대폰에서 안 뜨는 일이 많고 bfcache 를 막는다.
+ *   visibilitychange 다른 탭·다른 앱으로 넘어갈 때. 화면이 안 보이는데 그 화면을
+ *                    읽고 있는 것은 안내가 아니라 소음이다.
+ *
+ * 돌아오면 다시 읽어 준다 — 화면이 새로 그려지면 App 의 감시가 새로 붙은 줄을
+ * 읽는다. 끊어 두는 편이 안전하다: 끊긴 것은 다시 들을 수 있지만, 안 끊으면
+ * 끄는 방법이 없다(그 탭이 이미 없다).
+ */
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("pagehide", 그만읽기);
+  globalThis.addEventListener("visibilitychange", () => {
+    if (globalThis.document?.visibilityState === "hidden") 그만읽기();
+  });
+}
