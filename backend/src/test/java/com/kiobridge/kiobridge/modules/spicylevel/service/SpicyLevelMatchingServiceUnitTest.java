@@ -39,15 +39,39 @@ class SpicyLevelMatchingServiceUnitTest {
     }
 
     @Test
+    void 매운_건_안돼도_되묻기로_처리된다() {
+        SpicyLevelMatchResult result = service.match("매운 건 안돼");
+
+        assertThat(result.confident()).isFalse();
+        assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+    }
+
+    @Test
+    void no_spicy는_되묻기로_처리된다() {
+        SpicyLevelMatchResult result = service.match("no spicy");
+
+        assertThat(result.confident()).isFalse();
+        assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        assertThat(result.clarificationQuestion()).contains("보통맛");
+    }
+
+    @Test
+    void not_spicy는_되묻기로_처리된다() {
+        SpicyLevelMatchResult result = service.match("not spicy");
+
+        assertThat(result.confident()).isFalse();
+        assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        assertThat(result.clarificationQuestion()).contains("보통맛");
+    }
+
+    @Test
     void normal이라는_단어는_부정어로_오탐되지_않는다() {
-        // "no"가 부분 문자열로 들어있지만 실제 부정어가 아님 — embeddingService까지 호출돼야 정상
         when(embeddingService.embed("normal")).thenReturn(new float[1536]);
         when(repository.findNearestSpicyLevels("[" + "0.0,".repeat(1535) + "0.0]", 5))
             .thenReturn(java.util.List.of("MEDIUM", "MEDIUM", "MEDIUM", "HOT", "MILD"));
 
         SpicyLevelMatchResult result = service.match("normal");
 
-        // 부정어 분기로 안 빠지고 임베딩 경로를 탔는지가 핵심 — confident 여부는 mock 데이터에 따름
         assertThat(result.confident()).isTrue();
         assertThat(result.matchedLevel()).isEqualTo("MEDIUM");
     }

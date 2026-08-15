@@ -30,7 +30,7 @@ public class SpicyLevelMatchingService {
     );
 
     private static final Set<String> NEGATION_MARKERS_KO = Set.of(
-        "안 ", "안맵", "않", "말고", "빼고"
+        "안", "않", "말고", "빼고"
     );
     private static final Pattern NEGATION_PATTERN_EN = Pattern.compile("\\b(no|not)\\b");
 
