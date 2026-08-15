@@ -276,7 +276,6 @@ export const EN: Record<string, string> = {
   "소리로 듣고 답하기": "Listen and answer by voice",
   "화면에 나온 안내를 소리로 읽어 드려요": "Reads what’s on screen out loud",
   "쉬운 단계": "Fewer steps",
-  "이유 화면을 건너뛰고 바로 확인 화면으로 가요": "Skips the reason screen and goes straight to review",
   "시간 여유": "More time",
   "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요":
     "Won’t close the screen you’re reading when the session times out",
