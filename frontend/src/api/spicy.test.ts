@@ -178,12 +178,17 @@ describe("개발 패널에 이 호출이 보인다", () => {
      * 이름도 설명도 없는 줄이 된다.
      */
     연동기록.비우기();
-    붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"] });
+    const f = 붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"] });
     await 맵기물어보기("불닭맛");
 
     const [한줄] = 연동기록.읽기();
     expect(한줄.경로).toBe("/internal/spicy-level/match");
     expect(한줄.경로.startsWith("/api/bff")).toBe(false);
+    /*
+     * 기록에 적는 경로와 **실제로 부르는 주소**는 다르다. 기록만 보면 앞을 뗀
+     * 주소로 부르는 회귀가 통과한다 — 그러면 BFF 를 안 지나 404 가 된다.
+     */
+    expect(f.mock.calls[0][0]).toBe("/api/bff/internal/spicy-level/match");
   });
 
   it("요청과 응답 본문을 남긴다", async () => {
