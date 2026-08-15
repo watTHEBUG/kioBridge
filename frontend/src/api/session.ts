@@ -271,7 +271,7 @@ const 계정읽기 = (v: unknown): Account | null => {
  * 제목만 남아 있었기 때문이다. 화면이 다시 묻기 시작하면 여기서도 빼야 한다 —
  * 안 빼면 되살린 값이 여기서 도로 false 가 된다.
  */
-const 이제안묻는칸 = ["visualGuidance", "hearingSupport"] as const;
+const 이제안묻는칸 = ["visualGuidance", "hearingSupport", "simpleSteps"] as const;
 
 const 접근성읽기 = (v: unknown): 도움설정 => {
   const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;

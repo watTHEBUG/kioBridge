@@ -1876,10 +1876,12 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
  * 채우는 값은 터치와 완전히 같다(한칸씩말하기 → selections). 메뉴 이름만
  * 손으로 적는다 — 자유 발화를 저장하지 않는 규칙은 여기서도 그대로다.
  */
-function VoiceSheetScreen({ 언어, onNext, onBack }: {
+function VoiceSheetScreen({ 언어, onNext, onBack, 주문할수있나 = false }: {
   언어: string;
-  onNext: (p: OrderSheet) => void;
+  onNext: (p: OrderSheet, 이어서주문할까?: boolean) => void;
   onBack: () => void;
+  /** 지금 키오스크에 붙어 있는가. 뜻은 OrderSheetScreen 의 같은 이름 주석에 있다. */
+  주문할수있나?: boolean;
 }) {
   const place: PlaceType = "음식점";
   const [selections, setSelections] = useState<Record<string, string[]>>({});
@@ -1894,15 +1896,73 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const 형태만빠짐 = 빠진것.length === 1 && 빠진것[0] === "형태";
   const 접근성값 = 접근성설정.읽기();
   const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
-  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+  // 어느 단추로 왔는지. 뜻은 OrderSheetScreen 의 같은 이름 주석에 있다.
+  const 시작까지갈까 = useRef(false);
+  const 못저장하는가 = 개인정보같은글(menuName) || (빠진것.length > 0 && !순살제안대상);
+
+  const 저장하기 = (형태값?: "순살" | "상관없음", 이어서주문할까 = false) => {
     // OrderSheetScreen 의 저장하기와 같은 규칙 — 답한 형태만 얹고 나머지는 그대로 둔다.
     const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
     onNext({
       id: newSheetId(),
       menuName: menuName.trim() || "이름 없는 주문표",
       place, selections: 최종선택, memo: "",
-    });
+    }, 이어서주문할까);
   };
+
+  /*
+   * 다 채워지면 '저장하고 시작하기' 까지 저절로 간다.
+   *
+   * ── 왜 ────────────────────────────────────────────────────────────────────
+   *
+   * 여기까지 말로 온 분은 화면을 못 보고 계실 수 있다. 마지막 칸에 답하고 나서
+   * 단추를 찾아 누르라고 하면, 말로 다 채워 놓고 마지막 한 번에서 막힌다 —
+   * 이 흐름에서 없애려던 바로 그 문턱이다.
+   *
+   * ── 왜 onDone 이 아니라 여기서 보나 ───────────────────────────────────────
+   *
+   * 마지막 답이 들어가는 순간 한칸씩말하기가 onDone 을 부르는데, 그때 이 쪽의
+   * selections 는 **아직 안 바뀌었다**(setSelections 는 다음 그림에 반영된다).
+   * 거기서 못채운축() 을 세면 방금 답한 칸이 여전히 빠진 것으로 나온다.
+   * 값이 실제로 다 찬 것을 보고 움직여야 한다.
+   *
+   * ── 말로 채웠는지는 안 가린다 ─────────────────────────────────────────────
+   *
+   * 이 화면은 보기 칩을 눌러 고를 수도 있는데, 그때도 넘어간다.
+   *
+   * 갈림길은 첫 화면의 스위치다. 이 화면 자체가 '소리로 듣고 답하기' 를 켠
+   * 사람에게만 열린다(목록의 '말로 주문표 만들기'). 스위치를 안 켠 분은
+   * OrderSheetScreen 을 보고, 그 화면에는 이 자동 저장이 아예 없다 — 그분의
+   * 화면은 저절로 안 바뀐다.
+   *
+   * 그러니 여기까지 온 사람은 이미 알아서 넘어가는 쪽을 고른 것이다. 그 안에서
+   * 말로 했는지 칩을 눌렀는지로 다시 가르면, 말이 잘 안 들려 손으로 누른 분에게만
+   * 마지막에 단추가 하나 더 생긴다.
+   *
+   * 맞바꾸는 것이 있다 — 주문표 이름을 적으려던 사람은 마지막 칸을 채우는 순간
+   * 화면을 떠난다. 이름은 비워 두면 '이름 없는 주문표' 가 되고 목록에서 고쳐
+   * 적을 수 있다.
+   *
+   * ── 안 넘어가는 자리 ──────────────────────────────────────────────────────
+   *
+   * 형태를 건너뛰어 순살 제안이 뜰 자리(순살제안대상)는 그대로 둔다. 그건
+   * 팀에서 따로 물어보기로 한 물음이라 우리가 대신 지나가지 않는다.
+   */
+  const 이미저장했나 = useRef(false);
+  useEffect(() => {
+    if (이미저장했나.current) return;
+    if (!소리로주고받나()) return;
+    if (빠진것.length > 0 || 개인정보같은글(menuName)) return;
+    이미저장했나.current = true;
+    /*
+     * 손으로 눌렀다면 어느 단추를 눌렀을 자리인가 — 그것과 같이 간다.
+     *
+     * 키오스크에 붙어 있으면 '시작하기'(저장까지 겸한다), 아니면 '저장하기'.
+     * 붙어 있지도 않은데 주문으로 밀면 갈 곳이 없다.
+     */
+    저장하기(undefined, 주문할수있나);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selections, menuName]);
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -1931,6 +1991,10 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
              * 마지막 질문의 '끝내기'. 다음 할 일(이름 적기 또는 저장)로 포커스를
              * 옮긴다 — 빈 함수면 키보드·스크린리더 사용자가 눌러도 아무 일이
              * 없어서, 끝난 건지 고장 난 건지 알 수 없다(#106 리뷰).
+             *
+             * 말로 다 채운 경우에는 위 자동 저장이 먼저 움직여 이 화면을 떠난다.
+             * 여기로 오는 것은 건너뛰어서 아직 빈 칸이 남았을 때다 — 그때는
+             * 이름 칸으로 옮겨 주는 것이 맞다.
              */
             onDone={() => 이름칸ref.current?.focus()}
           />
@@ -1971,19 +2035,42 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
             {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", { 빠진것: 빠진것.map(t).join(", ") })}
           </p>
         )}
-        <PrimaryBtn
-          onClick={() => {
-            if (순살제안대상) { set순살배너(true); return; }
-            저장하기();
-          }}
-          disabled={개인정보같은글(menuName) || (빠진것.length > 0 && !순살제안대상)}
-        >
-          저장하고 시작하기
-        </PrimaryBtn>
+        {!주문할수있나 && !(빠진것.length > 0 && !순살제안대상) && (
+          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+            QR을 찍으면 저장과 함께 바로 시작할 수 있어요
+          </p>
+        )}
+        {/* 저장과 시작을 가른 이유는 OrderSheetScreen 의 같은 자리 주석에 있다. */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <OutlineBtn
+              onClick={() => {
+                시작까지갈까.current = false;
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기();
+              }}
+              disabled={못저장하는가}
+            >
+              저장하기
+            </OutlineBtn>
+          </div>
+          <div style={{ flex: 1 }}>
+            <PrimaryBtn
+              onClick={() => {
+                시작까지갈까.current = true;
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기(undefined, true);
+              }}
+              disabled={못저장하는가 || !주문할수있나}
+            >
+              시작하기
+            </PrimaryBtn>
+          </div>
+        </div>
       </StickyFooter>
       {순살배너 && (
         <순살제안시트
-          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값, 시작까지갈까.current); }}
           onCancel={() => set순살배너(false)}
         />
       )}
@@ -2022,9 +2109,16 @@ function SaveChoiceScreen({ 이름, onChoose, onBack }: {
   );
 }
 
-function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null }: {
-  onNext: (p: OrderSheet) => void;
+function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null, 주문할수있나 = false }: {
+  onNext: (p: OrderSheet, 이어서주문할까?: boolean) => void;
   onBack: () => void;
+  /**
+   * 지금 키오스크에 붙어 있는가(QR 을 찍었고 연결이 살아 있는가).
+   *
+   * 이 값이 '시작하기' 를 열고 닫는다. 안 붙어 있으면 저장까지만 할 수 있다 —
+   * 붙은 키오스크가 없으면 시작할 자리가 없고, 눌러 봐야 갈 곳이 없는 단추다.
+   */
+  주문할수있나?: boolean;
   /**
    * 고치러 들어온 주문표. null 이면 새로 만드는 것이다.
    *
@@ -2085,7 +2179,28 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   const 접근성값 = 접근성설정.읽기();
   const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
 
-  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+  /*
+   * 저장 자체가 막히는 조건. 두 단추가 같이 본다 — '시작하기' 는 저장을 겸하므로
+   * 저장이 막히는 자리에서는 시작도 막힌다.
+   */
+  const 못저장하는가 =
+    개인정보같은글(memo) || 개인정보같은글(menuName) || (빠진축.length > 0 && !순살제안대상);
+
+  /*
+   * 저장한다. 이어서 주문까지 갈지는 어느 단추로 왔느냐가 정한다.
+   *
+   * '시작하기' 는 저장을 겸한다 — 저장해 두지 않은 주문표로는 주문할 수 없고,
+   * 저장을 따로 누르게 하면 시작하려던 사람이 두 번 누른다.
+   */
+  /*
+   * 순살 제안 시트를 거쳐 갈 때, 어느 단추로 왔는지를 들고 간다.
+   *
+   * 시트가 뜨면 저장이 한 박자 미뤄진다. 그 사이에 '저장하기' 로 왔는지
+   * '시작하기' 로 왔는지를 잊으면, 시작하려던 사람이 목록으로 떨어진다.
+   */
+  const 시작까지갈까 = useRef(false);
+
+  const 저장하기 = (형태값?: "순살" | "상관없음", 이어서주문할까 = false) => {
     // 답한 형태만 얹는다 — 나머지 selections 는 그대로다(사용자 요청: 기존
     // 선호는 건드리지 않고 형태만 추가로 채워서 보낸다).
     const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
@@ -2093,7 +2208,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
       id: 고칠것?.id ?? newSheetId(),
       menuName: menuName.trim() || "이름 없는 주문표",
       place, selections: 최종선택, memo,
-    });
+    }, 이어서주문할까);
   };
 
   const toggleChip = (sectionLabel: string, choice: string, multi: boolean) => {
@@ -2291,38 +2406,80 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
             })}
           </p>
         )}
-        <PrimaryBtn
-          /*
-           * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
-           * 하나가 더 생기고, 서버에 올라간 주문표는 옛것이 그대로 남는다.
-           *
-           * 새로 만들 때만 id 를 짓는다. Date.now() 만 쓰면 같은 밀리초에 두 개를
-           * 만들 때 겹치고, 겹치면 하나를 지울 때 다른 하나도 같이 사라진다.
-           */
-          /*
-           * 이름을 안 적어도 저장한다.
-           *
-           * 예전에는 이름이 있어야만 저장할 수 있었다. 그런데 이름은 이 주문표를
-           * 나중에 알아보려고 붙이는 이름표일 뿐이고, 주문을 만드는 데 필요한 것은
-           * 장소와 고른 값들이다. 말로 채우고 바로 쓰려는 사람에게 이름부터
-           * 적으라고 막을 이유가 없다.
-           *
-           * 비워 두면 목록에서 '이름 없는 주문표' 로 보인다 — 빈 줄로 두면 무엇이
-           * 저장됐는지 알 수 없다.
-           */
-          onClick={() => {
-            // 형태만 비어 있고 접근성 신호가 있으면, 곧장 저장하는 대신 먼저 묻는다.
-            if (순살제안대상) { set순살배너(true); return; }
-            저장하기();
-          }}
-          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || (빠진축.length > 0 && !순살제안대상)}
-        >
-          {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
-        </PrimaryBtn>
+        {/*
+          붙은 키오스크가 없으면 '시작하기' 는 못 누른다. 왜 못 누르는지 말해 준다 —
+          회색이 된 단추만 두면 사용자는 자기가 무엇을 덜 채웠는지 찾아 헤맨다.
+        */}
+        {!주문할수있나 && !(빠진축.length > 0 && !순살제안대상) && (
+          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+            QR을 찍으면 저장과 함께 바로 시작할 수 있어요
+          </p>
+        )}
+        {/*
+          저장과 시작을 갈랐다.
+          ─────────────────────────────────────────────────────────────────────
+          예전에는 "저장하고 시작하기" 한 단추였는데, 이름과 하는 일이 어긋나
+          있었다 — 눌러도 저장만 되고 목록에 내려놓았다. 시작은 QR 을 찍은
+          사람에게만 목록에서 열렸다. 그래서 이름대로 갈라 놓는다.
+
+          '저장하기' 는 늘 누를 수 있다. 키오스크 앞이 아니어도 미리 만들어
+          두는 것이 이 앱이 하는 일이다.
+
+          '시작하기' 는 붙어 있을 때만. 그리고 그 한 번에 저장까지 한다 —
+          저장 안 된 주문표로는 주문할 수 없으니, 따로 누르게 하면 시작하려던
+          사람이 두 번 누른다.
+
+          고치는 중이면 '고친 내용 저장하기' 로 이름만 바뀐다. 하는 일은 같다.
+        */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <OutlineBtn
+              /*
+               * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
+               * 하나가 더 생기고, 서버에 올라간 주문표는 옛것이 그대로 남는다.
+               *
+               * 새로 만들 때만 id 를 짓는다. Date.now() 만 쓰면 같은 밀리초에 두 개를
+               * 만들 때 겹치고, 겹치면 하나를 지울 때 다른 하나도 같이 사라진다.
+               */
+              /*
+               * 이름을 안 적어도 저장한다.
+               *
+               * 예전에는 이름이 있어야만 저장할 수 있었다. 그런데 이름은 이 주문표를
+               * 나중에 알아보려고 붙이는 이름표일 뿐이고, 주문을 만드는 데 필요한 것은
+               * 장소와 고른 값들이다. 말로 채우고 바로 쓰려는 사람에게 이름부터
+               * 적으라고 막을 이유가 없다.
+               *
+               * 비워 두면 목록에서 '이름 없는 주문표' 로 보인다 — 빈 줄로 두면 무엇이
+               * 저장됐는지 알 수 없다.
+               */
+              onClick={() => {
+                시작까지갈까.current = false;
+                // 형태만 비어 있고 접근성 신호가 있으면, 곧장 저장하는 대신 먼저 묻는다.
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기();
+              }}
+              disabled={못저장하는가}
+            >
+              {고칠것 ? "고친 내용 저장하기" : "저장하기"}
+            </OutlineBtn>
+          </div>
+          <div style={{ flex: 1 }}>
+            <PrimaryBtn
+              onClick={() => {
+                시작까지갈까.current = true;
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기(undefined, true);
+              }}
+              disabled={못저장하는가 || !주문할수있나}
+            >
+              시작하기
+            </PrimaryBtn>
+          </div>
+        </div>
       </StickyFooter>
       {순살배너 && (
         <순살제안시트
-          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값, 시작까지갈까.current); }}
           onCancel={() => set순살배너(false)}
         />
       )}
@@ -2614,7 +2771,7 @@ const 숫자만읽기 = (글: string): number | null => {
 };
 
 function SavedSheetsScreen({
-  sheets, onAddSheet, onAddVoiceSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
+  sheets, onAddSheet, onAddVoiceSheet, onDeleteSheet, onEditSheet, onOrder, onGoQr, showOrder = false,
 }: {
   sheets: OrderSheet[];
   onAddSheet: () => void;
@@ -2623,6 +2780,8 @@ function SavedSheetsScreen({
   onDeleteSheet: (id: string) => void;
   onEditSheet: (sheet: OrderSheet) => void;
   onOrder: (sheet: OrderSheet) => void;
+  /** QR 화면으로 보낸다. 붙어 있지 않을 때 이 목록에서 나가는 길이다. */
+  onGoQr: () => void;
   showOrder?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(sheets[0]?.id ?? null);
@@ -2759,6 +2918,31 @@ function SavedSheetsScreen({
           >
             이 주문표로 주문하기
           </PrimaryBtn>
+        )}
+        {/*
+          붙어 있지 않으면 주문 단추가 아예 없다. **왜 없는지 말하고 길을 낸다.**
+
+          예전에는 단추만 조용히 사라졌다. 주문표는 눈앞에 있는데 주문할 방법이
+          없고, 무엇을 하면 되는지도 안 적혀 있었다. 한 번 주문하고 돌아온 사람이
+          다른 주문표로 또 주문하려 할 때가 바로 이 자리다 — 연결은 한 번 쓰면
+          끝나므로(팀 계약) 다시 찍어야 하는데, 화면은 아무 말도 안 했다.
+          '막을 때 이유를 말한다' 는 이 화면의 다른 안내들과 같은 규칙이다.
+
+          주문표가 하나도 없을 때는 안 띄운다. 그때는 먼저 만들라는 빈 목록 안내가
+          이미 있고, 여기에 QR 얘기까지 겹치면 무엇부터 할지가 흐려진다.
+
+          아래 QR 탭으로도 갈 수 있지만 단추를 따로 둔다 — 화면을 못 보는 분에게는
+          '아래 탭' 이 찾아가야 하는 곳이고, 이 자리가 방금 막힌 자리다.
+        */}
+        {!showOrder && sheets.length > 0 && (
+          <>
+            <div role="status">
+              <InfoBox variant="info">
+                주문하시려면 키오스크의 QR을 찍어 주세요. 한 번 찍으면 한 번 주문할 수 있어요.
+              </InfoBox>
+            </div>
+            <PrimaryBtn onClick={onGoQr}>QR 찍으러 가기</PrimaryBtn>
+          </>
         )}
         <OutlineBtn onClick={onAddSheet}>
           + 새 주문표 추가
@@ -2905,17 +3089,6 @@ function LockSpot({ size = 64 }: { size?: number }) {
   );
 }
 
-/** 이유 화면 — 돋보기. */
-function LoupeSpot({ size = 64 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
-      <g stroke={TEXT_1} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="44" cy="42" r="26" />
-        <path d="M63 61l22 24" />
-      </g>
-    </svg>
-  );
-}
 
 /** 섹션 머리의 굵은 줄. 이 디자인에서 화면을 자르는 유일한 선이다. */
 function Rule({ style }: { style?: React.CSSProperties }) {
@@ -3542,11 +3715,20 @@ const 바로바꾸는것: 도움항목[] = [
     // 읽어 주기와 말하기 중 하나라도 되면 보여 준다. 켜면 되는 쪽이 켜진다.
     될때만: () => 소리를낼수있나() || 들을수있나(),
   },
-  { key: "simpleSteps", label: "쉬운 단계", sub: "이유 화면을 건너뛰고 바로 확인 화면으로 가요" },
   { key: "mobilitySupport", label: "시간 여유", sub: "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요" },
   { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
 ];
 /*
+ * '쉬운 단계'(simpleSteps) 도 뺐다.
+ *
+ * 하던 일이 하나뿐이었다 — 확인 카드 앞의 이유 화면을 건너뛰는 것. 그 화면을
+ * 없애고 이유를 메뉴 밑으로 내리면서(고른이유) 건너뛸 것이 사라졌다. 남겨 두면
+ * "이유 화면을 건너뛰고 바로 확인 화면으로 가요" 라고 적힌 스위치가 켜도 꺼도
+ * 아무 일이 없다 — 아래 무리를 뺀 것과 같은 빈 약속이다.
+ *
+ * 계약의 일곱 칸에는 그대로 나간다(canonical.ts 의 일곱칸만). 안 묻는 칸은
+ * false 다(session.ts 의 이제안묻는칸).
+ *
  * '키오스크에 전해 드려요' 무리는 통째로 뺐다.
  *
  * '그림 안내'(visualGuidance) 와 '소리 대신 화면'(hearingSupport) 만 남아
@@ -3737,7 +3919,8 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone, on마�
   언어: string;
   설정: 도움설정;
   onChange: (한칸: Partial<도움설정>) => void;
-  onDone: () => void;
+  /** 마지막 칸을 답하고 끝났으면 참(말로든 손으로든). 건너뛰었으면 거짓 — 다음으로() 주석. */
+  onDone: (답했나: boolean) => void;
   /**
    * 마이크가 막혀 여기서는 답할 수 없다.
    *
@@ -3821,16 +4004,34 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone, on마�
     set예약번호((n) => n + 1);
   };
 
-  const 다음으로 = () => {
+  /*
+   * 마지막 칸을 **답하고** 끝났는지를 알려 준다. 말로든 손으로든.
+   *
+   * 부르는 쪽(SetupScreen)이 이 값으로 다음 화면까지 넘길지 정한다.
+   *
+   * ── 갈림길은 첫 화면의 스위치다 ──────────────────────────────────────────
+   *
+   * 이 화면은 '소리로 듣고 답하기' 를 켠 사람에게만 열린다(SetupScreen 의
+   * 음성모드). 스위치를 안 켠 분은 여기 대신 손으로 고르는 목록을 보고, 거기서
+   * '계속하기' 를 직접 누른다 — 그분의 화면은 저절로 안 바뀐다.
+   *
+   * 그러니 여기까지 온 사람은 이미 '알아서 넘어가는 쪽' 을 고른 것이다. 그 안에서
+   * 말로 답했는지 켜기·끄기를 눌렀는지로 다시 가르지 않는다 — 말이 잘 안 들려
+   * 손으로 누른 분에게만 마지막에 단추가 하나 더 생기는 셈이 된다.
+   *
+   * 건너뛰기는 안 넘긴다. 그건 이 물음들을 그만 듣겠다는 뜻이지 설정을 마쳤다는
+   * 뜻이 아니다 — 손으로 고르는 목록에 내려놓고 거기 머문다.
+   */
+  const 다음으로 = (답했나 = false) => {
     set못들음(null);
-    if (마지막인가) { 이어서.current = false; onDone(); return; }
+    if (마지막인가) { 이어서.current = false; onDone(답했나); return; }
     set칸((n) => n + 1);
     이어서예약();
   };
 
   const 넣기 = (켬: boolean) => {
     onChange({ [지금축.key]: 켬 });
-    다음으로();
+    다음으로(true);
   };
 
   // `손으로` 의 뜻은 한칸씩말하기 의 같은 함수 주석에 있다.
@@ -3919,7 +4120,7 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone, on마�
   const 건너뛰기 = () => {
     // 상태와 상관없이 — 예약된 듣기까지 무효로 만든다.
     듣기취소();
-    다음으로();
+    다음으로(false);
   };
 
   return (
@@ -4075,7 +4276,18 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
             언어={설정.language}
             설정={설정}
             onChange={onChange}
-            onDone={() => set음성모드(false)}
+            /*
+             * 마지막 칸을 답하고 끝났으면 다음 화면까지 넘긴다.
+             *
+             * 이 카드는 '소리로 듣고 답하기' 를 켠 사람에게만 열린다. 그 스위치가
+             * 갈림길이라, 여기까지 온 사람은 이미 알아서 넘어가는 쪽을 고른 것이다.
+             * 마지막 물음에 답하고 나서 '계속하기' 를 찾아 누르라고 하면, 다 해
+             * 놓고 마지막 한 번에서 막힌다 — 없애려던 바로 그 문턱이다.
+             *
+             * 건너뛰었으면 안 넘긴다. 물음을 그만 듣겠다는 뜻이지 설정을 마쳤다는
+             * 뜻이 아니다. 손으로 고르는 목록에 내려놓는다.
+             */
+            onDone={(답했나) => { set음성모드(false); if (답했나) onNext(); }}
             /*
              * 마이크가 막혔다. 손으로 고르는 목록으로 물러난다.
              *
@@ -4404,18 +4616,20 @@ function ReasonList({ reasons, 제목 = "이 메뉴를 고른 이유" }: { reaso
 }
 
 /**
- * 이유만 보여 주는 단계. 확인 카드 앞에 온다.
+ * 메뉴 밑에 붙는 이유. **화면을 따로 두지 않는다.**
  *
- * 예전에는 확인 카드 아래에 이유가 붙어 있었다. 그러면 조건표·후보 목록·이유가
- * 한 화면에 다 쌓여서, 이유를 읽으려면 스크롤을 내려야 했다. 승인하기 전에
- * 꼭 읽어야 할 것이 가장 읽기 어려운 자리에 있던 셈이다.
+ * 예전에는 이유만 있는 화면("이렇게 찾았어요")이 확인 카드 앞에 하나 더 있었다.
+ * 스크롤을 줄이려고 나눈 것인데, 단계를 하나 늘린 것도 사실이었다 — 무엇을
+ * 담을지 보려면 이유를 한 번 지나가야 했고, 이유를 다시 보려면 되돌아가야 했다.
  *
- * 순서를 바꾼다 — 왜 이걸 골랐는지 먼저 읽고, 그 다음에 무엇을 담을지 고른다.
- * 킷 가이드가 [필수] 로 정한 "결과만 보여주지 말고 왜 그런지 함께" 도 이 순서가
- * 더 잘 지킨다. 아래로 밀려 안 읽히는 것보다 앞에 세우는 편이 낫다.
+ * 이유는 그 메뉴를 왜 골랐는지의 설명이라 메뉴 옆에 있을 때 뜻이 산다. 그래서
+ * 카드 바로 밑으로 내렸다.
+ *
+ * 빼 둔 메뉴(excluded)는 여기 안 넣는다 — 그건 고른 이유가 아니라 안 고른
+ * 이유라서, 화면 맨 밑에 따로 둔다(뺀이유).
  */
-function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
-  reasons: RecommendationReason[];
+function 고른이유({ reasons, scoredAxes = [] }: {
+  reasons?: RecommendationReason[];
   /**
    * 서버가 점수를 매길 때 이 메뉴를 밀어 준 축들.
    *
@@ -4426,26 +4640,15 @@ function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
    * 점수 숫자는 안 띄운다. 0.0259 는 이 앱을 쓰는 분들에게 읽을 수 없는 값이다.
    */
   scoredAxes?: string[];
-  onNext: () => void;
-  /** 되묻는 상황이면 다음 화면에서 할 일을 미리 알려 준다. */
-  확인중?: boolean;
 }) {
-  // 합치기는 부르는 쪽에서 이미 했다(OrderConfirmScreen 의 이유들).
-  const 쓴것 = reasons.filter((r) => r.kind === "used");
-  const 못맞춘것 = reasons.filter((r) => r.kind === "unmet");
-  const 뺀것 = reasons.filter((r) => r.kind === "excluded");
+  const 쓴것 = reasons?.filter((r) => r.kind === "used") ?? [];
+  const 못맞춘것 = reasons?.filter((r) => r.kind === "unmet") ?? [];
+  if (쓴것.length === 0 && 못맞춘것.length === 0 && scoredAxes.length === 0) return null;
   return (
-    <div className="flex flex-col gap-5">
-      <CenterHeadline
-        spot={<LoupeSpot size={58} />}
-        kicker="why this"
-        title={<>이렇게 찾았어요</>}
-        desc="저장해 두신 조건으로 오늘 메뉴에서 찾은 결과예요."
-      />
-
+    <>
       {scoredAxes.length > 0 && (
         <div>
-          <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 6 }}>이걸 보고 골랐어요</h2>
+          <h3 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 6 }}>이걸 보고 골랐어요</h3>
           <div className="flex flex-wrap" style={{ gap: 6 }}>
             {scoredAxes.map((축) => (
               <span
@@ -4463,71 +4666,23 @@ function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
       )}
       {쓴것.length > 0 && <ReasonList reasons={쓴것} 제목="반영한 조건" />}
       {/* 못 맞춘 것을 반영한 것 바로 아래 둔다. 이 둘을 나란히 읽어야 무엇이
-          되고 무엇이 안 됐는지가 한눈에 잡힌다. 빼 둔 메뉴는 그다음이다. */}
+          되고 무엇이 안 됐는지가 한눈에 잡힌다. */}
       {못맞춘것.length > 0 && <ReasonList reasons={못맞춘것} 제목="맞추지 못한 조건" />}
-      {뺀것.length > 0 && <ReasonList reasons={뺀것} 제목="빼 둔 메뉴와 그 이유" />}
-
-      <PrimaryBtn onClick={onNext}>
-        {확인중 ? "메뉴 고르러 가기" : "담을 메뉴 확인하기"}
-      </PrimaryBtn>
-    </div>
+    </>
   );
 }
 
 /**
- * 확인 카드에 남기는 한 줄.
+ * 빼 둔 메뉴와 그 이유. **화면 맨 밑에 둔다.**
  *
- * 이유 전체는 앞 단계로 옮겼지만, 승인 버튼이 있는 화면에도 근거가 한 줄은
- * 있어야 한다. 킷 가이드의 '추천 화면 최소 구성' 이 "왜 추천했는가" 를 요구한다.
- * 눌러서 앞 단계로 되돌아가면 전체를 다시 읽을 수 있다.
+ * 고른 이유와 나란히 두면 "이 메뉴를 고른 근거" 처럼 읽힌다. 여기 있는 것은
+ * 화면에 없는 메뉴들의 이야기라, 지금 담을 것을 정하는 데 먼저 읽을 값이 아니다.
+ * 그래도 지우지는 않는다 — 무엇이 왜 빠졌는지는 알려야 한다.
  */
-function ReasonSummary({ reasons, onOpen }: { reasons?: RecommendationReason[]; onOpen: () => void }) {
-  /*
-   * 못 맞춘 조건이 있으면 그것을 먼저 보여 준다.
-   *
-   * 한 줄만 보이는 자리라 무엇을 올릴지가 중요하다. '반영했다' 는 안심시키는
-   * 말이고 '못 맞췄다' 는 확인이 필요한 말인데, 확인이 필요한 쪽을 접어 두면
-   * 사용자는 다 맞은 줄 알고 승인한다.
-   */
-  const 첫줄 = reasons?.find((r) => r.kind === "unmet")
-    ?? reasons?.find((r) => r.kind === "used")
-    ?? reasons?.[0];
-  if (!첫줄) return null;
-  const 남은 = (reasons?.length ?? 0) - 1;
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      style={{
-        display: "flex", gap: 9, alignItems: "flex-start", textAlign: "left", width: "100%",
-        borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: "13px 16px",
-        border: "none", cursor: "pointer", font: "inherit",
-      }}
-    >
-      <span style={{ flexShrink: 0, marginTop: 2, display: "flex" }}>
-        <Pictogram name={이유표시[첫줄.kind].그림} size={16} color={이유표시[첫줄.kind].색} />
-      </span>
-      <span style={{ flex: 1, fontSize: 13, lineHeight: 1.6, color: TEXT_1 }}>
-        {/*
-          말머리를 글자로 붙인다. Pictogram 은 aria-hidden 이라 스크린리더가 못 읽고,
-          reasons[].text 도 '반영' 인지 '제외' 인지를 문장 안에 담는다고 보장하지 않는다.
-          쓴 것이 하나도 없으면 여기 뜨는 줄이 제외 사유인데, 표시가 없으면 그게
-          이 메뉴를 고른 근거처럼 읽힌다. ReasonList 는 이미 이렇게 하고 있었다.
-        */}
-        <b style={{ fontWeight: 700 }}>{이유표시[첫줄.kind].말머리}</b>
-        <span data-원문>{이유글(첫줄)}</span>
-        {남은 > 0 && (
-          <span style={{ color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3 }}>
-            {/*
-              조각으로 나눠 옮기면 어순이 깨진다("reason 2more"). 자리표시자를 둔
-              한 문장으로 만들어 언어마다 제 어순을 갖게 한다.
-            */}
-            {" "}{tf("이유 {n}개 더 보기", { n: 남은 })}
-          </span>
-        )}
-      </span>
-    </button>
-  );
+function 뺀이유({ reasons }: { reasons?: RecommendationReason[] }) {
+  const 뺀것 = reasons?.filter((r) => r.kind === "excluded") ?? [];
+  if (뺀것.length === 0) return null;
+  return <ReasonList reasons={뺀것} 제목="빼 둔 메뉴와 그 이유" />;
 }
 
 function InfoBox({ children, variant = "warn" }: { children: React.ReactNode; variant?: "warn" | "info" }) {
@@ -4564,9 +4719,24 @@ function InfoBox({ children, variant = "warn" }: { children: React.ReactNode; va
  * 서로 다른 질문의 선택지가 조용히 한 그룹으로 묶인다.
  */
 function OptionCard({
-  name, price, selected, onClick, groupName, matched,
+  name, price, selected, onClick, groupName, matched, 순위,
 }: {
   name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
+  /**
+   * 추천 순위. 1 부터. 없으면 아무것도 안 그린다.
+   *
+   * 서버가 준 차례가 곧 순위다 — 총점 내림차순으로 정렬해서 내려준다
+   * (백엔드 RecommendationEngineService 의 RANKING_COMPARATOR, 목은 mock.ts 의
+   * 점수순()). 그래서 차례를 그대로 숫자로 옮겨 적는다.
+   *
+   * 여태 이 목록은 셋을 나란히만 두었다. 그러면 무엇이 가장 잘 맞는 것인지
+   * 화면에 없다 — 서버는 알고 있는데 사용자만 모르는 값이었다.
+   *
+   * **색으로만 말하지 않는다.** 1등만 색을 뒤집어 놓으면 화면을 못 보는 분에게는
+   * 순위가 없는 것과 같고, 색을 구분하기 어려운 분에게도 마찬가지다. 숫자를
+   * 적고, 읽어 주는 이름(aria-label)에도 넣는다. 색은 거들기만 한다.
+   */
+  순위?: number;
   /**
    * 저장해 두신 조건과 이 후보가 한 축도 어긋나지 않는가.
    *
@@ -4580,6 +4750,34 @@ function OptionCard({
   const 속: React.ReactNode = (
     <>
       <span className="flex items-center gap-3" style={{ minWidth: 0, flex: 1 }}>
+        {/*
+          순위 숫자. 1 등만 면을 채우고 나머지는 테두리만 둔다 — 셋 다 채우면
+          순위가 아니라 장식이 된다.
+
+          고른 줄은 면이 검게 반전되므로(겉모양) 1 등 배지도 같이 뒤집는다.
+          안 뒤집으면 1 등을 고른 순간 검은 배지가 검은 면에 묻힌다. 뒤집으면
+          어느 쪽이든 '1 등은 채워져 있다' 가 그대로 남는다 — 밝은 줄에서는
+          검은 동그라미, 검은 줄에서는 밝은 동그라미.
+
+          aria-hidden 인 이유 — 같은 값이 아래 radio 의 aria-label 에 이미
+          들어가 있다. 안 가리면 "1 매운 순살 닭강정 6,000원" 처럼 숫자가 두 번
+          읽힌다.
+        */}
+        {순위 !== undefined && (
+          <span
+            aria-hidden="true"
+            style={{
+              flexShrink: 0, width: 24, height: 24, borderRadius: "50%",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 800, ...NUM,
+              backgroundColor: 순위 === 1 ? (selected ? PAPER : RULE) : "transparent",
+              color: 순위 === 1 ? (selected ? RULE : PAPER) : (selected ? PAPER : TEXT_2),
+              border: 순위 === 1 ? "none" : `1.5px solid ${selected ? PAPER : TEXT_2}`,
+            }}
+          >
+            {순위}
+          </span>
+        )}
         {/*
           배지를 이름 옆에 두면 이름이 밀려 두 줄로 접힌다. 메뉴 이름은 이 줄에서
           가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
@@ -4649,7 +4847,14 @@ function OptionCard({
         onChange={onClick}
         onFocus={() => set포커스(true)}
         onBlur={() => set포커스(false)}
-        aria-label={`${name}, ${price}`}
+        /*
+         * 순위를 읽어 주는 이름 맨 앞에 넣는다. 눈으로는 배지가 그 일을 하는데,
+         * 여기 안 넣으면 화면을 못 보는 분에게는 순위가 아예 없는 값이 된다.
+         *
+         * 맨 앞인 이유 — 셋을 훑을 때 순위가 먼저 들려야 고를 수 있다. 이름과
+         * 값을 다 듣고 나서야 순위가 나오면 셋을 외워 두었다가 견줘야 한다.
+         */
+        aria-label={순위 === undefined ? `${name}, ${price}` : tf("추천 {순위}순위, {이름}, {값}", { 순위, 이름: name, 값: price })}
         style={SR_ONLY}
       />
       {속}
@@ -4658,12 +4863,14 @@ function OptionCard({
 }
 
 function OrderExact({
-  item, reasons, 합계알림, onReasons, onApprove, onCancel,
+  item, reasons, scoredAxes, 합계알림, onApprove, onCancel,
 }: {
   item: MappedItem; reasons?: RecommendationReason[];
+  /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
+  scoredAxes?: string[];
   /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 넘지 않으면 없다. */
   합계알림?: string;
-  onReasons: () => void; onApprove: () => void; onCancel: () => void;
+  onApprove: () => void; onCancel: () => void;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -4686,7 +4893,8 @@ function OrderExact({
           {합계알림}
         </p>
       )}
-      <ReasonSummary reasons={reasons} onOpen={onReasons} />
+      <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
+      <뺀이유 reasons={reasons} />
       <PrimaryBtn onClick={onApprove}>승인하고 담기</PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
     </div>
@@ -4694,12 +4902,13 @@ function OrderExact({
 }
 
 function OrderClarification({
-  candidates, reason, reasons, onReasons, options, onApprove, onCancel,
+  candidates, reason, reasons, scoredAxes, options, onApprove, onCancel,
 }: {
   candidates: MappingCandidate[];
   reason?: string;
   reasons?: RecommendationReason[];
-  onReasons: () => void;
+  /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
+  scoredAxes?: string[];
   /** 사용자가 고른 조건. 어느 후보를 고르든 같으므로 함께 보여 준다. */
   options?: MappedOption[];
   onApprove: (candidateId: string) => void;
@@ -4750,12 +4959,38 @@ function OrderClarification({
             name={c.displayName}
             price={c.priceText}
             matched={c.unmatchedLabels?.length === 0}
+            // 서버가 준 차례가 곧 순위다 — 자세한 사연은 OptionCard 의 순위 주석에.
+            순위={i + 1}
             onClick={() => setSelected(i)}
           />
+          {/*
+            이유는 **1 순위 밑에만** 붙인다.
+
+            서버가 주는 이유는 응답 하나에 딸린 것이지 후보별로 오지 않는다
+            (contracts/Candidate.java 에 이유 칸이 없다). 그래서 셋 밑에 다 붙이면
+            같은 줄이 세 번 되풀이되고, 후보마다 다른 근거가 있는 것처럼 읽힌다.
+
+            1 순위 밑에 두는 이유 — 이 이유들은 **왜 이 차례가 됐는지**의 설명이고,
+            그 차례의 결과가 1 순위다. 목록 아래에 따로 떼어 두면 어느 메뉴 얘기인지
+            가 흐려진다.
+
+            2·3 순위 밑에는 그 후보만의 것이 이미 있다 — '조건 일치' 배지와, 위
+            조건표의 '고르신 메뉴와 달라요' 표시가 그것이다.
+
+            radiogroup 안이지만 라디오 묶기는 name 으로 되므로(각 줄의 숨은 input)
+            화살표 이동은 그대로다.
+          */}
+          {i === 0 && (
+            <div style={{ padding: "0 16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
+            </div>
+          )}
           </div>
         ))}
       </div>
-      <ReasonSummary reasons={reasons} onOpen={onReasons} />
+      {/* 빼 둔 메뉴가 맨 밑이다. 아래 안내 한 줄은 단추에 붙어 있어야 하는 말이라
+          그 사이에 이유가 끼면 안 된다 — 무엇을 눌러야 하는지가 멀어진다. */}
+      <뺀이유 reasons={reasons} />
       {selected === null && (
         <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>메뉴를 선택하면 승인할 수 있어요</p>
       )}
@@ -4786,14 +5021,15 @@ function OrderNotFound({ message, onCancel }: { message?: string; onCancel: () =
 }
 
 function OrderChanged({
-  item, diffNote, reasons, 합계알림, onReasons, onApprove, onCancel,
+  item, diffNote, reasons, scoredAxes, 합계알림, onApprove, onCancel,
 }: {
   item: MappedItem;
   diffNote?: string;
   /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
   합계알림?: string;
   reasons?: RecommendationReason[];
-  onReasons: () => void;
+  /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
+  scoredAxes?: string[];
   onApprove: () => void;
   onCancel: () => void;
 }) {
@@ -4838,7 +5074,8 @@ function OrderChanged({
         </button>
       </div>
 
-      <ReasonSummary reasons={reasons} onOpen={onReasons} />
+      <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
+      <뺀이유 reasons={reasons} />
       <PrimaryBtn onClick={checked ? onApprove : undefined} disabled={!checked}>변경 내용 확인하고 담기</PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
     </div>
@@ -4846,12 +5083,14 @@ function OrderChanged({
 }
 
 function OrderLowConfidence({
-  item, reasons, 합계알림, onReasons, onApprove, onCancel,
+  item, reasons, scoredAxes, 합계알림, onApprove, onCancel,
 }: {
   item: MappedItem; reasons?: RecommendationReason[];
+  /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
+  scoredAxes?: string[];
   /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
   합계알림?: string;
-  onReasons: () => void; onApprove: () => void; onCancel: () => void;
+  onApprove: () => void; onCancel: () => void;
 }) {
   const [selected, setSelected] = useState(false);
   return (
@@ -4890,7 +5129,9 @@ function OrderLowConfidence({
         onToggle={() => setSelected((v) => !v)}
         label="위 내용이 제가 시키려던 것이 맞아요"
       />
-      <ReasonSummary reasons={reasons} onOpen={onReasons} />
+      <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
+      {/* 차례를 가른 이유는 OrderClarification 의 같은 자리 주석에 있다. */}
+      <뺀이유 reasons={reasons} />
       {!selected && (
         <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>메뉴를 선택하면 승인할 수 있어요</p>
       )}
@@ -5009,18 +5250,17 @@ function OrderConfirmScreen({
    * 이유가 없으면 이 단계를 건너뛴다 - 빈 화면을 하나 더 지나가게 하지 않는다.
    */
   /*
-   * '쉬운 단계' 를 켜면 이유 단계를 건너뛴다.
+   * 이유만 있는 화면은 없앴다.
    *
-   * 이 단계는 원래 스크롤을 줄이려고 만든 것인데, 단계를 하나 늘린 것도 사실이다.
-   * 단계를 줄여 달라고 한 사람에게는 그 맞바꿈이 반대로 작용한다.
+   * 확인 카드 앞에 "이렇게 찾았어요" 한 화면이 더 있었다. 스크롤을 줄이려고
+   * 나눈 것인데, 단계를 하나 늘린 것도 사실이었다 — 무엇을 담을지 보려면 이유를
+   * 한 번 지나가야 했고, 이유를 다시 읽으려면 되돌아가야 했다. '쉬운 단계' 를
+   * 켠 사람에게는 아예 건너뛰게 해 두었던 것도 그 때문이다.
    *
-   * 건너뛰어도 확인 화면의 한 줄 요약과 '이유 N개 더 보기' 는 그대로 남는다 -
-   * 킷 가이드가 [필수] 로 정한 "왜 그런지 함께 보여준다" 는 지켜진다.
-   * 읽고 싶으면 한 번 눌러서 전체를 볼 수 있다.
+   * 지금은 이유가 메뉴 카드 바로 밑에 붙는다(고른이유). 왜 골랐는지의 설명이라
+   * 메뉴 옆에 있을 때 뜻이 살고, 한 화면에서 다 읽힌다. 빼 둔 메뉴는 맨 밑이다
+   * (뺀이유). 킷 가이드가 [필수] 로 정한 "왜 그런지 함께 보여준다" 는 그대로다.
    */
-  const [이유먼저, set이유먼저] = useState(!접근성설정.읽기().simpleSteps);
-  const 이유있나 = (mapping?.reasons?.length ?? 0) > 0;
-  const 이유단계 = 이유먼저 && 이유있나 && mapping?.result !== "not_found";
 
   /*
    * 내용이 도착한 뒤에 제목으로 포커스를 옮긴다.
@@ -5029,8 +5269,6 @@ function OrderConfirmScreen({
    * 화면은 **비어 있는 채로 뜬다** — 매핑을 기다리는 동안에는 제목이 아직
    * 없어서, 그 효과는 옮길 곳을 못 찾고 그냥 돌아간다. 추천이 도착해 제목이
    * 그려질 때는 효과가 다시 돌지 않으므로 포커스는 <body> 에 남는다.
-   *
-   * 이유 화면 ↔ 확인 카드 전환도 같다. 같은 화면 안의 상태 변화라 App 은 모른다.
    *
    * 무엇이 주문될지 정하는 자리다. 키보드로 쓰는 사람이 하필 여기서 문서 맨
    * 위부터 Tab 을 다시 눌러 내려와야 하는 것이 가장 나쁘다.
@@ -5054,7 +5292,7 @@ function OrderConfirmScreen({
     // 스크롤을 내려 둔 상태에서 단계가 바뀔 수 있다. 보이게 한 뒤에 잡는다(#120).
     제목.scrollIntoView({ block: "nearest", inline: "nearest" });
     제목.focus({ preventScroll: true });
-  }, [mapping, 이유단계]);
+  }, [mapping]);
 
   const approve = (extra: Omit<ApproveInput, "pairingId" | "sheetId" | "mappingResult"> = {}) => {
     if (!mapping || approving.current) return;
@@ -5122,45 +5360,21 @@ function OrderConfirmScreen({
           </div>
         )}
 
-        {/*
-          이유 단계. 확인 카드 앞에 온다 — 스크롤을 내려야 읽히던 것을 앞으로 옮겼다.
-        */}
-        {mapping && 이유단계 && (
-          <ReasonStep
-            reasons={이유들}
-            scoredAxes={mapping.scoredAxes}
-            확인중={mapping.result === "clarification" || mapping.result === "low_confidence"}
-            onNext={() => set이유먼저(false)}
-          />
-        )}
-
-        {/*
-          이유로 되돌아가도 골라 둔 것을 잃지 않는다.
-
-          조건부로 그리면(!이유단계 && ...) 이유를 다시 볼 때 확인 갈래가 언마운트되고,
-          OrderClarification 의 selected 와 OrderChanged.OrderLowConfidence 의 checked 가
-          초기값으로 돌아간다. 후보를 고르고 이유를 한 번 더 읽고 온 사람은 그 사실을
-          모른 채 승인 버튼이 다시 잠긴 화면을 만난다 — 재확인은 승인 조건이라 다시
-          짚어야만 넘어간다.
-
-          그래서 지우지 않고 감춘다. display:none 은 접근성 트리에서도 빠지므로
-          스크린리더가 감춰진 화면을 읽지 않는다.
-        */}
-        <div style={{ display: 이유단계 ? "none" : undefined }}>
+        <div>
         {/*
          * item 이 없으면 그리지 않는다. 예전에는 mapping.item! 로 있다고 단정했는데,
          * 조건에 다 걸려 후보가 하나도 안 남으면 undefined 가 들어와 화면이 터진다.
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={이유들} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact item={mapping.item} reasons={이유들} scoredAxes={mapping.scoredAxes} 합계알림={합계알림} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
           <OrderClarification
             candidates={mapping.candidates ?? []}
             reason={mapping.reason}
             reasons={이유들}
-            onReasons={() => set이유먼저(true)}
+            scoredAxes={mapping.scoredAxes}
             options={mapping.sheetOptions}
             onApprove={(candidateId) => approve({ candidateId })}
             onCancel={거절하기}
@@ -5172,8 +5386,8 @@ function OrderConfirmScreen({
             item={mapping.item}
             diffNote={mapping.diffNote}
             reasons={이유들}
+            scoredAxes={mapping.scoredAxes}
             합계알림={합계알림}
-            onReasons={() => set이유먼저(true)}
             onApprove={() => approve({ acknowledgedDiff: true })}
             onCancel={거절하기}
           />
@@ -5193,8 +5407,8 @@ function OrderConfirmScreen({
           <OrderLowConfidence
             item={mapping.item}
             reasons={이유들}
+            scoredAxes={mapping.scoredAxes}
             합계알림={합계알림}
-            onReasons={() => set이유먼저(true)}
             /* 사용자가 카드를 눌러 "이 메뉴가 맞다"고 짚어야만 여기까지 온다. 그 사실을 서버에도 알린다. */
             onApprove={() => approve({ confirmedLowConfidence: true })}
             onCancel={거절하기}
@@ -6219,6 +6433,8 @@ export default function App() {
    */
   /** 물어보는 동안 들고 있을 주문표. 답을 들은 뒤에 목록에 넣는다. */
   const [물어볼주문표, set물어볼주문표] = useState<OrderSheet | null>(null);
+  /** 남길지 물어본 뒤에 곧장 주문으로 갈 것인가 — '시작하기' 로 왔을 때만 참. */
+  const [물어본뒤주문할까, set물어본뒤주문할까] = useState(false);
 
   /**
    * 주문표를 목록에 넣고 이어서 간다.
@@ -6227,7 +6443,7 @@ export default function App() {
    * 안 묻는다 — 자기 계정에 저장하는 것이 이미 뜻이 통하고, 지우고 싶으면
    * 목록에서 지우면 된다.
    */
-  const 주문표넣기 = (p: OrderSheet): void => {
+  const 주문표넣기 = (p: OrderSheet, 이어서주문할까 = false): void => {
     /*
      * 고친 것이면 그 자리에 덮고, **새것이면 맨 앞에** 붙인다.
      *
@@ -6247,8 +6463,24 @@ export default function App() {
       : [p, ...prev]);
     registerSheet(p);
     set고칠주문표(null);
-    setScreen("saved");
-    setTab("menu");
+    /*
+     * '시작하기' 로 왔으면 목록을 거치지 않고 곧장 주문 확인으로 간다.
+     *
+     * 저장과 시작을 한 단추로 묶어 달라는 것이라, 저장한 뒤 목록에 내려놓고
+     * 거기서 다시 그 주문표를 찾아 누르게 하면 묶은 뜻이 없다. 화면을 못 보는
+     * 분에게는 그 사이에 목록 전체가 한 번 읽힌다.
+     *
+     * 여기까지 오는 길이 둘이라(로그인한 사람은 곧장, 아니면 남길지 물어본 뒤)
+     * 그 뜻을 인자로 들고 온다 — 여기서 상태를 읽으면 방금 세운 값이 아직 안
+     * 보인다.
+     */
+    if (이어서주문할까) {
+      setOrderSheet(p);
+      setScreen("order-confirm");
+    } else {
+      setScreen("saved");
+      setTab("menu");
+    }
     // 못올리는이유() 는 이유 문자열이거나 null 이다. null 일 때만 올린다.
     // 임시 주문표는 안 올린다 — 이 기기에도 안 남기겠다고 한 것을 서버에 두면
     // 그 선택이 거짓이 된다.
@@ -6264,10 +6496,13 @@ export default function App() {
    * 고치는 중일 때는 안 묻는다. 이미 목록에 있는 것을 고치는 길이라, 여기서 '이번만
    * 쓰기' 를 고르면 있던 주문표가 조용히 사라지는 것처럼 보인다.
    */
-  const 주문표저장 = (p: OrderSheet): void => {
+  const 주문표저장 = (p: OrderSheet, 이어서주문할까 = false): void => {
     const 있던것 = sheets.find((있던) => 있던.id === p.id);
     if (guest && !있던것) {
       set물어볼주문표(p);
+      // 남길지 물어보고 오느라 한 화면 들렀다 온다. 그 뒤에 주문으로 갈 것인지를
+      // 여기서 적어 둔다 — 안 적으면 물어본 뒤에는 그 뜻이 남아 있지 않다.
+      set물어본뒤주문할까(이어서주문할까);
       setScreen("save-choice");
       return;
     }
@@ -6886,12 +7121,18 @@ export default function App() {
             <SaveChoiceScreen
               이름={물어볼주문표.menuName}
               onChoose={(남길까) => {
-                주문표넣기(남길까 ? 물어볼주문표 : { ...물어볼주문표, 임시: true });
+                주문표넣기(남길까 ? 물어볼주문표 : { ...물어볼주문표, 임시: true }, 물어본뒤주문할까);
                 set물어볼주문표(null);
+                set물어본뒤주문할까(false);
               }}
               // 뒤로 가면 아무 일도 없었던 것이 되어야 한다. 고치던 내용은 그대로
               // 들고 주문표 화면으로 돌아간다.
-              onBack={() => { set고칠주문표(물어볼주문표); set물어볼주문표(null); setScreen("sheet"); }}
+              onBack={() => {
+                set고칠주문표(물어볼주문표);
+                set물어볼주문표(null);
+                set물어본뒤주문할까(false);
+                setScreen("sheet");
+              }}
             />
           )}
           {screen === "sheet" && (
@@ -6902,6 +7143,13 @@ export default function App() {
               로그인함={!guest}
               고칠것={고칠주문표}
               onNext={주문표저장}
+              /*
+               * '시작하기' 는 붙어 있을 때만 열린다.
+               *
+               * fromQr 만 보면 모자란다 — 주문 확인 화면은 pairingId 가 있어야
+               * 그려진다. 둘 다 봐야 눌렀는데 빈 화면이 뜨는 일이 없다.
+               */
+              주문할수있나={fromQr && !!pairingId}
               onBack={() => { set고칠주문표(null); setScreen("saved"); }}
               예산={예산}
               on예산={(원) => 가격한도.바꾸기(원)}
@@ -6929,6 +7177,7 @@ export default function App() {
               언어={접근성값.language === "en-US" ? "en-US" : "ko-KR"}
               onNext={주문표저장}
               onBack={() => setScreen("saved")}
+              주문할수있나={fromQr && !!pairingId}
             />
           )}
           {inMain && tab === "menu" && (
@@ -6938,6 +7187,7 @@ export default function App() {
               onAddVoiceSheet={() => { set고칠주문표(null); setScreen("voice-sheet"); }}
               onDeleteSheet={deleteSheet}
               onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
+              onGoQr={() => setTab("qr")}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
               onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}

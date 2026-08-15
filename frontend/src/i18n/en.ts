@@ -276,7 +276,6 @@ export const EN: Record<string, string> = {
   "소리로 듣고 답하기": "Listen and answer by voice",
   "화면에 나온 안내를 소리로 읽어 드려요": "Reads what’s on screen out loud",
   "쉬운 단계": "Fewer steps",
-  "이유 화면을 건너뛰고 바로 확인 화면으로 가요": "Skips the reason screen and goes straight to review",
   "시간 여유": "More time",
   "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요":
     "Won’t close the screen you’re reading when the session times out",
@@ -364,7 +363,29 @@ export const EN: Record<string, string> = {
   "메모": "Note",
   "필수": "Required",
   "선택": "Optional",
-  "저장하고 시작하기": "Save and start",
+  /*
+   * 주문표 화면의 두 단추. 예전에는 "저장하고 시작하기" 한 단추였는데, 이름과
+   * 하는 일이 어긋나 있어서(눌러도 저장만 됐다) 이름대로 갈랐다.
+   *
+   * '시작하기' 는 붙어 있을 때만 열리고, 그 한 번에 저장까지 한다.
+   */
+  /*
+   * 붙어 있지 않을 때 목록 아래에 뜨는 안내와 길. 주문 단추가 사라지는 자리라
+   * 왜 없는지 말해 준다(App.tsx 의 SavedSheetsScreen).
+   */
+  "주문하시려면 키오스크의 QR을 찍어 주세요. 한 번 찍으면 한 번 주문할 수 있어요.":
+    "To order, scan the kiosk's QR code. One scan lets you order once.",
+  "QR 찍으러 가기": "Go scan the QR code",
+  "저장하기": "Save",
+  "시작하기": "Start",
+  /*
+   * 후보 줄을 읽어 주는 이름. 순위가 맨 앞이라 셋을 훑을 때 먼저 들린다.
+   * 눈으로는 이름 왼쪽의 숫자 배지가 같은 일을 한다(App.tsx 의 OptionCard).
+   */
+  "추천 {순위}순위, {이름}, {값}": "Recommendation #{순위}, {이름}, {값}",
+  // 못 누르는 '시작하기' 옆에 왜 못 누르는지 적는 줄.
+  "QR을 찍으면 저장과 함께 바로 시작할 수 있어요":
+    "Scan the QR code to save and start right away",
   // 저장 화면의 잠금 안내. 모든 축을 골라야 저장이 열린다(catalog.tsx 의 못채운축).
   "아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요":
     "Not chosen yet — {빠진것}. Pick them all to save",
