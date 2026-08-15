@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useId, useMemo } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
@@ -33,7 +33,7 @@ import type { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
 import { t, tf } from "@/i18n/t";
-import { 이유글 } from "@/i18n/reason";
+import { 이유글, 이유묶기 } from "@/i18n/reason";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -3704,6 +3704,7 @@ function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
   /** 되묻는 상황이면 다음 화면에서 할 일을 미리 알려 준다. */
   확인중?: boolean;
 }) {
+  // 합치기는 부르는 쪽에서 이미 했다(OrderConfirmScreen 의 이유들).
   const 쓴것 = reasons.filter((r) => r.kind === "used");
   const 못맞춘것 = reasons.filter((r) => r.kind === "unmet");
   const 뺀것 = reasons.filter((r) => r.kind === "excluded");
@@ -4208,6 +4209,17 @@ function OrderConfirmScreen({
   const 한도 = 가격한도.읽기();
   const 수량 = Number((sheet.selections?.["수량"]?.[0] ?? "").replace(/[^0-9]/g, "")) || 1;
   /*
+   * 이유는 여기서 한 번만 합쳐 아래로 내려보낸다.
+   *
+   * 서버가 맞은 축마다 한 줄씩 주는 탓에 같은 메뉴 이름이 되풀이됐다
+   * (i18n/reason.ts 의 이유묶기). 화면마다 따로 합치면 접힌 한 줄이 세는
+   * "외 N개" 와 펼친 목록의 줄 수가 어긋난다 — 둘이 같은 목록을 봐야 한다.
+   */
+  const 이유들 = useMemo(
+    () => 이유묶기(mapping?.reasons ?? [], sheet.selections),
+    [mapping?.reasons, sheet.selections],
+  );
+  /*
    * 승인 버튼이 있는 화면은 셋이다 — exact · changed · low_confidence. 셋 다
    * MappedItem 을 그리고 셋 다 담긴다. 한 곳에만 안내를 달면 나머지 둘에서는
    * 합계가 한도를 넘어도 아무 말 없이 담긴다(#100 리뷰).
@@ -4374,7 +4386,7 @@ function OrderConfirmScreen({
         */}
         {mapping && 이유단계 && (
           <ReasonStep
-            reasons={mapping.reasons ?? []}
+            reasons={이유들}
             scoredAxes={mapping.scoredAxes}
             확인중={mapping.result === "clarification" || mapping.result === "low_confidence"}
             onNext={() => set이유먼저(false)}
@@ -4400,13 +4412,13 @@ function OrderConfirmScreen({
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={mapping.reasons} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact item={mapping.item} reasons={이유들} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
           <OrderClarification
             candidates={mapping.candidates ?? []}
             reason={mapping.reason}
-            reasons={mapping.reasons}
+            reasons={이유들}
             onReasons={() => set이유먼저(true)}
             options={mapping.sheetOptions}
             onApprove={(candidateId) => approve({ candidateId })}
@@ -4418,7 +4430,7 @@ function OrderConfirmScreen({
           <OrderChanged
             item={mapping.item}
             diffNote={mapping.diffNote}
-            reasons={mapping.reasons}
+            reasons={이유들}
             합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             onApprove={() => approve({ acknowledgedDiff: true })}
@@ -4439,7 +4451,7 @@ function OrderConfirmScreen({
         {mapping?.result === "low_confidence" && mapping.item && (
           <OrderLowConfidence
             item={mapping.item}
-            reasons={mapping.reasons}
+            reasons={이유들}
             합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             /* 사용자가 카드를 눌러 "이 메뉴가 맞다"고 짚어야만 여기까지 온다. 그 사실을 서버에도 알린다. */
