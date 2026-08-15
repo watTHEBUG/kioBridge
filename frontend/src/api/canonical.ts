@@ -32,7 +32,7 @@ export interface CanonicalProfile {
     staffAssistancePreferred: boolean;
   };
   interaction: { preferredInput: "TOUCH" | "VOICE"; language: string; confirmationRequired: boolean };
-  consent: { personalization: boolean; retentionPolicy: "SESSION_ONLY" };
+  consent: { personalization: boolean; retentionPolicy: "UNTIL_USER_DELETES" };
 }
 
 export interface ChickenStoreSessionContext {
@@ -47,10 +47,10 @@ export interface ChickenStoreSessionContext {
   fieldMetadata: Record<string, never>;
 }
 
-const 이용방식: Record<string, ServiceType> = { "먹고 가기": "DINE_IN", "포장하기": "TAKE_OUT" };
-const 맵기: Record<string, SpicyLevel> = { "순한맛": "MILD", "보통맛": "MEDIUM", "매운맛": "HOT" };
-const 형태: Record<string, BoneType> = { "뼈": "BONE", "순살": "BONELESS" };
-const 컵: Record<string, CupOption> = { "종이컵": "PAPER", "일반컵": "REGULAR" };
+const 이용방식: Record<string, ServiceType> = { "먹고 가기": "DINE_IN", "포장하기": "TAKE_OUT", "상관없음": "NO_PREFERENCE" };
+const 맵기: Record<string, SpicyLevel> = { "순한맛": "MILD", "보통맛": "MEDIUM", "매운맛": "HOT", "상관없음": "NO_PREFERENCE" };
+const 형태: Record<string, BoneType> = { "뼈": "BONE", "순살": "BONELESS", "상관없음": "NO_PREFERENCE" };
+const 컵: Record<string, CupOption> = { "종이컵": "PAPER", "일반컵": "REGULAR", "상관없음": "NO_PREFERENCE" };
 const 알레르기: Record<string, AllergenId> = {
   "땅콩": "PEANUT", "대두": "SOY", "우유": "MILK", "계란": "EGG", "밀": "WHEAT", "새우": "SHRIMP",
 };
@@ -162,13 +162,15 @@ export function toCanonicalProfile(
        */
       personalization: opts.personalization ?? false,
       /*
-       * 주문표는 이 탭이 살아 있는 동안만 남는다. 창을 닫으면 사라진다
-       * (api/session.ts 의 sessionStorage). SESSION_ONLY 가 사실이다.
+       * 주문표는 창을 닫아도 이 기기에 남는다(api/session.ts 의 localStorage).
+       * 지워지는 때는 사용자가 '이 기기에서 정보 지우기' 를 누르거나 브라우저
+       * 사이트 데이터를 비울 때뿐이다 — 계약의 UNTIL_USER_DELETES 가 그 말이다.
        *
-       * 새로고침을 넘겨 이어 쓰게 됐어도 이 값은 그대로다 — 새로고침은 세션이
-       * 끝나는 것이 아니다. 여기를 바꿔야 하는 때는 창을 닫아도 남게 만들 때다.
+       * 예전에는 SESSION_ONLY 였고, 그때는 그게 사실이었다. 저장소를 옮기면서
+       * 같이 바꿨다. 한쪽만 바꾸면 이 값이 서버에 거짓을 말하게 된다 —
+       * 여기는 사용자가 고른 것이 아니라 우리가 무엇을 하는지에 대한 진술이다.
        */
-      retentionPolicy: "SESSION_ONLY",
+      retentionPolicy: "UNTIL_USER_DELETES",
     },
   };
 }

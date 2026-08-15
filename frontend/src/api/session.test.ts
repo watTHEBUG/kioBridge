@@ -37,26 +37,42 @@ class 가짜저장소 implements Storage {
   }
 }
 
+/** 이번 방문에만 남는 자리. */
 let 저장소: 가짜저장소;
+/** 창을 닫아도 남는 자리. 주문표만 여기 있다. */
+let 오래저장소: 가짜저장소;
 const 원래 = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+const 원래오래 = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 
-const 끼우기 = (v: unknown) => {
-  Object.defineProperty(globalThis, "sessionStorage", { value: v, configurable: true, writable: true });
+const 끼우기 = (이름: "sessionStorage" | "localStorage", v: unknown) => {
+  Object.defineProperty(globalThis, 이름, { value: v, configurable: true, writable: true });
 };
 
 beforeEach(() => {
   저장소 = new 가짜저장소();
-  끼우기(저장소);
+  오래저장소 = new 가짜저장소();
+  끼우기("sessionStorage", 저장소);
+  끼우기("localStorage", 오래저장소);
 });
 
 afterEach(() => {
   if (원래) Object.defineProperty(globalThis, "sessionStorage", 원래);
-  else 끼우기(undefined);
+  else 끼우기("sessionStorage", undefined);
+  if (원래오래) Object.defineProperty(globalThis, "localStorage", 원래오래);
+  else 끼우기("localStorage", undefined);
 });
 
-/** 이 파일이 쓰는 유일한 열쇠. 판을 올리면 여기도 같이 바뀐다. */
-const 열쇠 = () => 저장소.key(0);
-const 적힌것 = () => JSON.parse(저장소.getItem(열쇠()!)!) as Record<string, unknown>;
+/*
+ * 두 열쇠를 이름으로 못 박는다.
+ *
+ * 예전에는 저장소.key(0) 으로 '유일한 열쇠' 를 집었는데, 자리가 둘이 되면서
+ * 그 방식이 무엇을 집는지 알 수 없게 됐다. 이름을 적어 두면 판 번호를 올릴 때
+ * 여기가 먼저 깨져서, 옛 값을 어떻게 할지 정하고 가게 된다.
+ */
+const 이번열쇠 = "kb.session.v3";
+const 오래열쇠 = "kb.sheets.v1";
+const 적힌것 = () => JSON.parse(저장소.getItem(이번열쇠)!) as Record<string, unknown>;
+const 오래적힌것 = () => JSON.parse(오래저장소.getItem(오래열쇠)!) as Record<string, unknown>;
 
 const 주문표 = (id: string): OrderSheet => ({
   id, menuName: "닭강정", place: "음식점",
@@ -105,11 +121,35 @@ describe("남으면 안 되는 것", () => {
    * 남기는가' 를 바꾼 것이니, session.ts 의 설명과 개인정보 화면 문구를
    * 같이 고쳤는지 다시 보라는 뜻이다.
    */
-  it("적어 두는 칸은 정해진 열두 개뿐이다", () => {
+  it("이번 방문 자리에 적는 칸은 정해진 열 개뿐이다", () => {
     이어쓰기.쓰기(채운값());
     expect(Object.keys(적힌것()).sort()).toEqual(
-      ["a11y", "account", "allergies", "budget", "consent", "fromServer", "name", "planId", "screen", "sheets", "tab", "voiceUsed"],
+      ["a11y", "account", "allergies", "budget", "consent", "name", "planId", "screen", "tab", "voiceUsed"],
     );
+  });
+
+  it("창을 닫아도 남는 자리에는 주문표만 적는다", () => {
+    /*
+     * 여기 칸이 늘어나는 것이 이 변경에서 가장 조심할 일이다. 이번 방문 자리는
+     * 창을 닫으면 사라지니 잘못 적어도 곧 없어지지만, 이 자리는 사용자가 직접
+     * 지울 때까지 남는다 — 동의·계정·계획이 여기로 새면 그 값들이 다음 사람에게
+     * 그대로 이어진다.
+     */
+    이어쓰기.쓰기(채운값());
+    expect(Object.keys(오래적힌것()).sort()).toEqual(["fromServer", "sheets"]);
+  });
+
+  it("동의는 창을 닫으면 사라지는 자리에만 적는다", () => {
+    /*
+     * 앞선 동의가 다음에 그대로 이어지면 그건 동의가 아니다. 개인정보 화면도
+     * "동의는 이번 이용에만 남고, 창을 닫으면 사라져요" 라고 말하고 있어서,
+     * 여기가 깨지면 그 문장이 거짓이 된다.
+     */
+    이어쓰기.쓰기(채운값({ consent: true }));
+    expect(오래저장소.getItem(오래열쇠)).not.toContain("consent");
+    // 창을 닫는 것은 sessionStorage 만 비는 것과 같다.
+    저장소.clear();
+    expect(이어쓰기.읽기()!.consent).toBe(false);
   });
 
   it("말로 채웠다는 사실은 새로고침을 넘어 남는다", () => {
@@ -189,6 +229,35 @@ describe("손댄 값을 믿지 않는다", () => {
     expect(이어쓰기.읽기()).toBeNull();
     // 안 지우면 새로고침할 때마다 같은 자리에서 또 걸린다.
     expect(저장소.getItem("kb.session.v3")).toBeNull();
+  });
+
+  it("이번 방문 자리만 깨져도 주문표는 지킨다", () => {
+    /*
+     * 저장소가 하나일 때는 한쪽이 깨지면 다 버려도 됐다. 나누고 나서는
+     * **이 변경이 지키려던 주문표를 잃는 길**이 된다 — 판 번호를 올리거나
+     * 누가 개발자 도구로 한 줄 건드리면, 사용자가 지운 적도 없이 사라진다.
+     */
+    오래저장소.setItem(오래열쇠, JSON.stringify({ sheets: [주문표("a")], fromServer: [] }));
+    저장소.setItem(이번열쇠, "{이건 JSON 이 아니다");
+
+    const v = 이어쓰기.읽기()!;
+    expect(v.sheets.map((p) => p.id)).toEqual(["a"]);
+    // 깨진 자리는 지운다. 안 지우면 새로고침마다 같은 데서 또 걸린다.
+    expect(저장소.getItem(이번열쇠)).toBeNull();
+    // 멀쩡한 자리는 안 건드린다.
+    expect(오래저장소.getItem(오래열쇠)).not.toBeNull();
+  });
+
+  it("주문표 자리만 깨지면 나머지는 이어 쓴다", () => {
+    // 반대 방향도 같다. 주문표를 잃더라도 이름·도움 설정까지 날릴 이유는 없다.
+    저장소.setItem(이번열쇠, JSON.stringify(채운값({ sheets: [], fromServer: [] })));
+    오래저장소.setItem(오래열쇠, "{이것도 JSON 이 아니다");
+
+    const v = 이어쓰기.읽기()!;
+    expect(v.name).toBe("예나");
+    expect(v.sheets).toEqual([]);
+    expect(오래저장소.getItem(오래열쇠)).toBeNull();
+    expect(저장소.getItem(이번열쇠)).not.toBeNull();
   });
 
   it("주문표 한 장이라도 모양이 다르면 통째로 버린다", () => {
@@ -367,8 +436,9 @@ describe("남길 것이 없으면 아무것도 안 쓴다", () => {
 });
 
 describe("저장소를 못 쓰는 곳에서도 앱이 멈추지 않는다", () => {
-  it("sessionStorage 가 아예 없어도 던지지 않는다", () => {
-    끼우기(undefined);
+  it("저장소가 아예 없어도 던지지 않는다", () => {
+    끼우기("sessionStorage", undefined);
+    끼우기("localStorage", undefined);
     expect(() => 이어쓰기.쓰기(채운값())).not.toThrow();
     expect(() => 이어쓰기.비우기()).not.toThrow();
     expect(이어쓰기.읽기()).toBeNull();
@@ -377,9 +447,11 @@ describe("저장소를 못 쓰는 곳에서도 앱이 멈추지 않는다", () =
   it("쓰기가 막혀도 던지지 않는다", () => {
     // 사생활 모드나 저장 공간이 꽉 찬 경우다. 이어 쓰기는 편의지
     // 이 앱이 하는 일이 아니라서, 안 되면 그냥 메모리로만 간다.
-    저장소.터뜨릴까 = true;
-    // probe 는 통과시킨다. 안 그러면 위의 '저장소가 아예 없는' 시험과 같은 길을 간다.
-    저장소.터뜨릴길이 = 8;
+    for (const s of [저장소, 오래저장소]) {
+      s.터뜨릴까 = true;
+      // probe 는 통과시킨다. 안 그러면 위의 '저장소가 아예 없는' 시험과 같은 길을 간다.
+      s.터뜨릴길이 = 8;
+    }
     expect(() => 이어쓰기.쓰기(채운값())).not.toThrow();
     expect(이어쓰기.읽기()).toBeNull();
   });
@@ -409,12 +481,16 @@ describe("이번만 쓰기 — 임시 주문표는 안 남는다", () => {
      * 칸을 하나라도 남겨 두면 계정·호칭 때문에 그냥 적히고 이 길을 안 지나간다.
      */
     이어쓰기.쓰기(채운값());
-    expect(globalThis.sessionStorage?.getItem("kb.session.v3")).not.toBeNull();
+    expect(저장소.getItem(이번열쇠)).not.toBeNull();
+    expect(오래저장소.getItem(오래열쇠)).not.toBeNull();
     이어쓰기.쓰기(채운값({
       sheets: [주문표("b", true)], name: "", account: null, fromServer: [],
       consent: false, a11y: { ...기본도움설정 },
     }));
-    expect(globalThis.sessionStorage?.getItem("kb.session.v3")).toBeNull();
+    // 두 자리 다 비어야 한다. 한쪽만 지우면 '지웠어요' 를 본 사람의 주문표가
+    // 다음에 창을 열었을 때 되살아난다.
+    expect(저장소.getItem(이번열쇠)).toBeNull();
+    expect(오래저장소.getItem(오래열쇠)).toBeNull();
     expect(이어쓰기.읽기()).toBeNull();
   });
 
@@ -425,9 +501,81 @@ describe("이번만 쓰기 — 임시 주문표는 안 남는다", () => {
      */
     이어쓰기.비우기();
     이어쓰기.쓰기(채운값({ sheets: [주문표("a")] }));
-    const 적힌것 = globalThis.sessionStorage?.getItem("kb.session.v3");
+    const 적힌것 = 오래저장소.getItem(오래열쇠);
     expect(적힌것).not.toBeNull();
     expect(적힌것).toContain("\"a\"");
+    // 주문표가 두 자리에 다 적히면 다음에 열었을 때 어느 쪽이 맞는지 알 수 없다.
+    expect(저장소.getItem(이번열쇠)).not.toContain("\"a\"");
+  });
+});
+
+describe("주문표는 창을 닫아도 남는다", () => {
+  /** 창을 닫는 것은 sessionStorage 만 비는 것과 같다. localStorage 는 그대로다. */
+  const 창닫기 = () => 저장소.clear();
+
+  it("이번 방문 자리가 비어도 주문표는 그대로다", () => {
+    이어쓰기.쓰기(채운값({ account: null, fromServer: [], sheets: [주문표("a"), 주문표("b")] }));
+    창닫기();
+    const v = 이어쓰기.읽기()!;
+    expect(v.sheets.map((p) => p.id)).toEqual(["a", "b"]);
+    /*
+     * 남는 것은 주문표뿐이다. 나머지는 처음 온 사람과 같아야 한다 —
+     * 특히 동의가 남으면 개인정보 화면의 "창을 닫으면 사라져요" 가 거짓이 된다.
+     */
+    expect(v.consent).toBe(false);
+    expect(v.account).toBeNull();
+    expect(v.name).toBe("");
+    expect(v.screen).toBe("welcome");
+  });
+
+  it("옛 자리에 있던 주문표를 한 번 옮기고 옛 자리를 비운다", () => {
+    /*
+     * 이 변경 전에 쓰던 사람의 주문표는 sessionStorage 에 들어 있다. 새 자리만
+     * 보면 그 사람들은 만들어 둔 것을 통째로 잃는다 — 주문표를 지키려고 하는
+     * 변경이 그 김에 주문표를 버리면 앞뒤가 안 맞는다.
+     */
+    저장소.setItem(이번열쇠, JSON.stringify(채운값({ sheets: [주문표("a")], fromServer: [] })));
+    expect(이어쓰기.읽기()!.sheets.map((p) => p.id)).toEqual(["a"]);
+    expect(오래적힌것().sheets).toHaveLength(1);
+    // 옛 자리에는 안 남는다. 남으면 두 벌이 되어 어느 쪽이 맞는지 알 수 없다.
+    expect(적힌것()).not.toHaveProperty("sheets");
+  });
+
+  it("옮기고 나면 옛 자리를 다시 보지 않는다", () => {
+    // 새 자리가 비어 있을 때만 옛 자리를 본다. 매번 보면, 지운 주문표가 옛
+    // 자리에 남아 있다가 되살아난다.
+    이어쓰기.쓰기(채운값({ sheets: [주문표("a")], fromServer: [] }));
+    저장소.setItem(이번열쇠, JSON.stringify({ ...적힌것(), sheets: [주문표("좀비")] }));
+    expect(이어쓰기.읽기()!.sheets.map((p) => p.id)).toEqual(["a"]);
+  });
+
+  it("로그아웃 상태에서는 서버에서 받아 온 주문표를 보여 주지 않는다", () => {
+    /*
+     * 주문표는 창을 닫아도 남지만 로그인은 안 남는다. 그대로 두면 다음에 이
+     * 기기를 열었을 때 로그아웃된 화면에 서버 계정의 주문표가 그대로 보인다.
+     * 잃는 것은 없다 — 서버에 있으니 다시 로그인하면 다시 온다.
+     */
+    이어쓰기.쓰기(채운값({ sheets: [주문표("내것"), 주문표("서버것")], fromServer: ["서버것"] }));
+    창닫기();
+    const v = 이어쓰기.읽기()!;
+    expect(v.sheets.map((p) => p.id)).toEqual(["내것"]);
+    expect(v.fromServer).toEqual([]);
+  });
+
+  it("로그인이 살아 있으면 서버에서 받아 온 주문표도 그대로 있다", () => {
+    // 위 시험이 '언제나 뺀다' 로 헛통과하지 않도록 지킨다.
+    이어쓰기.쓰기(채운값({ sheets: [주문표("내것"), 주문표("서버것")], fromServer: ["서버것"] }));
+    const v = 이어쓰기.읽기()!;
+    expect(v.sheets.map((p) => p.id)).toEqual(["내것", "서버것"]);
+    expect(v.fromServer).toEqual(["서버것"]);
+  });
+
+  it("정보 지우기는 두 자리를 다 지운다", () => {
+    이어쓰기.쓰기(채운값());
+    이어쓰기.비우기();
+    expect(저장소.length).toBe(0);
+    expect(오래저장소.length).toBe(0);
+    expect(이어쓰기.읽기()).toBeNull();
   });
 });
 

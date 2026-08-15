@@ -31,7 +31,29 @@ jobs:
             tr -d '\r' > ~/.ssh/kiobridge.pem
           chmod 600 ~/.ssh/kiobridge.pem
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-
+      - name: Sync OpenAI key
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY 시크릿이 비어 있습니다 — 음성 인식만 꺼진 채로 배포합니다."
+            exit 0
+          fi
+          printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" |
+            ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/kiobridge.pem \
+              "$EC2_USER@$EC2_HOST" "
+                set -e
+                umask 077
+                f=/home/ec2-user/apps/kiobridge-config/backend.env
+                t=\$(mktemp \${f}.XXXXXX)
+                grep -v '^OPENAI_API_KEY=' \$f > \$t 2>/dev/null || true
+                cat >> \$t
+                mv \$t \$f
+                chmod 600 \$f
+                grep -c '^OPENAI_API_KEY=' \$f || true
+              "
       - name: Deploy backend
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -52,7 +74,25 @@ jobs:
 
               docker network inspect kiobridge-network >/dev/null 2>&1 ||
                 docker network create kiobridge-network
-  
+
+              # 빌드 전에 안 쓰는 이미지를 정리한다.
+              #
+              # 배포마다 kiobridge-backend:<커밋SHA> 이미지가 새로 하나 생기는데,
+              # 아래에서 지우는 것은 컨테이너뿐이고 이미지는 아무도 안 지웠다.
+              # 그래서 배포를 거듭할수록 쌓이다가 2026-08-14 배포가 디스크를 다 쓰고
+              # 죽었다 - Gradle 을 푸는 중에 "No space left on device" 였다.
+              #
+              # 지금 돌고 있는 컨테이너가 참조하는 이미지는 prune 대상이 아니다.
+              # 그래서 이 정리는 서비스를 건드리지 않는다. 빌드가 실패해도 옛
+              # 컨테이너는 그대로 돈다 - 이번에 실제로 그랬다.
+              #
+              # 실패해도 넘어간다. 정리가 안 되는 것보다 빌드를 시도라도 하는 편이
+              # 낫고, 정말 공간이 없으면 어차피 아래 build 에서 같은 자리에 걸린다.
+              echo '--- 정리 전 ---'; df -h / | tail -1
+              docker image prune -af || true
+              docker builder prune -af || true
+              echo '--- 정리 후 ---'; df -h / | tail -1
+
               docker build \
                 -t kiobridge-backend:$GITHUB_SHA \
                 ./backend

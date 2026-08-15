@@ -31,6 +31,7 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'com.fasterxml.jackson.core:jackson-databind'
 	testImplementation 'org.springframework.boot:spring-boot-starter-websocket-test'
 	runtimeOnly 'org.postgresql:postgresql'
 	testCompileOnly 'org.projectlombok:lombok'
@@ -47,6 +48,16 @@ test {
 	useJUnitPlatform {
 		excludeTags 'external'
 	}
+}
+
+tasks.register('externalTest', Test) {
+	useJUnitPlatform {
+		includeTags 'external'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	group = 'verification'
+	description = 'Runs tests tagged @external (requires OPENAI_API_KEY, local PostgreSQL)'
 }
 
 tasks.named('bootJar') {
