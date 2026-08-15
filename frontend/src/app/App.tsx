@@ -1876,10 +1876,12 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
  * 채우는 값은 터치와 완전히 같다(한칸씩말하기 → selections). 메뉴 이름만
  * 손으로 적는다 — 자유 발화를 저장하지 않는 규칙은 여기서도 그대로다.
  */
-function VoiceSheetScreen({ 언어, onNext, onBack }: {
+function VoiceSheetScreen({ 언어, onNext, onBack, 주문할수있나 = false }: {
   언어: string;
-  onNext: (p: OrderSheet) => void;
+  onNext: (p: OrderSheet, 이어서주문할까?: boolean) => void;
   onBack: () => void;
+  /** 지금 키오스크에 붙어 있는가. 뜻은 OrderSheetScreen 의 같은 이름 주석에 있다. */
+  주문할수있나?: boolean;
 }) {
   const place: PlaceType = "음식점";
   const [selections, setSelections] = useState<Record<string, string[]>>({});
@@ -1894,14 +1896,18 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const 형태만빠짐 = 빠진것.length === 1 && 빠진것[0] === "형태";
   const 접근성값 = 접근성설정.읽기();
   const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
-  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+  // 어느 단추로 왔는지. 뜻은 OrderSheetScreen 의 같은 이름 주석에 있다.
+  const 시작까지갈까 = useRef(false);
+  const 못저장하는가 = 개인정보같은글(menuName) || (빠진것.length > 0 && !순살제안대상);
+
+  const 저장하기 = (형태값?: "순살" | "상관없음", 이어서주문할까 = false) => {
     // OrderSheetScreen 의 저장하기와 같은 규칙 — 답한 형태만 얹고 나머지는 그대로 둔다.
     const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
     onNext({
       id: newSheetId(),
       menuName: menuName.trim() || "이름 없는 주문표",
       place, selections: 최종선택, memo: "",
-    });
+    }, 이어서주문할까);
   };
 
   /*
@@ -1939,7 +1945,13 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
     if (!소리로주고받나() || !마지막을말로채웠나.current) return;
     if (빠진것.length > 0 || 개인정보같은글(menuName)) return;
     이미저장했나.current = true;
-    저장하기();
+    /*
+     * 손으로 눌렀다면 어느 단추를 눌렀을 자리인가 — 그것과 같이 간다.
+     *
+     * 키오스크에 붙어 있으면 '시작하기'(저장까지 겸한다), 아니면 '저장하기'.
+     * 붙어 있지도 않은데 주문으로 밀면 갈 곳이 없다.
+     */
+    저장하기(undefined, 주문할수있나);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selections, menuName]);
   return (
@@ -2016,19 +2028,42 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
             {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", { 빠진것: 빠진것.map(t).join(", ") })}
           </p>
         )}
-        <PrimaryBtn
-          onClick={() => {
-            if (순살제안대상) { set순살배너(true); return; }
-            저장하기();
-          }}
-          disabled={개인정보같은글(menuName) || (빠진것.length > 0 && !순살제안대상)}
-        >
-          저장하고 시작하기
-        </PrimaryBtn>
+        {!주문할수있나 && !(빠진것.length > 0 && !순살제안대상) && (
+          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+            QR을 찍으면 저장과 함께 바로 시작할 수 있어요
+          </p>
+        )}
+        {/* 저장과 시작을 가른 이유는 OrderSheetScreen 의 같은 자리 주석에 있다. */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <OutlineBtn
+              onClick={() => {
+                시작까지갈까.current = false;
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기();
+              }}
+              disabled={못저장하는가}
+            >
+              저장하기
+            </OutlineBtn>
+          </div>
+          <div style={{ flex: 1 }}>
+            <PrimaryBtn
+              onClick={() => {
+                시작까지갈까.current = true;
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기(undefined, true);
+              }}
+              disabled={못저장하는가 || !주문할수있나}
+            >
+              시작하기
+            </PrimaryBtn>
+          </div>
+        </div>
       </StickyFooter>
       {순살배너 && (
         <순살제안시트
-          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값, 시작까지갈까.current); }}
           onCancel={() => set순살배너(false)}
         />
       )}
@@ -2067,9 +2102,16 @@ function SaveChoiceScreen({ 이름, onChoose, onBack }: {
   );
 }
 
-function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null }: {
-  onNext: (p: OrderSheet) => void;
+function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예산, 영어인가, 고칠것 = null, 주문할수있나 = false }: {
+  onNext: (p: OrderSheet, 이어서주문할까?: boolean) => void;
   onBack: () => void;
+  /**
+   * 지금 키오스크에 붙어 있는가(QR 을 찍었고 연결이 살아 있는가).
+   *
+   * 이 값이 '시작하기' 를 열고 닫는다. 안 붙어 있으면 저장까지만 할 수 있다 —
+   * 붙은 키오스크가 없으면 시작할 자리가 없고, 눌러 봐야 갈 곳이 없는 단추다.
+   */
+  주문할수있나?: boolean;
   /**
    * 고치러 들어온 주문표. null 이면 새로 만드는 것이다.
    *
@@ -2130,7 +2172,28 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   const 접근성값 = 접근성설정.읽기();
   const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
 
-  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+  /*
+   * 저장 자체가 막히는 조건. 두 단추가 같이 본다 — '시작하기' 는 저장을 겸하므로
+   * 저장이 막히는 자리에서는 시작도 막힌다.
+   */
+  const 못저장하는가 =
+    개인정보같은글(memo) || 개인정보같은글(menuName) || (빠진축.length > 0 && !순살제안대상);
+
+  /*
+   * 저장한다. 이어서 주문까지 갈지는 어느 단추로 왔느냐가 정한다.
+   *
+   * '시작하기' 는 저장을 겸한다 — 저장해 두지 않은 주문표로는 주문할 수 없고,
+   * 저장을 따로 누르게 하면 시작하려던 사람이 두 번 누른다.
+   */
+  /*
+   * 순살 제안 시트를 거쳐 갈 때, 어느 단추로 왔는지를 들고 간다.
+   *
+   * 시트가 뜨면 저장이 한 박자 미뤄진다. 그 사이에 '저장하기' 로 왔는지
+   * '시작하기' 로 왔는지를 잊으면, 시작하려던 사람이 목록으로 떨어진다.
+   */
+  const 시작까지갈까 = useRef(false);
+
+  const 저장하기 = (형태값?: "순살" | "상관없음", 이어서주문할까 = false) => {
     // 답한 형태만 얹는다 — 나머지 selections 는 그대로다(사용자 요청: 기존
     // 선호는 건드리지 않고 형태만 추가로 채워서 보낸다).
     const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
@@ -2138,7 +2201,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
       id: 고칠것?.id ?? newSheetId(),
       menuName: menuName.trim() || "이름 없는 주문표",
       place, selections: 최종선택, memo,
-    });
+    }, 이어서주문할까);
   };
 
   const toggleChip = (sectionLabel: string, choice: string, multi: boolean) => {
@@ -2336,38 +2399,80 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
             })}
           </p>
         )}
-        <PrimaryBtn
-          /*
-           * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
-           * 하나가 더 생기고, 서버에 올라간 주문표는 옛것이 그대로 남는다.
-           *
-           * 새로 만들 때만 id 를 짓는다. Date.now() 만 쓰면 같은 밀리초에 두 개를
-           * 만들 때 겹치고, 겹치면 하나를 지울 때 다른 하나도 같이 사라진다.
-           */
-          /*
-           * 이름을 안 적어도 저장한다.
-           *
-           * 예전에는 이름이 있어야만 저장할 수 있었다. 그런데 이름은 이 주문표를
-           * 나중에 알아보려고 붙이는 이름표일 뿐이고, 주문을 만드는 데 필요한 것은
-           * 장소와 고른 값들이다. 말로 채우고 바로 쓰려는 사람에게 이름부터
-           * 적으라고 막을 이유가 없다.
-           *
-           * 비워 두면 목록에서 '이름 없는 주문표' 로 보인다 — 빈 줄로 두면 무엇이
-           * 저장됐는지 알 수 없다.
-           */
-          onClick={() => {
-            // 형태만 비어 있고 접근성 신호가 있으면, 곧장 저장하는 대신 먼저 묻는다.
-            if (순살제안대상) { set순살배너(true); return; }
-            저장하기();
-          }}
-          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || (빠진축.length > 0 && !순살제안대상)}
-        >
-          {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
-        </PrimaryBtn>
+        {/*
+          붙은 키오스크가 없으면 '시작하기' 는 못 누른다. 왜 못 누르는지 말해 준다 —
+          회색이 된 단추만 두면 사용자는 자기가 무엇을 덜 채웠는지 찾아 헤맨다.
+        */}
+        {!주문할수있나 && !(빠진축.length > 0 && !순살제안대상) && (
+          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+            QR을 찍으면 저장과 함께 바로 시작할 수 있어요
+          </p>
+        )}
+        {/*
+          저장과 시작을 갈랐다.
+          ─────────────────────────────────────────────────────────────────────
+          예전에는 "저장하고 시작하기" 한 단추였는데, 이름과 하는 일이 어긋나
+          있었다 — 눌러도 저장만 되고 목록에 내려놓았다. 시작은 QR 을 찍은
+          사람에게만 목록에서 열렸다. 그래서 이름대로 갈라 놓는다.
+
+          '저장하기' 는 늘 누를 수 있다. 키오스크 앞이 아니어도 미리 만들어
+          두는 것이 이 앱이 하는 일이다.
+
+          '시작하기' 는 붙어 있을 때만. 그리고 그 한 번에 저장까지 한다 —
+          저장 안 된 주문표로는 주문할 수 없으니, 따로 누르게 하면 시작하려던
+          사람이 두 번 누른다.
+
+          고치는 중이면 '고친 내용 저장하기' 로 이름만 바뀐다. 하는 일은 같다.
+        */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <OutlineBtn
+              /*
+               * 고치는 중이면 **같은 id 로** 돌려준다. 새 id 를 주면 고친 것이 아니라
+               * 하나가 더 생기고, 서버에 올라간 주문표는 옛것이 그대로 남는다.
+               *
+               * 새로 만들 때만 id 를 짓는다. Date.now() 만 쓰면 같은 밀리초에 두 개를
+               * 만들 때 겹치고, 겹치면 하나를 지울 때 다른 하나도 같이 사라진다.
+               */
+              /*
+               * 이름을 안 적어도 저장한다.
+               *
+               * 예전에는 이름이 있어야만 저장할 수 있었다. 그런데 이름은 이 주문표를
+               * 나중에 알아보려고 붙이는 이름표일 뿐이고, 주문을 만드는 데 필요한 것은
+               * 장소와 고른 값들이다. 말로 채우고 바로 쓰려는 사람에게 이름부터
+               * 적으라고 막을 이유가 없다.
+               *
+               * 비워 두면 목록에서 '이름 없는 주문표' 로 보인다 — 빈 줄로 두면 무엇이
+               * 저장됐는지 알 수 없다.
+               */
+              onClick={() => {
+                시작까지갈까.current = false;
+                // 형태만 비어 있고 접근성 신호가 있으면, 곧장 저장하는 대신 먼저 묻는다.
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기();
+              }}
+              disabled={못저장하는가}
+            >
+              {고칠것 ? "고친 내용 저장하기" : "저장하기"}
+            </OutlineBtn>
+          </div>
+          <div style={{ flex: 1 }}>
+            <PrimaryBtn
+              onClick={() => {
+                시작까지갈까.current = true;
+                if (순살제안대상) { set순살배너(true); return; }
+                저장하기(undefined, true);
+              }}
+              disabled={못저장하는가 || !주문할수있나}
+            >
+              시작하기
+            </PrimaryBtn>
+          </div>
+        </div>
       </StickyFooter>
       {순살배너 && (
         <순살제안시트
-          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값, 시작까지갈까.current); }}
           onCancel={() => set순살배너(false)}
         />
       )}
@@ -6285,6 +6390,8 @@ export default function App() {
    */
   /** 물어보는 동안 들고 있을 주문표. 답을 들은 뒤에 목록에 넣는다. */
   const [물어볼주문표, set물어볼주문표] = useState<OrderSheet | null>(null);
+  /** 남길지 물어본 뒤에 곧장 주문으로 갈 것인가 — '시작하기' 로 왔을 때만 참. */
+  const [물어본뒤주문할까, set물어본뒤주문할까] = useState(false);
 
   /**
    * 주문표를 목록에 넣고 이어서 간다.
@@ -6293,7 +6400,7 @@ export default function App() {
    * 안 묻는다 — 자기 계정에 저장하는 것이 이미 뜻이 통하고, 지우고 싶으면
    * 목록에서 지우면 된다.
    */
-  const 주문표넣기 = (p: OrderSheet): void => {
+  const 주문표넣기 = (p: OrderSheet, 이어서주문할까 = false): void => {
     /*
      * 고친 것이면 그 자리에 덮고, **새것이면 맨 앞에** 붙인다.
      *
@@ -6313,8 +6420,24 @@ export default function App() {
       : [p, ...prev]);
     registerSheet(p);
     set고칠주문표(null);
-    setScreen("saved");
-    setTab("menu");
+    /*
+     * '시작하기' 로 왔으면 목록을 거치지 않고 곧장 주문 확인으로 간다.
+     *
+     * 저장과 시작을 한 단추로 묶어 달라는 것이라, 저장한 뒤 목록에 내려놓고
+     * 거기서 다시 그 주문표를 찾아 누르게 하면 묶은 뜻이 없다. 화면을 못 보는
+     * 분에게는 그 사이에 목록 전체가 한 번 읽힌다.
+     *
+     * 여기까지 오는 길이 둘이라(로그인한 사람은 곧장, 아니면 남길지 물어본 뒤)
+     * 그 뜻을 인자로 들고 온다 — 여기서 상태를 읽으면 방금 세운 값이 아직 안
+     * 보인다.
+     */
+    if (이어서주문할까) {
+      setOrderSheet(p);
+      setScreen("order-confirm");
+    } else {
+      setScreen("saved");
+      setTab("menu");
+    }
     // 못올리는이유() 는 이유 문자열이거나 null 이다. null 일 때만 올린다.
     // 임시 주문표는 안 올린다 — 이 기기에도 안 남기겠다고 한 것을 서버에 두면
     // 그 선택이 거짓이 된다.
@@ -6330,10 +6453,13 @@ export default function App() {
    * 고치는 중일 때는 안 묻는다. 이미 목록에 있는 것을 고치는 길이라, 여기서 '이번만
    * 쓰기' 를 고르면 있던 주문표가 조용히 사라지는 것처럼 보인다.
    */
-  const 주문표저장 = (p: OrderSheet): void => {
+  const 주문표저장 = (p: OrderSheet, 이어서주문할까 = false): void => {
     const 있던것 = sheets.find((있던) => 있던.id === p.id);
     if (guest && !있던것) {
       set물어볼주문표(p);
+      // 남길지 물어보고 오느라 한 화면 들렀다 온다. 그 뒤에 주문으로 갈 것인지를
+      // 여기서 적어 둔다 — 안 적으면 물어본 뒤에는 그 뜻이 남아 있지 않다.
+      set물어본뒤주문할까(이어서주문할까);
       setScreen("save-choice");
       return;
     }
@@ -6952,12 +7078,18 @@ export default function App() {
             <SaveChoiceScreen
               이름={물어볼주문표.menuName}
               onChoose={(남길까) => {
-                주문표넣기(남길까 ? 물어볼주문표 : { ...물어볼주문표, 임시: true });
+                주문표넣기(남길까 ? 물어볼주문표 : { ...물어볼주문표, 임시: true }, 물어본뒤주문할까);
                 set물어볼주문표(null);
+                set물어본뒤주문할까(false);
               }}
               // 뒤로 가면 아무 일도 없었던 것이 되어야 한다. 고치던 내용은 그대로
               // 들고 주문표 화면으로 돌아간다.
-              onBack={() => { set고칠주문표(물어볼주문표); set물어볼주문표(null); setScreen("sheet"); }}
+              onBack={() => {
+                set고칠주문표(물어볼주문표);
+                set물어볼주문표(null);
+                set물어본뒤주문할까(false);
+                setScreen("sheet");
+              }}
             />
           )}
           {screen === "sheet" && (
@@ -6968,6 +7100,13 @@ export default function App() {
               로그인함={!guest}
               고칠것={고칠주문표}
               onNext={주문표저장}
+              /*
+               * '시작하기' 는 붙어 있을 때만 열린다.
+               *
+               * fromQr 만 보면 모자란다 — 주문 확인 화면은 pairingId 가 있어야
+               * 그려진다. 둘 다 봐야 눌렀는데 빈 화면이 뜨는 일이 없다.
+               */
+              주문할수있나={fromQr && !!pairingId}
               onBack={() => { set고칠주문표(null); setScreen("saved"); }}
               예산={예산}
               on예산={(원) => 가격한도.바꾸기(원)}
@@ -6995,6 +7134,7 @@ export default function App() {
               언어={접근성값.language === "en-US" ? "en-US" : "ko-KR"}
               onNext={주문표저장}
               onBack={() => setScreen("saved")}
+              주문할수있나={fromQr && !!pairingId}
             />
           )}
           {inMain && tab === "menu" && (

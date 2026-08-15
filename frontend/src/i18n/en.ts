@@ -364,7 +364,17 @@ export const EN: Record<string, string> = {
   "메모": "Note",
   "필수": "Required",
   "선택": "Optional",
-  "저장하고 시작하기": "Save and start",
+  /*
+   * 주문표 화면의 두 단추. 예전에는 "저장하고 시작하기" 한 단추였는데, 이름과
+   * 하는 일이 어긋나 있어서(눌러도 저장만 됐다) 이름대로 갈랐다.
+   *
+   * '시작하기' 는 붙어 있을 때만 열리고, 그 한 번에 저장까지 한다.
+   */
+  "저장하기": "Save",
+  "시작하기": "Start",
+  // 못 누르는 '시작하기' 옆에 왜 못 누르는지 적는 줄.
+  "QR을 찍으면 저장과 함께 바로 시작할 수 있어요":
+    "Scan the QR code to save and start right away",
   // 저장 화면의 잠금 안내. 모든 축을 골라야 저장이 열린다(catalog.tsx 의 못채운축).
   "아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요":
     "Not chosen yet — {빠진것}. Pick them all to save",
