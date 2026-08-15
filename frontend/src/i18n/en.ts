@@ -52,6 +52,19 @@ export const EN: Record<string, string> = {
   "끝내기": "Done",
   // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
   "앞 질문": "Previous question",
+  /*
+   * 듣는 중 안내 두 줄. 화면에 그대로 박혀 있어서 영어 화면에도 우리말이
+   * 남아 있었다(#145 리뷰). 이어 듣기냐 아니냐로 문장이 갈린다.
+   */
+  "듣고 있어요. 말씀하신 뒤 \"그만 듣기\"를 눌러 주세요.":
+    "Listening. When you're done speaking, press \"Stop listening\".",
+  "듣고 있어요. 말씀이 끝나면 알아서 다음으로 넘어가요.":
+    "Listening. When you stop speaking, we'll move on by ourselves.",
+  // 부르면 시작하는 길(api/wake.ts). 듣고 있다는 것을 화면이 반드시 밝힌다.
+  "부르는 말을 기다리고 있어요. \"키오브릿지\" 라고 말씀하시면 손대지 않고 시작해요.":
+    "Waiting for you to call. Say \"KioBridge\" and we'll start without a tap.",
+  "이제 부르는 말을 듣고 있지 않아요. 아래 \"바로 시작하기\" 를 눌러 주세요.":
+    "We're no longer listening for your call. Please press \"Start now\" below.",
   "여기가 첫 질문이라 더 앞으로는 갈 수 없어요.":
     "This is the first question, so there is nothing before it.",
 

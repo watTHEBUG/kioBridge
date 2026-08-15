@@ -202,18 +202,33 @@ export const 화면글 = (뿌리: HTMLElement, { 바뀌는것빼고 = false } = 
  *
  * 최대 기다릴 시간을 둔다. 읽기가 끝났는데 speaking 이 안 내려가는 브라우저가
  * 있고, 거기서 영원히 멈추면 사용자는 아무 일도 안 일어나는 화면을 본다.
+ *
+ * ── '아직 안 읽음' 과 '다 읽음' 은 겉보기가 같다 ────────────────────────────
+ *
+ * 둘 다 speaking·pending 이 false 다. 그래서 읽기가 걸리기 **전에** 물어보면
+ * 곧바로 "다 읽었다" 고 답해 버린다 — 부르는 쪽은 마이크를 열고, 그 직후 안내
+ * 읽기가 시작됐다가 듣기시작() 의 그만읽기() 에 잘린다. 화면을 못 보는 분은
+ * 무엇을 묻는지 못 들은 채 답해야 한다.
+ *
+ * `시작기다림` 을 주면 그 동안은 접지 않는다. 한 번이라도 읽는 것을 본 뒤에는
+ * 바로 끝난다 — 짧은 안내를 읽는 동안 헛되이 기다리지 않는다.
  */
-export const 다읽을때까지 = (최대 = 8000): Promise<void> =>
+export const 다읽을때까지 = (최대 = 8000, { 시작기다림 = 0 } = {}): Promise<void> =>
   new Promise((끝) => {
     if (!소리를낼수있나()) { 끝(); return; }
     const 시작 = Date.now();
+    let 읽기를봤나 = false;
     let 시계: ReturnType<typeof setInterval>;
     const 보기 = () => {
       let 읽는중 = false;
       try {
         읽는중 = globalThis.speechSynthesis.speaking || globalThis.speechSynthesis.pending;
       } catch { /* 못 물어보면 안 읽는 것으로 본다 */ }
-      if (!읽는중 || Date.now() - 시작 >= 최대) { clearInterval(시계); 끝(); }
+      if (읽는중) 읽기를봤나 = true;
+      const 지난 = Date.now() - 시작;
+      // 아직 시작도 안 했을 수 있다. 시작기다림 이 지나기 전에는 안 접는다.
+      const 접어도되나 = 읽기를봤나 || 지난 >= 시작기다림;
+      if ((!읽는중 && 접어도되나) || 지난 >= 최대) { clearInterval(시계); 끝(); }
     };
     시계 = setInterval(보기, 120);
     보기();
