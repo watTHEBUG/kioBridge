@@ -433,7 +433,12 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
       if (!살아있나 || !되나) return;
       set동의듣기("묻는중");
       듣던것 = 말로예아니오받기(언어, {
-        네라고하면: () => { if (살아있나) on동의(true); },
+        네라고하면: () => {
+          if (!살아있나) return;
+          // 말로 지나온 사람이다. 뒤 화면이 말하기를 먼저 열어 준다(api/inputsource.ts).
+          입력출처.말로들어옴();
+          on동의(true);
+        },
         // 아니라고 하셨다. 다시 묻지 않는다 — 답을 들은 것이지 못 들은 것이 아니다.
         아니라고하면: () => { if (살아있나) set동의듣기("안함"); },
         그만뒀으면: () => { if (살아있나) set동의듣기("그만함"); },
@@ -454,7 +459,11 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
       if (!살아있나 || !되나) return;
       set부르기상태("기다림");
       기다리던것 = 부를때까지기다리기(언어, {
-        들리면: () => { if (살아있나) onStart(); },
+        들리면: () => {
+          if (!살아있나) return;
+          입력출처.말로들어옴();
+          onStart();
+        },
         그만뒀으면: () => { if (살아있나) set부르기상태("그만함"); },
       });
     });
@@ -1310,6 +1319,29 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     이어서.current = false;
     회차.current += 1;
     듣던것.current?.그만두기(false);
+  }, []);
+
+  /*
+   * 말로 들어온 분에게는 **'말하기' 도 안 누르게 한다.**
+   *
+   * 첫 화면을 "네"·"키오브릿지" 로 지나온 사람은 화면을 못 보고 있을 가능성이
+   * 높다. 그런 분에게 첫 칸에서만 단추를 찾아 누르라고 하면, 손을 안 대고
+   * 여기까지 온 것이 문턱 하나에서 막힌다 — 그리고 그 한 번을 못 넘으면
+   * 나머지 이어 듣기도 시작되지 않는다.
+   *
+   * 브라우저가 사람이 누른 자리를 요구하는 문제는 여기서 안 걸린다. 말로
+   * 들어왔다는 것은 이미 마이크가 허락돼 있다는 뜻이다(api/wake.ts 는
+   * 허락된 자리에서만 듣는다).
+   *
+   * 말로 안 들어온 분에게는 아무것도 안 한다 — 눈으로 보고 손으로 고르는
+   * 분의 마이크를 우리가 열지 않는다.
+   */
+  useEffect(() => {
+    if (!입력출처.말로들어온적있나() || !소리로주고받나()) return;
+    이어서.current = true;
+    이어서예약();
+    // 들어올 때 한 번만 연다. 칸이 바뀔 때마다 여는 것은 이어서예약 이 한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /*
@@ -3529,21 +3561,51 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
   const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
   const 듣던것 = useRef<{ 그만두기: (보내기?: boolean) => void } | null>(null);
   const 회차 = useRef(0);
+  /*
+   * 이어 듣기. 한칸씩말하기 와 같은 장치이고 이유도 같다 — 칸마다 두 번씩
+   * 단추를 찾아 누르게 하지 않는다. 자세한 사연은 그쪽 주석에 있다.
+   */
+  const 이어서 = useRef(false);
+  const 잇단실패 = useRef(0);
+  const 살아있나 = useRef(true);
+  const [예약, set예약] = useState(false);
 
   // 화면을 떠나면 듣던 녹음을 버린다 — 한칸씩말하기 의 같은 정리와 같은 이유다.
   useEffect(() => () => {
+    살아있나.current = false;
+    이어서.current = false;
     회차.current += 1;
     듣던것.current?.그만두기(false);
+  }, []);
+
+  /*
+   * 말로 들어온 분에게는 이 화면도 스스로 연다.
+   *
+   * 여기는 도움 설정을 묻는 자리다. 화면을 못 보는 분에게 가장 먼저 필요한
+   * 것을 묻는 화면인데, 그 화면에서 '말로 답할게요' 를 찾아 누르라고 하면
+   * 앞뒤가 맞지 않는다.
+   */
+  useEffect(() => {
+    if (!입력출처.말로들어온적있나() || !소리로주고받나()) return;
+    이어서.current = true;
+    set예약(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!소리로주고받나() || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
 
+  const 이어서예약 = () => {
+    if (!이어서.current) return;
+    set예약(true);
+  };
+
   const 다음으로 = () => {
     set못들음(null);
-    if (마지막인가) { onDone(); return; }
+    if (마지막인가) { 이어서.current = false; onDone(); return; }
     set칸((n) => n + 1);
+    이어서예약();
   };
 
   const 넣기 = (켬: boolean) => {
@@ -3557,6 +3619,8 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
     set못들음(null);
     set상태("듣는중");
     회차.current += 1;
+    // 한 번 누르면 그 뒤로는 이어서 듣는다(한칸씩말하기 와 같다).
+    이어서.current = true;
     시작하기(회차.current);
   };
 
@@ -3565,13 +3629,43 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
       if (내회차 !== 회차.current) return;
       듣던것.current = null;
       set상태("쉬는중");
-      if (!("들은말" in r)) { set못들음(r.못들은이유); return; }
+      if (!("들은말" in r)) {
+        set못들음(r.못들은이유);
+        // 못 들었다 — 한칸씩말하기 와 같은 그물(권한이 막혔으면 바로 접는다).
+        잇단실패.current += 1;
+        if (r.못들은이유 === "권한없음" || 잇단실패.current >= 2) { 이어서.current = false; return; }
+        이어서예약();
+        return;
+      }
+      잇단실패.current = 0;
       // 이 화면은 늘 켬/끔 둘 중 하나다. 목록 매칭이 필요 없어 예아니오() 하나로 끝낸다.
       const 답 = 예아니오(r.들은말, 언어 === "en-US");
-      if (답 === null) { set못들음("못골랐어요"); return; }
+      if (답 === null) { set못들음("못골랐어요"); 이어서예약(); return; }
       넣기(답);
-    });
+    }, { 스스로끝내기: 이어서.current });
   };
+
+  /*
+   * 예약이 걸려 있으면 칸이 새로 그려진 뒤에 듣기를 시작한다.
+   * 여기서 바로 타이머를 걸면 옛 렌더의 지금축으로 듣는다 — 한칸씩말하기 의
+   * 같은 effect 주석에 그 사연이 있다.
+   */
+  useEffect(() => {
+    if (!예약) return;
+    const 내회차 = 회차.current;
+    const 표 = setTimeout(() => {
+      if (!살아있나.current || !이어서.current) return;
+      if (내회차 !== 회차.current) return;
+      void 다읽을때까지(8000, { 시작기다림: 1200 }).then(() => {
+        if (!살아있나.current || !이어서.current) return;
+        if (내회차 !== 회차.current) return;
+        set예약(false);
+        듣기시작();
+      });
+    }, 700);
+    return () => clearTimeout(표);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [예약, 칸]);
 
   // '그만 듣기' 단추 — 지금까지 녹음한 것을 서버로 보내 인식을 끝낸다.
   // 회차를 여기서 올리면 안 된다 — 한칸씩말하기 의 같은 함수 주석에 이유를 적어 뒀다.
@@ -3710,14 +3804,24 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
   진행표시?: boolean;
 }) {
   /*
-   * 말로 답할지 손으로 고를지. 기본은 손으로 고르기다 — 이미 켜져 있던 방식이고,
-   * 말로 채우는 쪽은 이 기기에서 될 때만 문을 보여 준다(들을수있나()).
+   * 말로 답할지 손으로 고를지.
+   *
+   * **말로 들어온 분에게는 처음부터 열어 둔다.** 첫 화면을 "네"·"키오브릿지" 로
+   * 지나온 사람은 화면을 못 보고 있을 가능성이 높다 — 그런 분에게 "말로
+   * 답할게요" 라는 링크를 찾아 누르라고 하면, 손을 안 대고 여기까지 온 것이
+   * 이 화면에서 막힌다.
+   *
+   * 소리 안내가 켜졌는지로 정하지 않는다. 그 스위치는 이제 기본이 켜짐이라
+   * 모든 사람이 참이고, 그걸로 열면 눈으로 보는 분의 마이크까지 열린다.
+   * 실제로 말을 한 사실만 본다(api/inputsource.ts).
    *
    * 도움설정말로채우기 가 끝나면(onDone) 다시 손으로 고르는 목록으로 돌아온다.
    * 여기서 답한 값이 스위치에 그대로 반영돼 있으니, 말로 답한 뒤에도 눈으로
    * 확인하고 손으로 고칠 수 있다 — "음성 없이도 다 된다" 는 같은 원칙이다.
    */
-  const [음성모드, set음성모드] = useState(false);
+  const [음성모드, set음성모드] = useState(
+    () => 입력출처.말로들어온적있나() && 소리로주고받나(),
+  );
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0 flex items-center" style={{ padding: `12px ${GAP.screenX}px 0` }}>
