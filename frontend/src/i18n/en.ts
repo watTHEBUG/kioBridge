@@ -52,6 +52,8 @@ export const EN: Record<string, string> = {
   "끝내기": "Done",
   // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
   "앞 질문": "Previous question",
+  "가입 없이 바로 쓸 수 있고, 입력한 내용은 이번 한 번만 쓰고 지워집니다":
+    "No sign-up needed, and what you enter is used once, then erased",
   // 마이크를 아직 안 물어본 자리 / 막힌 자리. 아무 말 없이 두지 않는다.
   "말로 답하시려면 마이크를 한 번 허락해 주세요. 허락하시면 다음부터는 손대지 않고 시작할 수 있어요.":
     "To answer by voice, allow the microphone once. After that you can start without a tap.",
