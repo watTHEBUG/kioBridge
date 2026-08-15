@@ -1,5 +1,5 @@
 import type { MainTab, OrderSheet, PlaceType, Screen } from "@/domain/types";
-import { 기본도움설정, 아는언어인가, type 도움설정 } from "@/api/a11y";
+import { 기본도움설정, 아는언어인가, 아는선호입력값인가, type 도움설정 } from "@/api/a11y";
 import { 아는알레르기 } from "@/api/allergy";
 import type { Account } from "@/api/account";
 
@@ -277,11 +277,13 @@ const 접근성읽기 = (v: unknown): 도움설정 => {
   const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
   const 값 = { ...기본도움설정 };
   for (const 칸 of Object.keys(기본도움설정) as (keyof 도움설정)[]) {
-    if (칸 !== "language" && typeof o[칸] === "boolean") 값[칸] = o[칸];
+    if (칸 !== "language" && 칸 !== "preferredInputHint" && typeof o[칸] === "boolean") 값[칸] = o[칸];
   }
   // 언어만 boolean 이 아니다. 아는 값일 때만 받는다 — 손대서 아무 문자열이나
   // 넣어 두면 서버의 BCP 47 검사에 걸려 주문 자체가 안 된다.
   if (아는언어인가(o.language)) 값.language = o.language;
+  // preferredInputHint 도 boolean 이 아니다 — 같은 이유로 아는 값일 때만 받는다.
+  if (아는선호입력값인가(o.preferredInputHint)) 값.preferredInputHint = o.preferredInputHint;
   /*
    * 이제 안 묻는 칸은 되살리지 않는다.
    *
