@@ -28,6 +28,11 @@ public class SpicyLevelMatchingService {
         "싫", "말고", "아니", "보다", "이상", "이하"
     );
 
+    // 부정어 — 있으면 "매운맛" 등 단어가 있어도 정반대 의미이므로 임베딩 매칭 전에 걸러낸다
+    private static final Set<String> NEGATION_MARKERS = Set.of(
+        "안 ", "안맵", "않", "말고", "빼고", "no", "not"
+    );
+
     private final EmbeddingService embeddingService;
     private final SpicyLevelAnchorRepository repository;
 
@@ -37,6 +42,13 @@ public class SpicyLevelMatchingService {
     }
 
     public SpicyLevelMatchResult match(String text) {
+        String lower = text.toLowerCase();
+        if (NEGATION_MARKERS.stream().anyMatch(lower::contains)) {
+            List<String> candidates = List.of("MILD", "MEDIUM");
+            String question = buildClarificationQuestion(text, candidates);
+            return new SpicyLevelMatchResult(null, false, Map.of(), candidates, text, question);
+        }
+
         if (matchesKeyword(text, NO_PREFERENCE_PHRASES)) {
             return new SpicyLevelMatchResult(
                 "NO_PREFERENCE", true, Map.of(), List.of("NO_PREFERENCE"), text, null
@@ -90,7 +102,7 @@ public class SpicyLevelMatchingService {
     private String toKorean(String level) {
         return switch (level) {
             case "HOT" -> "매운맛";
-            case "MEDIUM" -> "중간맛";
+            case "MEDIUM" -> "보통맛";
             case "MILD" -> "순한맛";
             case "NO_PREFERENCE" -> "상관없음";
             default -> level;
