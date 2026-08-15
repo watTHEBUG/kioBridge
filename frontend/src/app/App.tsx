@@ -19,7 +19,7 @@ import {
   LOGIN_ID_MAX, PASSWORD_MIN, MENU_NAME_MAX, MEMO_MAX, type Account,
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
-import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
+import { 접근성설정, 언어목록, type 도움설정, type 언어코드, type PreferredInputHint } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
 import { 말에서고르기, 예아니오 } from "@/api/voice";
@@ -982,8 +982,25 @@ function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }: {
 }
 
 /**
- * 형태를 안 고른 채 저장하려는 순간에만 뜬다 — 그림 안내·큰 글씨·고대비 중
- * 하나라도 켜져 있고, 다른 축은 다 골랐는데 형태만 빈 그 경우다.
+ * 형태(뼈/순살) 제안이 필요할 수 있는 접근성 신호 전부.
+ *
+ * 처음엔 시각 신호(visualGuidance·largeText·highContrast)만 봤다 — 그때는 이 앱이
+ * 손 관련 신호를 아예 안 받고 있었다("일단 시각 관련해서만 판단" 결정).
+ *
+ * 이제 mobilitySupport(오래 서 있기 어렵거나 손 조작이 힘들다)와
+ * preferredInputHint(SWITCH·ASSISTED — 스위치 보조기기나 다른 사람의 도움으로
+ * 조작한다)가 생겼다. 뼈를 발라 먹는 건 애초에 손을 정교하게 움직이는 일이라,
+ * 사실 이 손 신호들이 시각 신호보다 더 직접적인 근거다 — 뒤늦게 더한 게 아니라
+ * 원래 있어야 했는데 데이터가 없어서 못 넣었던 것을 이제 채우는 것이다.
+ */
+const 손불편신호있나 = (설정: 도움설정): boolean =>
+  설정.visualGuidance || 설정.largeText || 설정.highContrast
+  || 설정.mobilitySupport
+  || 설정.preferredInputHint === "SWITCH" || 설정.preferredInputHint === "ASSISTED";
+
+/**
+ * 형태를 안 고른 채 저장하려는 순간에만 뜬다 — 위 손불편신호있나 가 참이고,
+ * 다른 축은 다 골랐는데 형태만 빈 그 경우다.
  *
  * 시각 안내가 필요하거나 저시력인 사람에게는 뼈를 발라 먹는 과정 자체가
  * 허들이 될 수 있다. 그렇다고 앱이 짐작으로 순살을 채워 넣지 않는다 —
@@ -1519,8 +1536,7 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const 빠진것 = 못채운축(place, selections);
   const 형태만빠짐 = 빠진것.length === 1 && 빠진것[0] === "형태";
   const 접근성값 = 접근성설정.읽기();
-  const 순살제안대상 =
-    형태만빠짐 && (접근성값.visualGuidance || 접근성값.largeText || 접근성값.highContrast);
+  const 순살제안대상 = 형태만빠짐 && 손불편신호있나(접근성값);
   const 저장하기 = (형태값?: "순살" | "상관없음") => {
     // OrderSheetScreen 의 저장하기와 같은 규칙 — 답한 형태만 얹고 나머지는 그대로 둔다.
     const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
@@ -1699,7 +1715,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   const options = place ? DETAIL_OPTIONS[place] : [];
 
   /*
-   * 형태만 비어 있고, 그림 안내·큰 글씨·고대비 중 하나라도 켜져 있으면
+   * 형태만 비어 있고, 손불편신호있나 가 참이면(시각 신호 또는 손 관련 신호)
    * "저장하고 시작하기" 를 눌렀을 때 곧장 막는 대신 순살 제안 시트를 연다.
    *
    * 형태 칩을 그리는 시점(화면을 여는 순간)이 아니라 저장을 누르는 시점에
@@ -1710,8 +1726,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   const 빠진축 = 못채운축(place, selections);
   const 형태만빠짐 = 빠진축.length === 1 && 빠진축[0] === "형태";
   const 접근성값 = 접근성설정.읽기();
-  const 순살제안대상 =
-    형태만빠짐 && (접근성값.visualGuidance || 접근성값.largeText || 접근성값.highContrast);
+  const 순살제안대상 = 형태만빠짐 && 손불편신호있나(접근성값);
 
   const 저장하기 = (형태값?: "순살" | "상관없음") => {
     // 답한 형태만 얹는다 — 나머지 selections 는 그대로다(사용자 요청: 기존
@@ -3254,6 +3269,58 @@ function 언어고르기({ 고른것, on바꾸기 }: { 고른것: 언어코드; 
   );
 }
 
+/**
+ * 키오스크에서 어떻게 조작하는지, 사용자가 직접 밝히는 자리.
+ *
+ * VOICE/TOUCH 처럼 이 앱에서 감지할 수 있는 값이 아니다 — 스위치 보조기기나
+ * 다른 사람의 도움은 화면 어디에도 감지할 단서가 없다. 그래서 짐작하지 않고
+ * 직접 물어본다("혹시 순살이 편하실까요?" 배너와 같은 원칙 — 추측 대신 확인).
+ *
+ * 셋 중 하나만 고를 수 있다. 스위치로도 쓰고 다른 사람 도움도 받는 경우를 담을
+ * 값이 계약에 따로 없다 — 회의 결과 MULTIMODAL 은 이번엔 안 만들기로 했다.
+ * 하나를 고르면 나머지는 자동으로 꺼진다(언어고르기와 같은 라디오 모양).
+ */
+function 입력도움고르기({ 고른것, on바꾸기 }: {
+  고른것: PreferredInputHint;
+  on바꾸기: (v: PreferredInputHint) => void;
+}) {
+  const 보기: { value: PreferredInputHint; label: string }[] = [
+    { value: "NONE", label: "특별히 없어요" },
+    { value: "SWITCH", label: "보조기기(스위치)를 써요" },
+    { value: "ASSISTED", label: "다른 사람이 도와줘요" },
+  ];
+  return (
+    <div style={{ paddingTop: 16 }}>
+      <span style={{ display: "block", fontSize: 17, fontWeight: 700, color: TEXT_1, letterSpacing: "-0.02em" }}>
+        키오스크에서 어떻게 조작하시나요
+      </span>
+      <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4, marginBottom: 10 }}>
+        키오스크가 미리 준비할 수 있도록 전해 드려요
+      </span>
+      <div className="flex flex-wrap" style={{ gap: 6 }} role="radiogroup" aria-label="키오스크에서 어떻게 조작하시나요">
+        {보기.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={고른것 === value}
+            onClick={() => on바꾸기(value)}
+            style={{
+              minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
+              fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+              backgroundColor: 고른것 === value ? RULE : CANVAS,
+              color: 고른것 === value ? PAPER : TEXT_CHIP,
+              border: "none", cursor: "pointer", transition: "all 0.15s",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 머리카락 굵기 선으로 이어 붙인 스위치 묶음. 두 화면이 같은 모양으로 쓴다. */
 function 도움목록({ 항목들, 설정, onChange }: {
   항목들: 도움항목[];
@@ -3539,15 +3606,20 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
           </>
         )}
         {/*
-          '키오스크에 전해 드려요' 제목은 뺐다. 그 무리(전해드릴것)가 비면서 제목과
-          "지금은 전해 주기만 해요" 안내만 남아 있었다 — 아래에 스위치가 하나도 없는
-          제목은 읽는 사람에게 빈 약속이다. 항목이 다시 생기면 제목도 같이 돌아온다.
+          '키오스크에 전해 드려요' 무리는 한동안 비어 있었다(그림 안내·소리 대신
+          화면이 이번 환경(chicken-store)에서는 안 쓰여서 뺐다). 이제 하나가
+          다시 생겼다 — 조작 방식은 어느 환경에서든 킷이 그대로 쓴다.
 
-          안내 언어도 이 화면에서 뺐다. 첫 화면 맨 아래에서 이미 고르고 들어온다 —
+          안내 언어는 이 화면에서 뺐다. 첫 화면 맨 아래에서 이미 고르고 들어온다 —
           같은 것을 두 화면에서 물으면, 여기서 처음 보는 사람은 아직 안 고른 줄 알고
           한 번 더 고르게 된다. 나중에 바꾸고 싶은 사람은 계정 화면의 '접근성 설정'
           에서 바꾼다(AccessibilityScreen 에는 그대로 있다).
         */}
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24, marginBottom: 2 }}>키오스크에 전해 드려요</h2>
+        <입력도움고르기
+          고른것={설정.preferredInputHint}
+          on바꾸기={(v) => onChange({ preferredInputHint: v })}
+        />
 
         {/*
           알레르기는 '도움 설정' 이 아니라 안전에 관한 값이라 선 아래에 따로 둔다.
@@ -3604,9 +3676,14 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
         <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
 
         {/*
-          '키오스크에 전해 드려요' 제목과 안내는 뺐다(위 설정 화면과 같은 이유).
-          빈 무리 위에 제목만 남아 있었다. 항목이 다시 생기면 같이 돌아온다.
+          '키오스크에 전해 드려요' 무리도 위 설정 화면과 같은 이유로 한동안
+          비어 있었다. 조작 방식(입력도움고르기)이 다시 생겨서 제목도 함께 둔다.
         */}
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24, marginBottom: 2 }}>키오스크에 전해 드려요</h2>
+        <입력도움고르기
+          고른것={설정.preferredInputHint}
+          on바꾸기={(v) => onChange({ preferredInputHint: v })}
+        />
         <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
         {/*
@@ -3619,6 +3696,16 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
           알레르기는 가입할 때, 가격 한도는 주문표를 만들 때 묻는다.
         */}
       </div>
+      {/*
+        스위치는 누르는 즉시 적용된다(SetupScreen 과 같은 원칙) — 이 버튼은 저장을
+        하는 게 아니라 "다 됐다" 는 걸 눈으로 확인시켜 주는 자리다.
+        예전에는 뒤로가기 화살표 하나뿐이었다. 설정을 만지러 들어온 화면에
+        나가는 길이 그 작은 화살표뿐이면, 다 골랐다는 확신 없이 뒤로 가게 된다 —
+        이 화면 자체가 "골랐으면 끝" 이라는 걸 말해 주는 자리가 없었다.
+      */}
+      <StickyFooter>
+        <PrimaryBtn onClick={onBack}>확인</PrimaryBtn>
+      </StickyFooter>
     </div>
   );
 }

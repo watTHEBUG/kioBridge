@@ -66,7 +66,34 @@ export interface 도움설정 extends 접근성 {
    * ko-KR · en-US · zh-CN · vi-VN 넷 다 확인했다 — 전부 status VALID.
    */
   language: 언어코드;
+  /**
+   * 스위치 보조기기나 다른 사람의 도움으로 조작하는지, 사용자가 직접 밝힌 값.
+   *
+   * VOICE/TOUCH 는 이번 이용에서 실제로 그렇게 채웠는지 감지해서 정한다
+   * (api/inputsource.ts). 그런데 이 앱은 스위치 입력도, 다른 사람이 대신
+   * 눌러 주는 것도 구분해서 감지할 방법이 없다 — 그래서 짐작하지 않고
+   * 접근성 화면에서 직접 물어본 값만 쓴다. 서버로는 interaction.preferredInput
+   * 이 "SWITCH"/"ASSISTED" 로 나간다(canonical.ts 의 계산 우선순위 참고).
+   *
+   * accessibility 일곱 칸에는 못 들어간다 — 계약에서 이 값의 제자리는
+   * interaction.preferredInput 이다(PreferredInput.java 에 SWITCH/ASSISTED 있음.
+   * 회의 결과 MULTIMODAL 은 이번엔 안 만든다).
+   */
+  preferredInputHint: PreferredInputHint;
 }
+
+/**
+ * `interaction.preferredInput` 중 사용자가 직접 밝힐 수 있는 값만 골라 둔다.
+ *
+ * "NONE" 은 아무 것도 안 밝힌 상태 — 이때는 VOICE/TOUCH 감지 결과가 그대로
+ * 나간다. TOUCH·VOICE·KEYBOARD·MULTIMODAL 은 여기 없다 — 회의 결과 이번엔
+ * SWITCH·ASSISTED 둘만 만들기로 했다.
+ */
+export type PreferredInputHint = "NONE" | "SWITCH" | "ASSISTED";
+
+/** language 와 같은 이유로 둔다(아는언어인가 주석) — 되살릴 때 아는 값만 받는다. */
+export const 아는선호입력값인가 = (v: unknown): v is PreferredInputHint =>
+  v === "NONE" || v === "SWITCH" || v === "ASSISTED";
 
 /**
  * 고를 수 있는 언어.
@@ -98,7 +125,9 @@ export const 기본접근성: 접근성 = {
   staffAssistancePreferred: false,
 };
 
-export const 기본도움설정: 도움설정 = { ...기본접근성, voiceGuide: false, language: "ko-KR" };
+export const 기본도움설정: 도움설정 = {
+  ...기본접근성, voiceGuide: false, language: "ko-KR", preferredInputHint: "NONE",
+};
 
 let 값: 도움설정 = { ...기본도움설정 };
 const 듣는이 = new Set<() => void>();
