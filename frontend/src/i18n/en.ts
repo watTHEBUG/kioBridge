@@ -372,6 +372,11 @@ export const EN: Record<string, string> = {
    */
   "저장하기": "Save",
   "시작하기": "Start",
+  /*
+   * 후보 줄을 읽어 주는 이름. 순위가 맨 앞이라 셋을 훑을 때 먼저 들린다.
+   * 눈으로는 이름 왼쪽의 숫자 배지가 같은 일을 한다(App.tsx 의 OptionCard).
+   */
+  "추천 {순위}순위, {이름}, {값}": "Recommendation #{순위}, {이름}, {값}",
   // 못 누르는 '시작하기' 옆에 왜 못 누르는지 적는 줄.
   "QR을 찍으면 저장과 함께 바로 시작할 수 있어요":
     "Scan the QR code to save and start right away",

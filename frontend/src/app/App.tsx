@@ -4735,9 +4735,24 @@ function InfoBox({ children, variant = "warn" }: { children: React.ReactNode; va
  * 서로 다른 질문의 선택지가 조용히 한 그룹으로 묶인다.
  */
 function OptionCard({
-  name, price, selected, onClick, groupName, matched,
+  name, price, selected, onClick, groupName, matched, 순위,
 }: {
   name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
+  /**
+   * 추천 순위. 1 부터. 없으면 아무것도 안 그린다.
+   *
+   * 서버가 준 차례가 곧 순위다 — 총점 내림차순으로 정렬해서 내려준다
+   * (백엔드 RecommendationEngineService 의 RANKING_COMPARATOR, 목은 mock.ts 의
+   * 점수순()). 그래서 차례를 그대로 숫자로 옮겨 적는다.
+   *
+   * 여태 이 목록은 셋을 나란히만 두었다. 그러면 무엇이 가장 잘 맞는 것인지
+   * 화면에 없다 — 서버는 알고 있는데 사용자만 모르는 값이었다.
+   *
+   * **색으로만 말하지 않는다.** 1등만 색을 뒤집어 놓으면 화면을 못 보는 분에게는
+   * 순위가 없는 것과 같고, 색을 구분하기 어려운 분에게도 마찬가지다. 숫자를
+   * 적고, 읽어 주는 이름(aria-label)에도 넣는다. 색은 거들기만 한다.
+   */
+  순위?: number;
   /**
    * 저장해 두신 조건과 이 후보가 한 축도 어긋나지 않는가.
    *
@@ -4751,6 +4766,37 @@ function OptionCard({
   const 속: React.ReactNode = (
     <>
       <span className="flex items-center gap-3" style={{ minWidth: 0, flex: 1 }}>
+        {/*
+          순위 숫자. 1 등만 면을 채우고 나머지는 테두리만 둔다 — 셋 다 채우면
+          순위가 아니라 장식이 된다.
+
+          **1 등 배지는 줄 바탕이 무슨 색이든 보여야 한다.** 고른 줄은 검게
+          반전되게 되어 있는데(겉모양), 그 값에 기대어 색을 뒤집으면 반전이
+          안 먹는 자리에서 밝은 배지가 밝은 면에 묻힌다. 그래서 면은 늘 검게
+          두고, 고른 줄에서는 밝은 테두리를 둘러 검은 면에서도 동그라미가
+          떨어져 보이게 한다. 어느 쪽이든 숫자는 읽힌다.
+
+          aria-hidden 인 이유 — 같은 값이 아래 radio 의 aria-label 에 이미
+          들어가 있다. 안 가리면 "1 매운 순살 닭강정 6,000원" 처럼 숫자가 두 번
+          읽힌다.
+        */}
+        {순위 !== undefined && (
+          <span
+            aria-hidden="true"
+            style={{
+              flexShrink: 0, width: 24, height: 24, borderRadius: "50%",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 800, ...NUM,
+              backgroundColor: 순위 === 1 ? RULE : "transparent",
+              color: 순위 === 1 ? PAPER : (selected ? PAPER : TEXT_2),
+              border: 순위 === 1
+                ? (selected ? `1.5px solid ${PAPER}` : "none")
+                : `1.5px solid ${selected ? PAPER : TEXT_2}`,
+            }}
+          >
+            {순위}
+          </span>
+        )}
         {/*
           배지를 이름 옆에 두면 이름이 밀려 두 줄로 접힌다. 메뉴 이름은 이 줄에서
           가장 먼저 읽어야 하는 값이라 한 줄로 세우고, 배지는 아래로 내린다.
@@ -4820,7 +4866,14 @@ function OptionCard({
         onChange={onClick}
         onFocus={() => set포커스(true)}
         onBlur={() => set포커스(false)}
-        aria-label={`${name}, ${price}`}
+        /*
+         * 순위를 읽어 주는 이름 맨 앞에 넣는다. 눈으로는 배지가 그 일을 하는데,
+         * 여기 안 넣으면 화면을 못 보는 분에게는 순위가 아예 없는 값이 된다.
+         *
+         * 맨 앞인 이유 — 셋을 훑을 때 순위가 먼저 들려야 고를 수 있다. 이름과
+         * 값을 다 듣고 나서야 순위가 나오면 셋을 외워 두었다가 견줘야 한다.
+         */
+        aria-label={순위 === undefined ? `${name}, ${price}` : tf("추천 {순위}순위, {이름}, {값}", { 순위, 이름: name, 값: price })}
         style={SR_ONLY}
       />
       {속}
@@ -4921,6 +4974,8 @@ function OrderClarification({
             name={c.displayName}
             price={c.priceText}
             matched={c.unmatchedLabels?.length === 0}
+            // 서버가 준 차례가 곧 순위다 — 자세한 사연은 OptionCard 의 순위 주석에.
+            순위={i + 1}
             onClick={() => setSelected(i)}
           />
           </div>
