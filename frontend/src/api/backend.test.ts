@@ -264,6 +264,41 @@ describe("일회용 연결 (팀 #108)", () => {
       .then(() => null, (err: KioBridgeError) => err);
     expect(e?.code).toBe("CLAIM_EXPIRED");
   });
+
+  it("취소한 뒤 다른 주문표를 고르면 매핑에서 먼저 막는다 (팀 #146)", async () => {
+    /*
+     * 서버는 거절도 승인과 같은 경로로 처리해 pairing 을 폐기한다. 그래서
+     * 취소하고 나온 뒤 다른 주문표로 들어가면 죽은 값으로 bind 를 시도하고,
+     * 서버의 PAIRING_NOT_FOUND 가 "연결 정보를 찾을 수 없습니다" 라는
+     * 개발자 말로 화면에 그대로 떴다.
+     *
+     * 승인 경로에는 이 검사가 있었는데 매핑 경로에는 없었다. 화면은 매핑부터
+     * 부르므로, 정작 사용자가 먼저 닿는 쪽이 안 막혀 있었다.
+     */
+    const api = createApi(가짜백엔드());
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await api.reject({ pairingId: "s1", sheetId: "p1" });
+
+    const e = await api
+      .requestMapping("s1", "p2")
+      .then(() => null, (err: KioBridgeError) => err);
+    expect(e?.code).toBe("CLAIM_EXPIRED");
+    // 되돌릴 수 있는 오류여야 화면이 'QR 다시 찍기' 로 안내한다.
+    expect(e?.recoverable).toBe(true);
+    // 개발자 말이 새어 나가면 안 된다.
+    expect(e?.message).not.toContain("PAIRING_NOT_FOUND");
+    expect(e?.message).toContain("QR");
+  });
+
+  it("취소하지 않았으면 다른 주문표로 계속 갈 수 있다", async () => {
+    // 위 시험이 '언제나 막는다' 로 헛통과하지 않게 지킨다. 연결이 살아 있는
+    // 동안 주문표를 바꿔 보는 것은 정상 흐름이다.
+    const api = createApi(가짜백엔드());
+    await api.claimPairing("kb");
+    await api.requestMapping("s1", "p1");
+    await expect(api.requestMapping("s1", "p2")).resolves.toBeTruthy();
+  });
 });
 
 describe("주문 입력을 pairing 에 고정하지 못하면 승인까지 가지 않는다 (팀 #108)", () => {

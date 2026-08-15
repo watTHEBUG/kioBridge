@@ -50,6 +50,37 @@ export const EN: Record<string, string> = {
   "그만 듣기": "Stop listening",
   "건너뛰기": "Skip",
   "끝내기": "Done",
+  // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
+  "앞 질문": "Previous question",
+  // 마이크를 아직 안 물어본 자리 / 막힌 자리. 아무 말 없이 두지 않는다.
+  "말로 답하시려면 마이크를 한 번 허락해 주세요. 허락하시면 다음부터는 손대지 않고 시작할 수 있어요.":
+    "To answer by voice, allow the microphone once. After that you can start without a tap.",
+  "마이크 허락하기": "Allow microphone",
+  "마이크가 막혀 있어 말로는 답할 수 없어요. 주소창 옆 자물쇠에서 마이크를 허용하시면 됩니다.":
+    "The microphone is blocked, so you cannot answer by voice. Allow it from the lock icon next to the address bar.",
+  /*
+   * 동의를 말로 받는 길(api/wake.ts 의 말로예아니오받기). 체크박스를 못 찾는
+   * 분이 지날 수 있는 유일한 문이라, 이 줄은 소리로도 읽힌다.
+   */
+  "이용에 동의하시겠어요? 동의하시면 \"네\" 라고 말씀해 주세요. 대답은 알아듣기 위해 서버로 한 번 전송됩니다.":
+    "Do you agree to use this service? Say \"yes\" to agree. Your answer is sent once to be recognized.",
+  "잘 못 알아들어서 그만 들을게요. 위 확인란을 눌러 주세요.":
+    "We could not catch that, so we stopped listening. Please tick the box above.",
+  /*
+   * 듣는 중 안내 두 줄. 화면에 그대로 박혀 있어서 영어 화면에도 우리말이
+   * 남아 있었다(#145 리뷰). 이어 듣기냐 아니냐로 문장이 갈린다.
+   */
+  "듣고 있어요. 말씀하신 뒤 \"그만 듣기\"를 눌러 주세요.":
+    "Listening. When you're done speaking, press \"Stop listening\".",
+  "듣고 있어요. 말씀이 끝나면 알아서 다음으로 넘어가요.":
+    "Listening. When you stop speaking, we'll move on by ourselves.",
+  // 부르면 시작하는 길(api/wake.ts). 듣고 있다는 것을 화면이 반드시 밝힌다.
+  "부르는 말을 기다리고 있어요. \"키오브릿지\" 라고 말씀하시면 손대지 않고 시작해요.":
+    "Waiting for you to call. Say \"KioBridge\" and we'll start without a tap.",
+  "이제 부르는 말을 듣고 있지 않아요. 아래 \"바로 시작하기\" 를 눌러 주세요.":
+    "We're no longer listening for your call. Please press \"Start now\" below.",
+  "여기가 첫 질문이라 더 앞으로는 갈 수 없어요.":
+    "This is the first question, so there is nothing before it.",
 
   // 이 기기에 남길지 묻는 화면. 비로그인일 때만 지난다.
   "저장할까요?": "Save this?",
@@ -98,6 +129,17 @@ export const EN: Record<string, string> = {
     "Some of your info needs another look — confidence is low.",
   "지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.":
     "It's a busy hour, so takeout menus you can grab without waiting come first.",
+  /*
+   * 여러 축이 맞았을 때 우리가 한 줄로 합친 문장(i18n/reason.ts 의 이유묶기).
+   * 서버가 주는 말이 아니라 우리가 만든 틀이라 자리표시자가 들어 있다.
+   *
+   * 조사 때문에 열쇠가 둘이다 — "포장하기, 매운맛과" 는 받침이 있어 '과',
+   * "매운맛, 포장하기와" 는 없어서 '와' 다. 영어는 조사가 없어 같은 말이 된다.
+   */
+  "선호하신 {것들}과 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
+  "선호하신 {것들}와 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
   "선호하신 이용 방식과 다릅니다.": "Differs from the service type you chose.",
   "선호하신 맵기와 다릅니다.": "Differs from the spice level you chose.",
   "선호하신 뼈/순살과 다릅니다.": "Differs from the bone type you chose.",

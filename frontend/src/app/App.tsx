@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useId, useMemo } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
@@ -20,9 +20,10 @@ import {
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드, type PreferredInputHint } from "@/api/a11y";
-import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
+import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글, 다읽을때까지 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
-import { 말에서고르기, 예아니오 } from "@/api/voice";
+import { 부를때까지기다리기, 말로예아니오받기, 마이크상태보기, 마이크허락받기, type 마이크상태 } from "@/api/wake";
+import { 말에서고르기, 예아니오, 뒤로가자고했나, 다음가자고했나 } from "@/api/voice";
 import { 맵기물어보기 } from "@/api/spicy";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
@@ -33,7 +34,7 @@ import type { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
 import { t, tf } from "@/i18n/t";
-import { 이유글 } from "@/i18n/reason";
+import { 이유글, 이유묶기 } from "@/i18n/reason";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -371,6 +372,99 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
   언어: 언어코드;
   on언어: (v: 언어코드) => void;
 }) {
+  /*
+   * 부르면 시작한다 — 손을 한 번도 안 대는 길(api/wake.ts).
+   *
+   * ── 언제 켜지나 ───────────────────────────────────────────────────────────
+   *
+   * 셋이 다 맞아야 켠다.
+   *
+   *   ① 소리로 주고받기가 켜져 있다. 이 길을 바라는 사람만 마이크를 연다.
+   *   ② **이미 동의했다.** 동의는 건너뛸 수 없는 관문이라, 부르는 말로 넘어가게
+   *      두면 안 된다. 처음 오신 분은 동의부터 하고, 그 뒤로 이 길이 열린다.
+   *   ③ 브라우저가 **묻지 않고** 마이크를 준다. 아직 안 물어본 자리에서 켜면
+   *      아무것도 안 했는데 권한 창이 뜬다.
+   *
+   * ── 켜졌다는 것을 화면에 밝힌다 ───────────────────────────────────────────
+   *
+   * 듣고 있으면서 말 안 하는 앱을 만들지 않는다. 아래 안내 줄이 그 약속이고,
+   * 소리로도 읽힌다(data-소리조용을 안 붙인다) — 화면을 못 보는 분에게는 그
+   * 줄이 "지금 불러도 된다" 는 유일한 신호다.
+   *
+   * 그만뒀을 때도 말해 준다. 조용히 멈추면 사용자는 아직 듣는 줄 알고 계속
+   * 부른다.
+   */
+  /*
+   * 동의를 말로 받는다.
+   *
+   * 동의는 건너뛸 수 없는 관문인데 그 관문이 체크박스라, 화면을 못 보는 분은
+   * 손을 안 대고는 지날 수 없었다. 부르는 말을 알아듣게 만들어 놓고도 그
+   * 앞에서 막혀 있던 셈이다.
+   *
+   * 물음은 아래에 글로 띄운다. 소리 안내가 그 글을 읽고, 그 뒤에 답을 듣는다 —
+   * 화면에 없는 말을 귀로만 들려주면 눈으로 보는 사람과 다른 것을 듣게 된다.
+   */
+  /*
+   * 마이크가 어떤 상태인지 화면이 알고 있어야 한다.
+   *
+   * 여태 '이미 허용됨' 이 아니면 **아무것도 안 하고 아무 말도 안 했다.** 그래서
+   * 처음 오신 분에게는 이 길이 있는지조차 안 보였고, 화면은 멀쩡한데 말을 걸어도
+   * 반응이 없었다 — 이 앱이 가장 피하려던 자리를 우리가 만든 셈이다.
+   *
+   * 이제 상태를 보고 그에 맞는 말을 한다. 아직 안 물어본 자리에는 한 번 물어볼
+   * 단추를 내민다. 브라우저는 사람이 누른 자리에서만 물어 주므로 그 단추가 있어야
+   * 한다 — 그 한 번이 지나면 다음부터는 손을 안 대도 된다.
+   */
+  const [마이크, set마이크] = useState<마이크상태>("모름");
+  /** 허락을 받은 뒤 아래 두 효과를 다시 걸기 위한 세대. */
+  const [허락세대, set허락세대] = useState(0);
+  useEffect(() => {
+    let 살아있나 = true;
+    void 마이크상태보기().then((s) => { if (살아있나) set마이크(s); });
+    return () => { 살아있나 = false; };
+  }, [허락세대]);
+
+  const [동의듣기, set동의듣기] = useState<"안함" | "묻는중" | "그만함">("안함");
+  useEffect(() => {
+    if (동의함 || !소리켜짐 || !소리로주고받나() || 마이크 !== "됨") { set동의듣기("안함"); return; }
+    let 살아있나 = true;
+    let 듣던것: { 그만기다리기: () => void } | null = null;
+    void Promise.resolve(true).then((되나) => {
+      if (!살아있나 || !되나) return;
+      set동의듣기("묻는중");
+      듣던것 = 말로예아니오받기(언어, {
+        네라고하면: () => { if (살아있나) on동의(true); },
+        // 아니라고 하셨다. 다시 묻지 않는다 — 답을 들은 것이지 못 들은 것이 아니다.
+        아니라고하면: () => { if (살아있나) set동의듣기("안함"); },
+        그만뒀으면: () => { if (살아있나) set동의듣기("그만함"); },
+      });
+    });
+    return () => {
+      살아있나 = false;
+      듣던것?.그만기다리기();
+    };
+  }, [동의함, 소리켜짐, 언어, 마이크, on동의]);
+
+  const [부르기상태, set부르기상태] = useState<"안함" | "기다림" | "그만함">("안함");
+  useEffect(() => {
+    if (!동의함 || !소리켜짐 || !소리로주고받나() || 마이크 !== "됨") { set부르기상태("안함"); return; }
+    let 살아있나 = true;
+    let 기다리던것: { 그만기다리기: () => void } | null = null;
+    void Promise.resolve(true).then((되나) => {
+      if (!살아있나 || !되나) return;
+      set부르기상태("기다림");
+      기다리던것 = 부를때까지기다리기(언어, {
+        들리면: () => { if (살아있나) onStart(); },
+        그만뒀으면: () => { if (살아있나) set부르기상태("그만함"); },
+      });
+    });
+    return () => {
+      살아있나 = false;
+      기다리던것?.그만기다리기();
+    };
+    // 언어가 바뀌면 인식 언어도 바뀌어야 하므로 다시 건다.
+  }, [동의함, 소리켜짐, 언어, 마이크, onStart]);
+
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
       {/*
@@ -417,6 +511,73 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
         {!동의함 && (
           <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center" }} role="status">
             확인하셔야 시작할 수 있어요
+          </p>
+        )}
+        {/*
+          말로 답할 수 있다고 알린다.
+
+          data-소리조용 을 안 붙인다 — 소리로 읽혀야 이 길이 열린다. 화면을 못
+          보는 분에게는 이 줄이 "말해도 된다" 는 유일한 신호다.
+
+          "서버로 한 번 전송됩니다" 를 같이 적는다. 동의를 말로 받으려면 그
+          한마디가 동의 전에 서버를 다녀와야 하는데(녹음을 보내 인식한다),
+          순서가 뒤집히는 것을 숨기지 않는다.
+        */}
+        {/*
+          마이크를 아직 안 물어본 자리. **한 번 물어볼 단추를 내민다.**
+
+          여태 여기서 아무것도 안 했다. 그래서 처음 오신 분에게는 말로 시작하는
+          길이 있는지조차 안 보였고, 말을 걸어도 반응이 없었다 — 화면은 멀쩡한데
+          아무 일도 안 일어나면 사람은 앱이 고장 났다고 여긴다.
+
+          브라우저는 **사람이 누른 자리에서만** 마이크를 물어 준다. 그래서 이
+          단추가 필요하다. 한 번 허락하면 다음부터는 손을 안 대도 된다.
+        */}
+        {!동의함 && 소리켜짐 && (마이크 === "물어봐야함" || 마이크 === "모름") && (
+          <>
+            <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+              말로 답하시려면 마이크를 한 번 허락해 주세요. 허락하시면 다음부터는 손대지 않고 시작할 수 있어요.
+            </p>
+            <OutlineBtn onClick={() => { void 마이크허락받기().then(() => set허락세대((n) => n + 1)); }}>
+              마이크 허락하기
+            </OutlineBtn>
+          </>
+        )}
+        {/*
+          막아 두었다. 우리가 다시 물을 수 없는 자리라, 어디서 푸는지 알려 준다 —
+          "안 됩니다" 만 말하고 끝내면 사용자는 할 수 있는 일이 없다.
+        */}
+        {!동의함 && 소리켜짐 && 마이크 === "막힘" && 들을수있나() && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            마이크가 막혀 있어 말로는 답할 수 없어요. 주소창 옆 자물쇠에서 마이크를 허용하시면 됩니다.
+          </p>
+        )}
+        {동의듣기 === "묻는중" && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            이용에 동의하시겠어요? 동의하시면 "네" 라고 말씀해 주세요. 대답은 알아듣기 위해 서버로 한 번 전송됩니다.
+          </p>
+        )}
+        {동의듣기 === "그만함" && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            잘 못 알아들어서 그만 들을게요. 위 확인란을 눌러 주세요.
+          </p>
+        )}
+        {/*
+          듣고 있으면서 말 안 하는 앱을 만들지 않는다.
+
+          data-소리조용 을 안 붙인다 — 소리로도 읽혀야 한다. 화면을 못 보는
+          분에게는 이 줄이 "지금 불러도 된다" 는 유일한 신호다.
+
+          그만뒀을 때도 말한다. 조용히 멈추면 아직 듣는 줄 알고 계속 부른다.
+        */}
+        {부르기상태 === "기다림" && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            부르는 말을 기다리고 있어요. "키오브릿지" 라고 말씀하시면 손대지 않고 시작해요.
+          </p>
+        )}
+        {부르기상태 === "그만함" && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            이제 부르는 말을 듣고 있지 않아요. 아래 "바로 시작하기" 를 눌러 주세요.
           </p>
         )}
         {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
@@ -1236,7 +1397,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    * 제대로 받는다.
    */
   const [상태, set상태] = useState<"쉬는중" | "듣는중" | "처리중">("쉬는중");
-  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
+  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | "첫질문이에요" | null>(null);
   /*
    * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되물을 값들(팀 #133).
    *
@@ -1246,6 +1407,35 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   const [되물을것, set되물을것] = useState<string[] | null>(null);
   const 듣던것 = useRef<{ 그만두기: (보내기?: boolean) => void } | null>(null);
   const 회차 = useRef(0);
+  /*
+   * 이어 듣기 — 한 번 '말하기' 를 누르면 그 뒤로는 손을 안 댄다.
+   *
+   * 말이 끝나면 알아서 보내고(api/vad.ts), 답이 들어가면 다음 질문을 읽어 준
+   * 뒤 다시 듣기 시작한다. 다섯 칸이면 열 번 눌러야 하던 것이 한 번이 된다.
+   * 화면을 못 보는 분에게는 그 열 번이 답하는 일보다 오래 걸리는 장벽이었다.
+   *
+   * ref 로 둔다 — 이 값이 바뀌었다고 화면을 다시 그릴 일이 없고, 늦게 도착한
+   * 콜백 안에서도 지금 값을 봐야 한다(state 면 그 콜백이 만들어질 때의 옛 값을
+   * 본다).
+   */
+  const 이어서 = useRef(false);
+  /*
+   * 이어 듣기가 헛도는 것을 막는다.
+   *
+   * 사용자가 자리를 뜨면 "말이 없다 → 다시 듣기" 가 끝없이 돈다 — 마이크가
+   * 계속 켜져 있고 배터리도 닳는다. 잇달아 두 번 못 들으면 이어 듣기를 끄고
+   * 단추를 남긴다. 그때부터는 사람이 다시 시작하는 길로 돌아간다.
+   */
+  const 잇단실패 = useRef(0);
+  /** 화면을 떠난 뒤 늦게 도착한 예약이 마이크를 다시 열면 안 된다. */
+  const 살아있나 = useRef(true);
+  /*
+   * "다음 듣기를 걸어야 한다" 는 표시. 실제로 거는 일은 아래 useEffect 가 한다.
+   *
+   * state 로 두는 이유는 이어서예약() 주석에 있다 — 요약하면, 칸이 새로 그려진
+   * 뒤에 걸어야 옛 축으로 듣지 않는다.
+   */
+  const [예약, set예약] = useState(false);
 
   /*
    * 화면을 떠나면 듣던 것을 멈춘다. 안 멈추면 마이크가 계속 켜져 있다.
@@ -1255,6 +1445,9 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    * 회차도 올려서, 이미 서버로 나간 요청이 뒤늦게 돌아와도 무시된다.
    */
   useEffect(() => () => {
+    // 이어 듣기 예약이 화면을 떠난 뒤 깨어나 마이크를 다시 열면 안 된다.
+    살아있나.current = false;
+    이어서.current = false;
     회차.current += 1;
     듣던것.current?.그만두기(false);
   }, []);
@@ -1285,8 +1478,42 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set못들음(null);
     // 앞 축에 대한 되물음이 다음 축까지 따라오면 안 된다.
     set되물을것(null);
-    if (마지막인가) { onDone(); return; }
+    if (마지막인가) {
+      // 흐름이 끝났다. 이어 듣기도 여기서 끈다 — 안 끄면 이름 칸으로 넘어간
+      // 뒤에도 마이크가 다시 열린다.
+      이어서.current = false;
+      onDone();
+      return;
+    }
     set칸((n) => n + 1);
+    이어서예약();
+  };
+
+  /*
+   * 앞 질문으로 되돌아간다.
+   *
+   * 여태 앞으로 가는 길만 있었다 — 말하기·건너뛰기뿐이라, 두 번째 칸에 잘못
+   * 답하고 나면 되돌릴 방법이 없었다. 화면 뒤로가기는 흐름을 통째로 나가므로
+   * 되돌리기가 아니라 포기다.
+   *
+   * 답은 지우지 않는다. 돌아간 칸에 이미 고른 값이 칩으로 눌려 있어야, 무엇을
+   * 골랐었는지 보고 고칠 수 있다. 다시 답하면 그 값으로 덮인다(여러 개 고르는
+   * 칸은 이어 붙는데, 그 칸에 머물러 있을 때와 같은 규칙이다).
+   *
+   * 듣던 녹음은 부르는 쪽에서 끊는다 — 단추로 왔으면 아직 듣는 중일 수 있고,
+   * 말로 왔으면 이미 끝나 있다.
+   */
+  const 앞칸으로 = () => {
+    set못들음(null);
+    set되물을것(null);
+    set칸((n) => Math.max(0, n - 1));
+    // 되돌아온 질문도 다시 물어야 한다. 안 그러면 여기서 흐름이 멎는다.
+    이어서예약();
+  };
+
+  const 앞칸단추 = () => {
+    if (상태 !== "쉬는중") 듣기취소();
+    앞칸으로();
   };
 
   // 고른 값을 넣고 다음 칸으로. 여러 개 고르는 칸은 이어 붙이고 그 자리에 머문다.
@@ -1296,9 +1523,73 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set되물을것(null);
     const 이전 = 값[지금축.label] ?? [];
     on고르기(지금축.label, 지금축.multi ? [...new Set([...이전, 고른것])] : [고른것], 말로);
-    if (지금축.multi) set못들음(null);
-    else 다음으로();
+    if (지금축.multi) {
+      set못들음(null);
+      // 여러 개 고르는 칸은 그 자리에 머문다. 더 말할 수 있게 다시 연다 —
+      // 안 열면 이어 듣기가 이 칸에서만 멎는다.
+      이어서예약();
+    } else 다음으로();
   };
+
+  /*
+   * 다음 듣기를 예약한다. 이어 듣기가 켜져 있을 때만 움직인다.
+   *
+   * 바로 안 연다. 칸이 바뀌면 화면 글이 바뀌고, 소리 안내가 그 새 글을 읽기
+   * 시작한다(App 의 감시가 조금 늦게 잡는다). 그 읽기가 끝나기 전에 마이크를
+   * 열면 두 가지가 어긋난다 — 듣기시작() 이 읽던 것을 끊어서 무엇을 묻는지
+   * 못 듣게 되고, 안 끊더라도 스피커 소리가 녹음에 실린다.
+   *
+   * 그래서 감시가 읽기를 걸 시간을 잠깐 주고, 그 읽기가 다 끝나기를 기다린다.
+   *
+   * ── 여기서 setTimeout 을 직접 걸면 안 된다 ─────────────────────────────────
+   *
+   * 이 함수는 **어느 한 렌더의 함수**다. 여기서 건 타이머의 콜백은 그 렌더의
+   * 듣기시작·지금축·칸 을 그대로 쥔다. 그런데 이 함수를 부르는 자리는 방금
+   * set칸 을 올린 자리다 — 700ms 뒤 깨어난 콜백은 **바뀌기 전 축**으로 듣기를
+   * 시작한다.
+   *
+   * 그러면 화면은 k+1 번째를 묻는데 사용자의 답은 k 번째 축에 들어간다.
+   * 회차 가드도 이걸 못 막는다. 듣기시작() 이 스스로 회차를 올리고 그 값으로
+   * 시작하기() 를 부르므로 언제나 같기 때문이다.
+   *
+   * 이 앱이 가장 피해야 할 결함이다 — 사용자가 고르지 않은 조건이 주문표에
+   * 들어간다. 그래서 예약은 표시만 남기고, 실제로 거는 일은 칸이 새로 그려진
+   * 뒤 아래 useEffect 가 한다.
+   */
+  const 이어서예약 = () => {
+    if (!이어서.current) return;
+    set예약(true);
+  };
+
+  /*
+   * 예약이 걸려 있으면, **칸이 새로 그려진 뒤에** 다음 듣기를 시작한다.
+   *
+   * 칸을 의존성에 둔다. 그래야 이 effect 안의 듣기시작 이 새 렌더의 것이고,
+   * 새 축으로 듣는다. 정리 함수가 타이머도 걷어 간다 — 화면을 떠나거나 칸이
+   * 또 바뀌면 지난 예약은 사라진다.
+   */
+  useEffect(() => {
+    if (!예약) return;
+    const 내회차 = 회차.current;
+    const 표 = setTimeout(() => {
+      if (!살아있나.current || !이어서.current) return;
+      // 그새 사람이 손을 댔다(손으로 고르기·건너뛰기·앞 질문). 그쪽이 새 회차를
+      // 만들었으므로 이 예약은 지난 것이다.
+      if (내회차 !== 회차.current) return;
+      /*
+       * 안내가 아직 시작도 안 했을 수 있다. 시작기다림 을 줘서, 그 동안에는
+       * '다 읽었다' 로 접지 않는다 — 안 그러면 마이크가 안내보다 먼저 열린다.
+       */
+      void 다읽을때까지(8000, { 시작기다림: 1200 }).then(() => {
+        if (!살아있나.current || !이어서.current) return;
+        if (내회차 !== 회차.current) return;
+        set예약(false);
+        듣기시작();
+      });
+    }, 700);
+    return () => clearTimeout(표);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [예약, 칸]);
 
   const 듣기시작 = () => {
     /*
@@ -1313,17 +1604,71 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set되물을것(null);
     set상태("듣는중");
     회차.current += 1;
+    /*
+     * 여기서부터 이어 듣기가 켜진다.
+     *
+     * 한 번 '말하기' 를 누른 사람은 말로 답할 뜻이 있는 것이다. 그 뒤로는
+     * 말이 끝나면 알아서 보내고 다음 질문으로 이어 간다 — 칸마다 두 번씩
+     * 단추를 찾아 누르지 않아도 된다.
+     */
+    이어서.current = true;
     // 단추를 누른 바로 이 자리에서 듣기 시작한다 — 브라우저는 사람이 누른 자리가
     // 아니면 마이크를 안 열어 준다.
     시작하기(회차.current, 지금축);
   };
 
   const 시작하기 = (내회차: number, 이축: DetailOption) => {
+    /*
+     * 이어 듣기 중이면 말이 끝나는 것을 기기 안에서 지켜보다가 알아서 보낸다
+     * (api/vad.ts). 처음 한 번은 사람이 '말하기' 를 눌러 여기 오지만, 그 뒤로는
+     * 이 값이 켜져 있어 손을 안 대도 이어진다.
+     */
     듣던것.current = 들어보기(언어, (r) => {
       if (내회차 !== 회차.current) return;
       듣던것.current = null;
       set상태("쉬는중");
-      if (!("들은말" in r)) { set못들음(r.못들은이유); return; }
+      if (!("들은말" in r)) {
+        set못들음(r.못들은이유);
+        /*
+         * 못 들었다. 이어 듣기 중이면 한 번 더 열어 준다 — 말을 더듬거나
+         * 주위가 시끄러웠을 뿐인데 거기서 멈추면, 화면을 못 보는 분은 다시
+         * 시작할 단추를 찾아야 한다.
+         *
+         * 다만 마이크가 막혔으면(권한없음) 몇 번을 열어도 같다. 그때는 바로
+         * 접고, 화면이 "손으로 골라 주세요" 라고 말한다.
+         */
+        잇단실패.current += 1;
+        if (r.못들은이유 === "권한없음" || 잇단실패.current >= 2) { 이어서.current = false; return; }
+        이어서예약();
+        return;
+      }
+      잇단실패.current = 0;
+
+      /*
+       * 무엇보다 먼저 — 앞 질문으로 가 달라는 말인가.
+       *
+       * 답으로 읽기 전에 본다. 뒤에 두면 "뒤로" 가 어느 보기와 우연히 겹칠 때
+       * 되돌아가는 대신 값이 들어간다. 화면을 못 보는 분에게는 이 말이 앞 칸을
+       * 고칠 유일한 길이라, 그 길이 답 맞추기보다 뒤에 있으면 안 된다.
+       *
+       * 첫 칸에서는 갈 곳이 없다. 그때는 못 알아들은 것으로 두지 않고 그렇게
+       * 말해 준다 — 아무 일도 안 일어나면 사용자는 앱이 못 들었다고 여긴다.
+       */
+      if (뒤로가자고했나(r.들은말, 언어 === "en-US")) {
+        if (칸 === 0) { set못들음("첫질문이에요"); 이어서예약(); return; }
+        앞칸으로();
+        return;
+      }
+
+      /*
+       * 다음으로 가 달라는 말인가. 이것도 답보다 먼저 본다.
+       *
+       * 여러 개 고르는 칸(카페의 시럽)에서는 이 말이 없으면 나갈 길이 없다 —
+       * 값을 넣어도 그 자리에 머무는 칸이라, 손을 안 쓰는 분은 같은 질문만
+       * 되풀이해 듣다가 이어 듣기가 꺼진다. 화면의 '건너뛰기' 는 그분들에게
+       * 없는 단추다.
+       */
+      if (다음가자고했나(r.들은말, 언어 === "en-US")) { 다음으로(); return; }
 
       // 첫째 길 — 보기 이름을 그대로 말했나. 기존 맞추기를 그대로 쓴다.
       const 고른값 = 말에서고르기(r.들은말, place, 언어 === "en-US").고른값[이축.label];
@@ -1354,20 +1699,22 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
        */
       if (이축.label === "맵기") {
         set상태("처리중");
-        void 맵기물어보기(r.들은말, 언어 === "en-US").then((결과) => {
+        void 맵기물어보기(r.들은말).then((결과) => {
           if (내회차 !== 회차.current) return;
           set상태("쉬는중");
           if ("고른값" in 결과 && 이축.choices.includes(결과.고른값)) { 넣기(결과.고른값, true); return; }
           if ("되물을것" in 결과) {
             const 있는것 = 결과.되물을것.filter((v) => 이축.choices.includes(v));
-            if (있는것.length > 0) { set되물을것(있는것); return; }
+            if (있는것.length > 0) { set되물을것(있는것); 이어서예약(); return; }
           }
           set못들음("못골랐어요");
+          이어서예약();
         });
         return;
       }
       set못들음("못골랐어요");
-    });
+      이어서예약();
+    }, { 스스로끝내기: 이어서.current });
   };
 
   /*
@@ -1498,9 +1845,12 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
           <p role="alert" style={{ fontSize: 13, color: FAIL, marginTop: 12, lineHeight: 1.7 }}>
             {못들음 === "권한없음"
               ? "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요."
-              : 못들음 === "못골랐어요"
-                ? "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요."
-                : "잘 안 들렸어요. 다시 말씀해 주세요."}
+              : 못들음 === "첫질문이에요"
+                // 아무 일도 안 일어나면 못 들은 줄 안다. 들었고 갈 곳이 없다고 말해 준다.
+                ? "여기가 첫 질문이라 더 앞으로는 갈 수 없어요."
+                : 못들음 === "못골랐어요"
+                  ? "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요."
+                  : "잘 안 들렸어요. 다시 말씀해 주세요."}
           </p>
         )}
 
@@ -1512,7 +1862,9 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
          */}
         {상태 === "듣는중" && (
           <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
-            듣고 있어요. 말씀하신 뒤 "그만 듣기"를 눌러 주세요.
+            {t(이어서.current
+              ? "듣고 있어요. 말씀이 끝나면 알아서 다음으로 넘어가요."
+              : "듣고 있어요. 말씀하신 뒤 \"그만 듣기\"를 눌러 주세요.")}
           </p>
         )}
         {상태 === "처리중" && (
@@ -1521,10 +1873,20 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
           </p>
         )}
 
-        <div className="flex" style={{ gap: 8, marginTop: 16 }}>
+        <div className="flex flex-wrap" style={{ gap: 8, marginTop: 16 }}>
           <OutlineBtn onClick={상태 === "듣는중" ? 그만듣기 : 듣기시작} disabled={상태 === "처리중"}>
             {상태 === "듣는중" ? "그만 듣기" : 상태 === "처리중" ? "인식 중…" : "말하기"}
           </OutlineBtn>
+          {/*
+            앞 질문. 첫 칸에서는 갈 곳이 없어 아예 안 내민다 — 눌러도 아무 일이
+            없는 단추를 두면 눌러 본 사람이 앱이 멎었다고 여긴다.
+
+            말로도 갈 수 있다("뒤로"·"이전"). 손을 안 쓰는 분에게는 그쪽이
+            유일한 길이고, 이 단추는 눈으로 보고 누르는 분을 위한 같은 문이다.
+          */}
+          {칸 > 0 && (
+            <OutlineBtn onClick={앞칸단추} disabled={상태 === "처리중"}>앞 질문</OutlineBtn>
+          )}
           {/* 건너뛰기를 늘 둔다. 답하고 싶지 않은 칸에서 갇히면 안 된다. */}
           <OutlineBtn onClick={건너뛰기} disabled={상태 === "처리중"}>{마지막인가 ? "끝내기" : "건너뛰기"}</OutlineBtn>
         </div>
@@ -2693,13 +3055,25 @@ function PairingFailed({ reason = "유효하지 않은 QR입니다", onScan }: {
   );
 }
 
-function PairingExpired({ onScan }: { onScan: () => void }) {
+/**
+ * 연결이 끝난 화면.
+ *
+ * 끝나는 길이 둘이라 말을 나눈다 — 시간이 지난 것과, 한 번 써서 끝난 것.
+ * 취소하고 나온 사람에게 "연결 시간이 만료되었습니다" 라고 하면 사실이 아니고,
+ * 사용자는 자기가 무엇을 오래 붙잡고 있었나 되짚게 된다(팀 #146).
+ *
+ * 어느 쪽이든 할 일은 같다(다시 찍기). 다른 것은 그 앞에 무슨 말이 적히느냐
+ * 뿐이고, 그게 맞는 말이어야 한다 — listen.ts 의 못들은이유 와 같은 판단이다.
+ */
+function PairingExpired({ onScan, 이유 = "만료" }: { onScan: () => void; 이유?: "만료" | "다썼음" }) {
   return (
     <div className="flex flex-col flex-1" style={{ padding: `32px ${GAP.screenX}px 24px` }}>
       <StatusHero
         mark={<Pictogram name="clockCountdown" size={64} color={WARN} />}
-        title={<>연결 시간이<br />만료되었습니다</>}
-        desc="안전을 위해 연결이 종료되었어요"
+        title={이유 === "다썼음" ? <>이 연결은<br />다 쓰셨어요</> : <>연결 시간이<br />만료되었습니다</>}
+        desc={이유 === "다썼음"
+          ? "한 번 연결하면 한 번 주문할 수 있어요"
+          : "안전을 위해 연결이 종료되었어요"}
       />
 
       <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
@@ -2873,11 +3247,13 @@ function PairingIdle({ onScan }: { onScan: () => void }) {
   );
 }
 
-function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
+function QrScreen({ onPaired, initialPhase = "scan", 끝난이유 = "만료", connected = null }: {
   onPaired: (pairingId: string, expiresAt: number, kioskName: string) => void;
   // 연결이 만료돼서 되돌아온 경우에는 스캐너가 아니라 만료 안내부터 보여 준다.
   // 스캐너로 바로 보내면 사용자는 자기가 왜 여기 왔는지 알 수 없다.
   initialPhase?: "scan" | "expired";
+  /** 연결이 왜 끝났는지. 만료 화면의 문구가 이걸 따라 갈린다(팀 #146). */
+  끝난이유?: "만료" | "다썼음";
   // 이미 연결돼 있으면 그 상태를 그대로 보여 준다. 다시 찍으라고 하지 않는다.
   connected?: { pairingId: string; expiresAt: number; kioskName: string } | null;
 }) {
@@ -2968,7 +3344,7 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
           />
         )}
         {phase === "failed" && <PairingFailed reason={failReason} onScan={handleRescan} />}
-        {phase === "expired" && <PairingExpired onScan={handleRescan} />}
+        {phase === "expired" && <PairingExpired onScan={handleRescan} 이유={끝난이유} />}
       </div>
     </div>
   );
@@ -3527,7 +3903,7 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
         {/* 녹음은 스스로 안 끝난다 — 한칸씩말하기 의 같은 안내와 같은 이유. */}
         {상태 === "듣는중" && (
           <p role="status" style={{ fontSize: 13, color: TEXT_2, marginTop: 12, lineHeight: 1.7 }}>
-            듣고 있어요. 말씀하신 뒤 "그만 듣기"를 눌러 주세요.
+            {t("듣고 있어요. 말씀하신 뒤 \"그만 듣기\"를 눌러 주세요.")}
           </p>
         )}
         {상태 === "처리중" && (
@@ -3969,6 +4345,7 @@ function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
   /** 되묻는 상황이면 다음 화면에서 할 일을 미리 알려 준다. */
   확인중?: boolean;
 }) {
+  // 합치기는 부르는 쪽에서 이미 했다(OrderConfirmScreen 의 이유들).
   const 쓴것 = reasons.filter((r) => r.kind === "used");
   const 못맞춘것 = reasons.filter((r) => r.kind === "unmet");
   const 뺀것 = reasons.filter((r) => r.kind === "excluded");
@@ -4451,11 +4828,19 @@ function OrderMappingLoading() {
 }
 
 function OrderConfirmScreen({
-  pairingId, sheet, onBack, onApproved,
+  pairingId, sheet, onBack, on연결끝남, onApproved,
 }: {
   pairingId: string;
   sheet: OrderSheet;
   onBack: () => void;
+  /**
+   * 거절해서 이 연결을 다 썼다.
+   *
+   * onBack 과 갈라 둔다. 머리의 뒤로가기는 그냥 나가는 것이라 연결이 살아
+   * 있지만, 거절은 서버가 그 pairing 을 폐기하는 자리다(팀 #146). 둘을 한
+   * 콜백으로 묶으면 그냥 나간 사람의 연결까지 끊게 된다.
+   */
+  on연결끝남: () => void;
   onApproved: (planId: string) => void;
 }) {
   const [mapping, setMapping] = useState<MappingResponse | null>(null);
@@ -4472,6 +4857,17 @@ function OrderConfirmScreen({
    */
   const 한도 = 가격한도.읽기();
   const 수량 = Number((sheet.selections?.["수량"]?.[0] ?? "").replace(/[^0-9]/g, "")) || 1;
+  /*
+   * 이유는 여기서 한 번만 합쳐 아래로 내려보낸다.
+   *
+   * 서버가 맞은 축마다 한 줄씩 주는 탓에 같은 메뉴 이름이 되풀이됐다
+   * (i18n/reason.ts 의 이유묶기). 화면마다 따로 합치면 접힌 한 줄이 세는
+   * "외 N개" 와 펼친 목록의 줄 수가 어긋난다 — 둘이 같은 목록을 봐야 한다.
+   */
+  const 이유들 = useMemo(
+    () => 이유묶기(mapping?.reasons ?? [], sheet.selections),
+    [mapping?.reasons, sheet.selections],
+  );
   /*
    * 승인 버튼이 있는 화면은 셋이다 — exact · changed · low_confidence. 셋 다
    * MappedItem 을 그리고 셋 다 담긴다. 한 곳에만 안내를 달면 나머지 둘에서는
@@ -4507,7 +4903,14 @@ function OrderConfirmScreen({
    * 사용자가 감당할 일이 아니다.
    */
   const 거절하기 = () => {
-    onBack();
+    /*
+     * 되돌아가는 것으로 끝내지 않고, 이 연결이 끝났다는 것까지 알린다.
+     *
+     * 서버는 거절도 승인과 같은 경로로 처리해 pairing 을 폐기한다. 프론트가
+     * 그 값을 계속 들고 있으면, 다른 주문표로 들어갈 때 죽은 연결로 매핑을
+     * 시도해 "연결 정보를 찾을 수 없습니다" 라는 개발자 말이 뜬다(팀 #146).
+     */
+    on연결끝남();
     void api.reject({ pairingId, sheetId: sheet.id }).catch(() => {});
   };
 
@@ -4639,7 +5042,7 @@ function OrderConfirmScreen({
         */}
         {mapping && 이유단계 && (
           <ReasonStep
-            reasons={mapping.reasons ?? []}
+            reasons={이유들}
             scoredAxes={mapping.scoredAxes}
             확인중={mapping.result === "clarification" || mapping.result === "low_confidence"}
             onNext={() => set이유먼저(false)}
@@ -4665,13 +5068,13 @@ function OrderConfirmScreen({
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={mapping.reasons} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact item={mapping.item} reasons={이유들} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
           <OrderClarification
             candidates={mapping.candidates ?? []}
             reason={mapping.reason}
-            reasons={mapping.reasons}
+            reasons={이유들}
             onReasons={() => set이유먼저(true)}
             options={mapping.sheetOptions}
             onApprove={(candidateId) => approve({ candidateId })}
@@ -4683,7 +5086,7 @@ function OrderConfirmScreen({
           <OrderChanged
             item={mapping.item}
             diffNote={mapping.diffNote}
-            reasons={mapping.reasons}
+            reasons={이유들}
             합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             onApprove={() => approve({ acknowledgedDiff: true })}
@@ -4704,7 +5107,7 @@ function OrderConfirmScreen({
         {mapping?.result === "low_confidence" && mapping.item && (
           <OrderLowConfidence
             item={mapping.item}
-            reasons={mapping.reasons}
+            reasons={이유들}
             합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             /* 사용자가 카드를 눌러 "이 메뉴가 맞다"고 짚어야만 여기까지 온다. 그 사실을 서버에도 알린다. */
@@ -5531,6 +5934,13 @@ export default function App() {
   const [pairingKiosk, setPairingKiosk] = useState<string | null>(null);
   // 만료 때문에 QR 화면으로 되돌아왔는지. 되돌아왔으면 안내부터 띄운다.
   const [qrExpired, setQrExpired] = useState(false);
+  /*
+   * 연결이 왜 끝났나. 화면 문구가 이걸 따라 갈린다(PairingExpired).
+   *
+   * 취소하고 나온 사람에게 "연결 시간이 만료되었습니다" 라고 하면 사실이
+   * 아니다 — 시간은 아직 남아 있었고, 다 쓴 것이다(팀 #146).
+   */
+  const [qr끝난이유, setQr끝난이유] = useState<"만료" | "다썼음">("만료");
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
   /**
    * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
@@ -5963,6 +6373,7 @@ export default function App() {
     if (접근성값.mobilitySupport) return;
     const 남은 = pairingExpiresAt - Date.now();
     const 되돌리기 = () => {
+      setQr끝난이유("만료");
       setPairingId(null);
       setPairingExpiresAt(null);
       setPairingKiosk(null);
@@ -6408,6 +6819,7 @@ export default function App() {
             <QrScreen
               key={qrKey}
               initialPhase={qrExpired ? "expired" : "scan"}
+              끝난이유={qr끝난이유}
               // 연결이 살아 있으면 스캐너부터 열지 않는다. 예전에는 QR 탭에 들어갈
               // 때마다 검은 스캐너가 떠서, 연결이 멀쩡한데도 끊긴 것처럼 보였다.
               // 같은 상태를 두고 주문 화면과 QR 화면이 다른 이야기를 했다.
@@ -6444,6 +6856,24 @@ export default function App() {
               pairingId={pairingId}
               sheet={orderSheet}
               onBack={() => setScreen("saved")}
+              /*
+               * 거절하면 서버가 이 pairing 을 폐기한다. 프론트도 같이 놓아야
+               * 다른 주문표로 들어갈 때 죽은 연결로 매핑하지 않는다(팀 #146).
+               *
+               * 만료될 때와 같은 정리다 — 다른 것은 화면에 적히는 이유뿐이다.
+               */
+              on연결끝남={() => {
+                setQr끝난이유("다썼음");
+                setPairingId(null);
+                setPairingExpiresAt(null);
+                setPairingKiosk(null);
+                setOrderSheet(null);
+                setFromQr(false);
+                setScreen("saved");
+                setTab("qr");
+                setQrExpired(true);
+                setQrKey((k) => k + 1);
+              }}
               onApproved={(id) => { setPlanId(id); setScreen("execution"); }}
             />
           )}
