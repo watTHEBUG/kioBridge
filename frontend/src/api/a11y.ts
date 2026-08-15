@@ -141,7 +141,7 @@ export const 기본접근성: 접근성 = {
  * 부르는 말을 기다리고(api/wake.ts), 그 전에는 아무것도 듣지 않는다.
  */
 export const 기본도움설정: 도움설정 = {
-  ...기본접근성, voiceGuide: false, language: "ko-KR", preferredInputHint: "NONE",
+  ...기본접근성, voiceGuide: true, language: "ko-KR", preferredInputHint: "NONE",
 };
 
 let 값: 도움설정 = { ...기본도움설정 };
