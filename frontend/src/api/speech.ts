@@ -27,6 +27,59 @@
  * 한다고 말하지 않는다.
  */
 
+/**
+ * 이 기기에 있는 목소리 중 더 자연스러운 것을 고른다. 없으면 null.
+ *
+ * 여태 아무것도 안 골라서 브라우저 기본이 나왔다. 윈도우·안드로이드의 한국어
+ * 기본은 대개 오래된 합성음이라 말투가 딱딱하다 — 어르신께 읽어 드리는
+ * 앱에서 그 소리로 안내가 나가면 듣기 힘들다는 말을 들었다.
+ *
+ * 이름으로 고른다. 표준이 정한 규칙은 아니지만, 실제 기기에서 신경망 목소리는
+ * 이름에 Google · Natural · Neural · Siri 같은 말이 붙는다. 없으면 고르지
+ * 않고 두어 브라우저 기본으로 간다 — 지금과 같아질 뿐 나빠지지 않는다.
+ *
+ * getVoices() 는 처음 몇 번 빈 배열을 준다(목록을 늦게 채우는 브라우저가 있다).
+ * 그때도 그냥 null 이라 기본 목소리로 읽고, 다음 문장부터 좋은 목소리가 잡힌다.
+ */
+const 좋은이름 = /google|natural|neural|premium|enhanced|siri/i;
+/*
+ * 여자 목소리로 알려진 이름들.
+ *
+ * "하이톤 여자 목소리가 듣기 좋다" 는 말을 듣고 그쪽으로 맞춘다. 표준이 성별을
+ * 알려 주지 않아서 이름으로 가릴 수밖에 없다 — 아래는 실제 기기에서 쓰이는
+ * 한국어·영어 목소리 이름이다.
+ *
+ *   Heami   윈도우 한국어 기본 (이 프로젝트에서 실제로 확인한 목소리)
+ *   Yuna    애플 한국어
+ *   Sun-Hi  Azure 한국어 신경망
+ *   Seoyeon AWS Polly 한국어
+ *   Sora    삼성 한국어
+ *
+ * 이름으로 가리는 것이라 완벽하지 않다. 못 찾으면 아래에서 그냥 null 로 두고
+ * 브라우저 기본으로 간다 — 지금과 같아질 뿐 나빠지지 않는다.
+ */
+const 여자이름 = /heami|yuna|sun-?hi|seoyeon|sora|jiwon|female|여성|zira|samantha|aria|jenny/i;
+
+const 나은목소리 = (언어: string): SpeechSynthesisVoice | null => {
+  try {
+    const 목록 = globalThis.speechSynthesis?.getVoices?.() ?? [];
+    // 언어가 먼저다. 한국어 문장을 영어 목소리로 읽으면 알아들을 수 없다.
+    const 같은언어 = 목록.filter((v) => v.lang?.replace("_", "-").toLowerCase().startsWith(언어.slice(0, 2).toLowerCase()));
+    if (같은언어.length === 0) return null;
+    /*
+     * 고르는 차례 — 여자 목소리를 성능보다 앞에 둔다.
+     *
+     * 사용자가 좋다고 한 것이 그 목소리라서다. 자연스러움은 그다음이다.
+     */
+    return 같은언어.find((v) => 여자이름.test(v.name) && 좋은이름.test(v.name))
+      ?? 같은언어.find((v) => 여자이름.test(v.name))
+      ?? 같은언어.find((v) => 좋은이름.test(v.name))
+      ?? null;
+  } catch {
+    return null;
+  }
+};
+
 /** 이 브라우저에서 소리 안내가 되는가. 화면이 스위치를 내밀지 말지 이걸로 정한다. */
 export const 소리를낼수있나 = (): boolean => {
   try {
@@ -75,8 +128,13 @@ export const 읽어주기 = (
      * 그래서 부르는 쪽이 '지금 화면의 언어' 를 준다(a11y 의 language).
      */
     u.lang = 언어;
+    // 이 기기에 더 자연스러운 목소리가 있으면 그걸 쓴다. 없으면 기본 그대로다.
+    const 고른목소리 = 나은목소리(언어);
+    if (고른목소리) u.voice = 고른목소리;
     // 기본 속도는 이 앱을 쓰는 분들에게 빠르다. 조금 늦춘다.
     u.rate = 0.95;
+    // 기본 높이는 또박또박하지만 사무적으로 들린다. 아주 조금 올려 부드럽게.
+    u.pitch = 1.05;
     globalThis.speechSynthesis.speak(u);
   } catch {
     /* 목소리가 없거나 브라우저가 막았다. 화면 글은 그대로 있다. */
