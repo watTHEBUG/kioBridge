@@ -15,11 +15,17 @@ public class SpicyLevelMatchingService {
 
     private static final int K = 5;
     private static final long CONFIDENCE_THRESHOLD = 3;
-    private static final Set<String> NO_PREFERENCE_KEYWORDS = Set.of(
-        "아무", "상관없", "다 좋", "다좋", "괜찮"
+
+    private static final Set<String> NO_PREFERENCE_PHRASES = Set.of(
+        "아무거나", "아무 거나", "아무 맛이나", "아무맛이나",
+        "상관없어요", "상관없습니다", "상관없음",
+        "다 좋아요", "다좋아요", "전부 괜찮아요", "다 괜찮아요"
     );
-    private static final Set<String> MEDIUM_KEYWORDS = Set.of(
-        "보통"
+    private static final Set<String> MEDIUM_PHRASES = Set.of(
+        "보통맛", "보통이요", "보통으로요", "그냥 보통", "보통으로"
+    );
+    private static final Set<String> EXCLUSION_MARKERS = Set.of(
+        "싫", "말고", "아니", "보다", "이상", "이하"
     );
 
     private final EmbeddingService embeddingService;
@@ -31,12 +37,12 @@ public class SpicyLevelMatchingService {
     }
 
     public SpicyLevelMatchResult match(String text) {
-        if (NO_PREFERENCE_KEYWORDS.stream().anyMatch(text::contains)) {
+        if (matchesKeyword(text, NO_PREFERENCE_PHRASES)) {
             return new SpicyLevelMatchResult(
                 "NO_PREFERENCE", true, Map.of(), List.of("NO_PREFERENCE"), text, null
             );
         }
-        if (MEDIUM_KEYWORDS.stream().anyMatch(text::contains)) {
+        if (matchesKeyword(text, MEDIUM_PHRASES)) {
             return new SpicyLevelMatchResult(
                 "MEDIUM", true, Map.of(), List.of("MEDIUM"), text, null
             );
@@ -65,6 +71,13 @@ public class SpicyLevelMatchingService {
 
         String question = buildClarificationQuestion(text, topLabels);
         return new SpicyLevelMatchResult(null, false, counts, topLabels, text, question);
+    }
+
+    private boolean matchesKeyword(String text, Set<String> phrases) {
+        if (EXCLUSION_MARKERS.stream().anyMatch(text::contains)) {
+            return false;
+        }
+        return phrases.stream().anyMatch(text::contains);
     }
 
     private String buildClarificationQuestion(String text, List<String> candidates) {
