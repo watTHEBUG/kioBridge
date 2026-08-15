@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { 맵기물어보기 } from "./spicy";
+import { 연동기록 } from "./devlog";
+
+/*
+ * 기록은 팀 백엔드 모드에서만 남는다(devlog.ts 의 팀백엔드모드). 시험 환경은
+ * 그 값이 거짓이라, 그냥 두면 아무것도 안 남아 아래 시험이 **헛통과한다** —
+ * 실제로 그랬다. 모듈을 갈아 끼워 켠 것으로 만든다.
+ */
+vi.mock("./devlog", async (원래) => {
+  const 실제 = await 원래<typeof import("./devlog")>();
+  return { ...실제, 팀백엔드모드: true };
+});
 
 /*
  * 이 파일이 지키는 것.
@@ -143,6 +154,34 @@ describe("부정은 이제 서버가 읽는다", () => {
     // 부정어 필터가 정상 표현까지 잡아 버리면 이 시험이 깨진다(서버 쪽 회귀).
     붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"] });
     expect(await 맵기물어보기("매운 거")).toEqual({ 고른값: "매운맛" });
+  });
+});
+
+describe("말한 내용은 기록에 안 남는다", () => {
+  /*
+   * 개발 패널(연동기록)은 배포본에서도 보이고(build:team) 브라우저 메모리에
+   * 60줄까지 남는다. 이 경로에 오는 말은 **보기와도 예/아니오와도 안 맞은
+   * 문장**이라 무엇이 들어올지 모른다 — 위에서 개인정보처럼 보이는 말을 아예
+   * 안 보내는 이유가 그것이고, 그 문을 만들어 놓고 기록에 남기면 뜻이 없다.
+   *
+   * 남기기() 에 직접 넣어 보는 시험으로는 이걸 못 지킨다. 그러면 실제 경로가
+   * 무엇을 적든 통과한다 — 진짜로 불러 보고 확인한다.
+   */
+  it("맵기 매칭이 남긴 줄에 요청·응답 본문이 없다", async () => {
+    연동기록.비우기();
+    붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"], heardText: "불닭맛" });
+    await 맵기물어보기("불닭맛");
+
+    const 줄들 = 연동기록.읽기();
+    // 한 줄은 반드시 남아야 한다. 안 남으면 이 시험이 아무것도 안 지킨다.
+    expect(줄들.length).toBe(1);
+    const [한줄] = 줄들;
+    expect(한줄.경로).toContain("spicy-level/match");
+    expect(한줄.요청).toBeUndefined();
+    expect(한줄.응답).toBeUndefined();
+    expect(한줄.가림).toBe(true);
+    // 말한 내용이 어느 칸에도 없어야 한다.
+    expect(JSON.stringify(한줄)).not.toContain("불닭맛");
   });
 });
 
