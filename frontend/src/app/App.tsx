@@ -1214,7 +1214,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
        */
       if (이축.label === "맵기") {
         set상태("처리중");
-        void 맵기물어보기(r.들은말, 언어 === "en-US").then((결과) => {
+        void 맵기물어보기(r.들은말).then((결과) => {
           if (내회차 !== 회차.current) return;
           set상태("쉬는중");
           if ("고른값" in 결과 && 이축.choices.includes(결과.고른값)) { 넣기(결과.고른값, true); return; }
