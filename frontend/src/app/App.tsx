@@ -4770,11 +4770,10 @@ function OptionCard({
           순위 숫자. 1 등만 면을 채우고 나머지는 테두리만 둔다 — 셋 다 채우면
           순위가 아니라 장식이 된다.
 
-          **1 등 배지는 줄 바탕이 무슨 색이든 보여야 한다.** 고른 줄은 검게
-          반전되게 되어 있는데(겉모양), 그 값에 기대어 색을 뒤집으면 반전이
-          안 먹는 자리에서 밝은 배지가 밝은 면에 묻힌다. 그래서 면은 늘 검게
-          두고, 고른 줄에서는 밝은 테두리를 둘러 검은 면에서도 동그라미가
-          떨어져 보이게 한다. 어느 쪽이든 숫자는 읽힌다.
+          고른 줄은 면이 검게 반전되므로(겉모양) 1 등 배지도 같이 뒤집는다.
+          안 뒤집으면 1 등을 고른 순간 검은 배지가 검은 면에 묻힌다. 뒤집으면
+          어느 쪽이든 '1 등은 채워져 있다' 가 그대로 남는다 — 밝은 줄에서는
+          검은 동그라미, 검은 줄에서는 밝은 동그라미.
 
           aria-hidden 인 이유 — 같은 값이 아래 radio 의 aria-label 에 이미
           들어가 있다. 안 가리면 "1 매운 순살 닭강정 6,000원" 처럼 숫자가 두 번
@@ -4787,11 +4786,9 @@ function OptionCard({
               flexShrink: 0, width: 24, height: 24, borderRadius: "50%",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 13, fontWeight: 800, ...NUM,
-              backgroundColor: 순위 === 1 ? RULE : "transparent",
-              color: 순위 === 1 ? PAPER : (selected ? PAPER : TEXT_2),
-              border: 순위 === 1
-                ? (selected ? `1.5px solid ${PAPER}` : "none")
-                : `1.5px solid ${selected ? PAPER : TEXT_2}`,
+              backgroundColor: 순위 === 1 ? (selected ? PAPER : RULE) : "transparent",
+              color: 순위 === 1 ? (selected ? RULE : PAPER) : (selected ? PAPER : TEXT_2),
+              border: 순위 === 1 ? "none" : `1.5px solid ${selected ? PAPER : TEXT_2}`,
             }}
           >
             {순위}
