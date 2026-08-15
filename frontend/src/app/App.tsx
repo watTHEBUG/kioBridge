@@ -409,7 +409,6 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
         {(소리를낼수있나() || 들을수있나()) && (
           <ToggleRow
             label="소리로 듣고 답하기"
-            sub="안내를 소리로 읽어 드리고, 말로 답하실 수 있어요"
             on={소리켜짐}
             onToggle={on소리}
           />
@@ -2919,7 +2918,10 @@ function SubScreenHeader({ title, kicker, spot, onBack }: {
 function ToggleRow({
   label, sub, on, onToggle,
 }: {
-  label: string; sub: string; on: boolean; onToggle: () => void;
+  label: string;
+  /** 없으면 이름만 보여 준다. 첫 화면처럼 이름으로 이미 뜻이 통하는 자리에서 쓴다. */
+  sub?: string;
+  on: boolean; onToggle: () => void;
 }) {
   return (
     <button
@@ -2935,7 +2937,7 @@ function ToggleRow({
     >
       <span>
         <span style={{ display: "block", fontSize: 17, fontWeight: 700, color: TEXT_1, letterSpacing: "-0.02em" }}>{label}</span>
-        <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4 }}>{sub}</span>
+        {sub && <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4 }}>{sub}</span>}
       </span>
       {/* 색만으로 상태를 알리지 않는다 — 켜짐일 때는 체크 표시도 함께 둔다. */}
       <span

@@ -41,13 +41,40 @@
  * getVoices() 는 처음 몇 번 빈 배열을 준다(목록을 늦게 채우는 브라우저가 있다).
  * 그때도 그냥 null 이라 기본 목소리로 읽고, 다음 문장부터 좋은 목소리가 잡힌다.
  */
-const 좋은이름 = /google|natural|neural|premium|enhanced|siri|yuna|sora/i;
+const 좋은이름 = /google|natural|neural|premium|enhanced|siri/i;
+/*
+ * 여자 목소리로 알려진 이름들.
+ *
+ * "하이톤 여자 목소리가 듣기 좋다" 는 말을 듣고 그쪽으로 맞춘다. 표준이 성별을
+ * 알려 주지 않아서 이름으로 가릴 수밖에 없다 — 아래는 실제 기기에서 쓰이는
+ * 한국어·영어 목소리 이름이다.
+ *
+ *   Heami   윈도우 한국어 기본 (이 프로젝트에서 실제로 확인한 목소리)
+ *   Yuna    애플 한국어
+ *   Sun-Hi  Azure 한국어 신경망
+ *   Seoyeon AWS Polly 한국어
+ *   Sora    삼성 한국어
+ *
+ * 이름으로 가리는 것이라 완벽하지 않다. 못 찾으면 아래에서 그냥 null 로 두고
+ * 브라우저 기본으로 간다 — 지금과 같아질 뿐 나빠지지 않는다.
+ */
+const 여자이름 = /heami|yuna|sun-?hi|seoyeon|sora|jiwon|female|여성|zira|samantha|aria|jenny/i;
+
 const 나은목소리 = (언어: string): SpeechSynthesisVoice | null => {
   try {
     const 목록 = globalThis.speechSynthesis?.getVoices?.() ?? [];
     // 언어가 먼저다. 한국어 문장을 영어 목소리로 읽으면 알아들을 수 없다.
     const 같은언어 = 목록.filter((v) => v.lang?.replace("_", "-").toLowerCase().startsWith(언어.slice(0, 2).toLowerCase()));
-    return 같은언어.find((v) => 좋은이름.test(v.name)) ?? null;
+    if (같은언어.length === 0) return null;
+    /*
+     * 고르는 차례 — 여자 목소리를 성능보다 앞에 둔다.
+     *
+     * 사용자가 좋다고 한 것이 그 목소리라서다. 자연스러움은 그다음이다.
+     */
+    return 같은언어.find((v) => 여자이름.test(v.name) && 좋은이름.test(v.name))
+      ?? 같은언어.find((v) => 여자이름.test(v.name))
+      ?? 같은언어.find((v) => 좋은이름.test(v.name))
+      ?? null;
   } catch {
     return null;
   }
