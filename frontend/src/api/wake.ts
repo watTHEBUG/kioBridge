@@ -45,11 +45,61 @@ const 부르는말 = [
   "kiobridge", "keyobridge",
 ];
 
-/** 들은 글이 부르는 말인가. 띄어쓰기와 대소문자는 무시한다. */
+/**
+ * 두 글자열이 얼마나 다른가(고친 횟수). 같으면 0.
+ *
+ * 글자 그대로 맞춰 보는 것만으로는 부족하다. 인식기는 "키오브릿찌"·"키오프릿지"
+ * 처럼 **한 글자만 어긋난** 답을 자주 내놓는데, 그때마다 표에 적어 넣는 것은
+ * 끝이 없다. 한 글자 차이까지는 같은 말로 본다.
+ */
+const 고친횟수 = (a: string, b: string): number => {
+  const 앞줄 = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let 왼쪽위 = 앞줄[0];
+    앞줄[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const 지금 = 앞줄[j];
+      앞줄[j] = Math.min(
+        앞줄[j] + 1,                                   // 지우기
+        앞줄[j - 1] + 1,                               // 넣기
+        왼쪽위 + (a[i - 1] === b[j - 1] ? 0 : 1),       // 바꾸기
+      );
+      왼쪽위 = 지금;
+    }
+  }
+  return 앞줄[b.length];
+};
+
+/**
+ * 들은 글이 부르는 말인가. 띄어쓰기와 대소문자는 무시한다.
+ *
+ * 두 단계로 본다.
+ *
+ *   ① 글자 그대로 들어 있나. 표에 적어 둔 말들이 여기서 걸린다.
+ *   ② 한 글자만 어긋난 토막이 있나. "키오브릿찌" 같은 것을 잡는다.
+ *
+ * ②의 문턱을 **한 글자**로 둔다. 두 글자까지 열면 여섯 글자짜리 말에서 3분의
+ * 1이 달라도 통과한다 — 부르는 말은 앱을 시작시키는 문이라, 옆 사람 대화에
+ * 열리면 안 된다. 짧은 말(영어 표기)은 아예 ②를 안 본다. 글자가 적을수록
+ * 한 글자 차이가 차지하는 몫이 커지기 때문이다.
+ */
 export const 불렀나 = (들은말: string): boolean => {
   const 글 = 들은말.toLowerCase().replace(/[\s.,!?~]/g, "");
   if (글 === "") return false;
-  return 부르는말.some((말) => 글.includes(말));
+  if (부르는말.some((말) => 글.includes(말))) return true;
+
+  return 부르는말.some((말) => {
+    if (말.length < 5) return false;
+    // 말 길이만큼의 창을 밀며 본다. 앞뒤 한 글자가 더 붙거나 빠진 경우까지.
+    for (let i = 0; i + 말.length - 1 <= 글.length; i++) {
+      for (const 길이 of [말.length - 1, 말.length, 말.length + 1]) {
+        const 토막 = 글.slice(i, i + 길이);
+        if (토막.length === 0) continue;
+        if (고친횟수(토막, 말) <= 1) return true;
+      }
+    }
+    return false;
+  });
 };
 
 /**

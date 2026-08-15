@@ -155,7 +155,25 @@ export const 들어보기 = (
 
   void (async () => {
     try {
-      스트림 = await navigator.mediaDevices.getUserMedia({ audio: true });
+      /*
+       * 마이크를 그냥 열지 않고 조건을 준다.
+       *
+       * `{ audio: true }` 는 브라우저 기본값에 맡기는 것인데, 기본값은 기기마다
+       * 다르고 어떤 기기는 아무 처리도 안 한다. 인식기에 들어가는 소리가 곧
+       * 인식 품질이라, 여기서 정리해서 보내는 편이 낫다.
+       *
+       *   noiseSuppression   바탕 소음을 줄인다. 식당 앞·길가에서 크게 다르다.
+       *   echoCancellation   스피커로 읽어 준 안내가 마이크로 되돌아오는 것을
+       *                      줄인다. 이 앱은 읽어 주고 바로 듣는 흐름이라 특히
+       *                      걸리는 자리다.
+       *   autoGainControl    작게 말하는 분의 목소리를 키운다.
+       *
+       * 모르는 칸은 브라우저가 조용히 무시한다 — 표준이 그렇게 정해 두었다.
+       * 그래서 되는 기기에서만 좋아지고 나머지는 지금과 같다.
+       */
+      스트림 = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
+      });
     } catch {
       한번만({ 못들은이유: "권한없음" });
       return;
