@@ -179,13 +179,25 @@ export const 이유묶기 = (
     return 값.length > 0 ? 값.join("·") : 축;
   };
 
-  // 메뉴별로 몇 축이 맞았는지 먼저 센다. 둘 이상일 때만 합친다.
-  const 메뉴별 = new Map<string, string[]>();
+  /*
+   * 메뉴별로 **서로 다른 축이 몇 개** 맞았는지 센다. 둘 이상일 때만 합친다.
+   *
+   * 같은 축이 두 번 오면 세지 않는다. 서버는 축마다 한 줄씩 주지만, 겹쳐 온
+   * 적이 있는 자리다(error.details 도 그랬다). 그대로 세면 "매운맛·매운맛과
+   * 맞는 메뉴라" 가 되어, 합치지 않느니만 못한 줄이 된다.
+   *
+   * 값이 아니라 **축**으로 가린다. 두 축이 같은 값 이름을 가질 수도 있고
+   * (주문표에 없으면 축 이름으로 물러난다), 그때는 서로 다른 조건이 맞은
+   * 것이므로 둘 다 세는 것이 맞다.
+   */
+  const 메뉴별 = new Map<string, { 축: string; 이름: string }[]>();
   for (const r of reasons) {
     const 축 = 축찾기(r);
     if (!축) continue;
     const 열쇠 = r.메뉴 ?? "";
-    메뉴별.set(열쇠, [...(메뉴별.get(열쇠) ?? []), 부를이름(축)]);
+    const 있던것 = 메뉴별.get(열쇠) ?? [];
+    if (있던것.some((it) => it.축 === 축)) continue;
+    메뉴별.set(열쇠, [...있던것, { 축, 이름: 부를이름(축) }]);
   }
 
   const 합친것 = new Set<string>();
@@ -194,7 +206,7 @@ export const 이유묶기 = (
     const 축 = 축찾기(r);
     if (!축) { 나온것.push(r); continue; }
     const 열쇠 = r.메뉴 ?? "";
-    const 것들 = 메뉴별.get(열쇠) ?? [];
+    const 것들 = (메뉴별.get(열쇠) ?? []).map((it) => it.이름);
     if (것들.length < 2) { 나온것.push(r); continue; }
     // 두 번째부터는 첫 줄에 합쳐졌다. 자리는 첫 줄이 지킨다.
     if (합친것.has(열쇠)) continue;
