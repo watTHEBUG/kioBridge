@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { 맵기물어보기 } from "./spicy";
+import { 연동기록 } from "./devlog";
+
+/*
+ * 기록은 팀 백엔드 모드에서만 남는다(devlog.ts 의 팀백엔드모드). 시험 환경은
+ * 그 값이 거짓이라, 그냥 두면 아무것도 안 남아 아래 시험이 **헛통과한다** —
+ * 실제로 그랬다. 모듈을 갈아 끼워 켠 것으로 만든다.
+ */
+vi.mock("./devlog", async (원래) => {
+  const 실제 = await 원래<typeof import("./devlog")>();
+  return { ...실제, 팀백엔드모드: true };
+});
 
 /*
  * 이 파일이 지키는 것.
@@ -12,8 +23,17 @@ import { 맵기물어보기 } from "./spicy";
  *   ③ 실패하면 조용히 물러난다. 이 경로가 없어도 앱은 손으로 고르기로 돌아간다.
  */
 
+/*
+ * 가짜 응답. text() 도 준다 — 코드가 본문을 글로 먼저 읽기 때문이다(오간 것에
+ * 남기려면 한 번 읽은 뒤에도 원문이 있어야 한다). 진짜 Response 는 둘 다 있다.
+ */
 const 응답 = (본문: unknown, status = 200) =>
-  ({ ok: status >= 200 && status < 300, status, json: async () => 본문 }) as unknown as Response;
+  ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => 본문,
+    text: async () => (typeof 본문 === "string" ? 본문 : JSON.stringify(본문)),
+  }) as unknown as Response;
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -137,6 +157,34 @@ describe("부정은 이제 서버가 읽는다", () => {
   });
 });
 
+describe("말한 내용은 기록에 안 남는다", () => {
+  /*
+   * 개발 패널(연동기록)은 배포본에서도 보이고(build:team) 브라우저 메모리에
+   * 60줄까지 남는다. 이 경로에 오는 말은 **보기와도 예/아니오와도 안 맞은
+   * 문장**이라 무엇이 들어올지 모른다 — 위에서 개인정보처럼 보이는 말을 아예
+   * 안 보내는 이유가 그것이고, 그 문을 만들어 놓고 기록에 남기면 뜻이 없다.
+   *
+   * 남기기() 에 직접 넣어 보는 시험으로는 이걸 못 지킨다. 그러면 실제 경로가
+   * 무엇을 적든 통과한다 — 진짜로 불러 보고 확인한다.
+   */
+  it("맵기 매칭이 남긴 줄에 요청·응답 본문이 없다", async () => {
+    연동기록.비우기();
+    붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"], heardText: "불닭맛" });
+    await 맵기물어보기("불닭맛");
+
+    const 줄들 = 연동기록.읽기();
+    // 한 줄은 반드시 남아야 한다. 안 남으면 이 시험이 아무것도 안 지킨다.
+    expect(줄들.length).toBe(1);
+    const [한줄] = 줄들;
+    expect(한줄.경로).toContain("spicy-level/match");
+    expect(한줄.요청).toBeUndefined();
+    expect(한줄.응답).toBeUndefined();
+    expect(한줄.가림).toBe(true);
+    // 말한 내용이 어느 칸에도 없어야 한다.
+    expect(JSON.stringify(한줄)).not.toContain("불닭맛");
+  });
+});
+
 describe("실패하면 조용히 물러난다", () => {
   it("서버가 없으면(404) 못함", async () => {
     붙이기({ code: "NOT_ALLOWED" }, 404);
@@ -157,8 +205,16 @@ describe("실패하면 조용히 물러난다", () => {
     expect(f).not.toHaveBeenCalled();
   });
 
-  it("본문이 이상해도 던지지 않는다", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error("bad"); } }) as unknown as Response));
+  it("JSON 이 아닌 본문이 와도 던지지 않는다", async () => {
+    // 200 인데 HTML 이 오는 일이 있다(프록시가 끼워 넣는 오류 페이지 등).
+    붙이기("<html>502</html>");
+    await expect(맵기물어보기("불닭맛")).resolves.toEqual({ 못함: true });
+  });
+
+  it("본문을 읽다 터져도 던지지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true, status: 200, text: async () => { throw new Error("bad"); },
+    }) as unknown as Response));
     await expect(맵기물어보기("불닭맛")).resolves.toEqual({ 못함: true });
   });
 });

@@ -40,6 +40,7 @@
  */
 
 import { 말끝지켜보기 } from "@/api/vad";
+import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 
 export type 못들은이유 = "권한없음" | "소리없음" | "안됨";
 
@@ -75,10 +76,44 @@ const 서버로보내기 = async (
   폼.append("audio", 오디오, `clip.${확장자(오디오.type)}`);
   폼.append("language", 언어);
 
+  const 경로 = "/api/bff/api/v1/voice/transcribe";
+  const 시작 = 팀백엔드모드 ? performance.now() : 0;
+  /*
+   * 오간 것에 남긴다. 맵기 매칭과 같은 이유로 여태 빠져 있었다 — 이 호출도
+   * createTeamBackend 를 안 거치고 직접 부른다.
+   *
+   * ── 무엇을 남기고 무엇을 안 남기는가 ─────────────────────────────────────
+   *
+   * **요청 본문(오디오)은 못 남긴다.** 멀티파트로 나가는 소리 덩어리라 글로
+   * 적을 것이 없다. 대신 무엇을 보냈는지 알아볼 만큼 — 형식·크기·언어 — 만 적는다.
+   *
+   * **응답 본문은 안 남긴다.** 한때 남겼다 — 연동 자료로 쓰려면 "서버가 이
+   * 말을 받아 적었다" 가 보여야 한다는 이유였다.
+   *
+   * 그런데 그 응답이 곧 **그 사람이 방금 한 말**이다. 이름이나 전화번호를
+   * 말하면 그대로 적힌다. 이 패널은 배포본에서도 보이므로(build:team) 시연
+   * 화면과 녹화에 그대로 찍히고, 브라우저 메모리에 60줄까지 남는다.
+   *
+   * 이 앱은 실제 개인정보를 받지도 저장하지도 않는다고 화면에서 약속한다.
+   * 무엇이 오갔는지는 상태·걸린시간·오디오 형식·크기·언어로 충분하다 —
+   * 자료로서 아쉬운 것과 사람의 말이 화면에 남는 것은 무게가 다르다.
+   */
+  const 적기 = (상태: number | "실패") => {
+    if (!팀백엔드모드) return;
+    연동기록.남기기({
+      방법: "POST", 경로, 상태,
+      걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
+      요청: JSON.stringify({ 오디오: 오디오.type || "(형식없음)", 바이트: 오디오.size, 언어 }),
+      // 응답은 그 사람이 한 말이다. 안 남긴다 — 위 주석 참고.
+      가림: true,
+    });
+  };
+
   let res: Response;
   try {
-    res = await fetch("/api/bff/api/v1/voice/transcribe", { method: "POST", body: 폼 });
+    res = await fetch(경로, { method: "POST", body: 폼 });
   } catch {
+    적기("실패");
     return { 못들은이유: "안됨" };
   }
   /*
@@ -95,8 +130,12 @@ const 서버로보내기 = async (
    * 어느 쪽이든 사용자가 할 일은 같다 — 손으로 고르는 화면으로 넘어간다.
    * 다른 것은 그 앞에 무슨 말이 적히느냐뿐이고, 그게 맞는 말이어야 한다.
    */
+  // 글로 먼저 읽어 기록에 남기고 해석한다 — 이유는 spicy.ts 의 같은 자리와 같다.
+  const 받은글 = await res.text().catch(() => "");
+  적기(res.status);
   if (!res.ok) return { 못들은이유: "안됨" };
-  const 본문 = await res.json().catch(() => null) as { text?: string } | null;
+  let 본문: { text?: string } | null = null;
+  try { 본문 = 받은글 ? JSON.parse(받은글) : null; } catch { 본문 = null; }
   const 글 = (본문?.text ?? "").trim();
   return 글 ? { 들은말: 글 } : { 못들은이유: "소리없음" };
 };
@@ -155,7 +194,25 @@ export const 들어보기 = (
 
   void (async () => {
     try {
-      스트림 = await navigator.mediaDevices.getUserMedia({ audio: true });
+      /*
+       * 마이크를 그냥 열지 않고 조건을 준다.
+       *
+       * `{ audio: true }` 는 브라우저 기본값에 맡기는 것인데, 기본값은 기기마다
+       * 다르고 어떤 기기는 아무 처리도 안 한다. 인식기에 들어가는 소리가 곧
+       * 인식 품질이라, 여기서 정리해서 보내는 편이 낫다.
+       *
+       *   noiseSuppression   바탕 소음을 줄인다. 식당 앞·길가에서 크게 다르다.
+       *   echoCancellation   스피커로 읽어 준 안내가 마이크로 되돌아오는 것을
+       *                      줄인다. 이 앱은 읽어 주고 바로 듣는 흐름이라 특히
+       *                      걸리는 자리다.
+       *   autoGainControl    작게 말하는 분의 목소리를 키운다.
+       *
+       * 모르는 칸은 브라우저가 조용히 무시한다 — 표준이 그렇게 정해 두었다.
+       * 그래서 되는 기기에서만 좋아지고 나머지는 지금과 같다.
+       */
+      스트림 = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
+      });
     } catch {
       한번만({ 못들은이유: "권한없음" });
       return;
