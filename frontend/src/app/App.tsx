@@ -2500,13 +2500,25 @@ function PairingFailed({ reason = "유효하지 않은 QR입니다", onScan }: {
   );
 }
 
-function PairingExpired({ onScan }: { onScan: () => void }) {
+/**
+ * 연결이 끝난 화면.
+ *
+ * 끝나는 길이 둘이라 말을 나눈다 — 시간이 지난 것과, 한 번 써서 끝난 것.
+ * 취소하고 나온 사람에게 "연결 시간이 만료되었습니다" 라고 하면 사실이 아니고,
+ * 사용자는 자기가 무엇을 오래 붙잡고 있었나 되짚게 된다(팀 #146).
+ *
+ * 어느 쪽이든 할 일은 같다(다시 찍기). 다른 것은 그 앞에 무슨 말이 적히느냐
+ * 뿐이고, 그게 맞는 말이어야 한다 — listen.ts 의 못들은이유 와 같은 판단이다.
+ */
+function PairingExpired({ onScan, 이유 = "만료" }: { onScan: () => void; 이유?: "만료" | "다썼음" }) {
   return (
     <div className="flex flex-col flex-1" style={{ padding: `32px ${GAP.screenX}px 24px` }}>
       <StatusHero
         mark={<Pictogram name="clockCountdown" size={64} color={WARN} />}
-        title={<>연결 시간이<br />만료되었습니다</>}
-        desc="안전을 위해 연결이 종료되었어요"
+        title={이유 === "다썼음" ? <>이 연결은<br />다 쓰셨어요</> : <>연결 시간이<br />만료되었습니다</>}
+        desc={이유 === "다썼음"
+          ? "한 번 연결하면 한 번 주문할 수 있어요"
+          : "안전을 위해 연결이 종료되었어요"}
       />
 
       <div style={{ borderRadius: RADIUS.card, padding: 20, backgroundColor: SURFACE, marginTop: 32 }}>
@@ -2680,11 +2692,13 @@ function PairingIdle({ onScan }: { onScan: () => void }) {
   );
 }
 
-function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
+function QrScreen({ onPaired, initialPhase = "scan", 끝난이유 = "만료", connected = null }: {
   onPaired: (pairingId: string, expiresAt: number, kioskName: string) => void;
   // 연결이 만료돼서 되돌아온 경우에는 스캐너가 아니라 만료 안내부터 보여 준다.
   // 스캐너로 바로 보내면 사용자는 자기가 왜 여기 왔는지 알 수 없다.
   initialPhase?: "scan" | "expired";
+  /** 연결이 왜 끝났는지. 만료 화면의 문구가 이걸 따라 갈린다(팀 #146). */
+  끝난이유?: "만료" | "다썼음";
   // 이미 연결돼 있으면 그 상태를 그대로 보여 준다. 다시 찍으라고 하지 않는다.
   connected?: { pairingId: string; expiresAt: number; kioskName: string } | null;
 }) {
@@ -2775,7 +2789,7 @@ function QrScreen({ onPaired, initialPhase = "scan", connected = null }: {
           />
         )}
         {phase === "failed" && <PairingFailed reason={failReason} onScan={handleRescan} />}
-        {phase === "expired" && <PairingExpired onScan={handleRescan} />}
+        {phase === "expired" && <PairingExpired onScan={handleRescan} 이유={끝난이유} />}
       </div>
     </div>
   );
@@ -4187,11 +4201,19 @@ function OrderMappingLoading() {
 }
 
 function OrderConfirmScreen({
-  pairingId, sheet, onBack, onApproved,
+  pairingId, sheet, onBack, on연결끝남, onApproved,
 }: {
   pairingId: string;
   sheet: OrderSheet;
   onBack: () => void;
+  /**
+   * 거절해서 이 연결을 다 썼다.
+   *
+   * onBack 과 갈라 둔다. 머리의 뒤로가기는 그냥 나가는 것이라 연결이 살아
+   * 있지만, 거절은 서버가 그 pairing 을 폐기하는 자리다(팀 #146). 둘을 한
+   * 콜백으로 묶으면 그냥 나간 사람의 연결까지 끊게 된다.
+   */
+  on연결끝남: () => void;
   onApproved: (planId: string) => void;
 }) {
   const [mapping, setMapping] = useState<MappingResponse | null>(null);
@@ -4254,7 +4276,14 @@ function OrderConfirmScreen({
    * 사용자가 감당할 일이 아니다.
    */
   const 거절하기 = () => {
-    onBack();
+    /*
+     * 되돌아가는 것으로 끝내지 않고, 이 연결이 끝났다는 것까지 알린다.
+     *
+     * 서버는 거절도 승인과 같은 경로로 처리해 pairing 을 폐기한다. 프론트가
+     * 그 값을 계속 들고 있으면, 다른 주문표로 들어갈 때 죽은 연결로 매핑을
+     * 시도해 "연결 정보를 찾을 수 없습니다" 라는 개발자 말이 뜬다(팀 #146).
+     */
+    on연결끝남();
     void api.reject({ pairingId, sheetId: sheet.id }).catch(() => {});
   };
 
@@ -5278,6 +5307,13 @@ export default function App() {
   const [pairingKiosk, setPairingKiosk] = useState<string | null>(null);
   // 만료 때문에 QR 화면으로 되돌아왔는지. 되돌아왔으면 안내부터 띄운다.
   const [qrExpired, setQrExpired] = useState(false);
+  /*
+   * 연결이 왜 끝났나. 화면 문구가 이걸 따라 갈린다(PairingExpired).
+   *
+   * 취소하고 나온 사람에게 "연결 시간이 만료되었습니다" 라고 하면 사실이
+   * 아니다 — 시간은 아직 남아 있었고, 다 쓴 것이다(팀 #146).
+   */
+  const [qr끝난이유, setQr끝난이유] = useState<"만료" | "다썼음">("만료");
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
   /**
    * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
@@ -5710,6 +5746,7 @@ export default function App() {
     if (접근성값.mobilitySupport) return;
     const 남은 = pairingExpiresAt - Date.now();
     const 되돌리기 = () => {
+      setQr끝난이유("만료");
       setPairingId(null);
       setPairingExpiresAt(null);
       setPairingKiosk(null);
@@ -6155,6 +6192,7 @@ export default function App() {
             <QrScreen
               key={qrKey}
               initialPhase={qrExpired ? "expired" : "scan"}
+              끝난이유={qr끝난이유}
               // 연결이 살아 있으면 스캐너부터 열지 않는다. 예전에는 QR 탭에 들어갈
               // 때마다 검은 스캐너가 떠서, 연결이 멀쩡한데도 끊긴 것처럼 보였다.
               // 같은 상태를 두고 주문 화면과 QR 화면이 다른 이야기를 했다.
@@ -6191,6 +6229,24 @@ export default function App() {
               pairingId={pairingId}
               sheet={orderSheet}
               onBack={() => setScreen("saved")}
+              /*
+               * 거절하면 서버가 이 pairing 을 폐기한다. 프론트도 같이 놓아야
+               * 다른 주문표로 들어갈 때 죽은 연결로 매핑하지 않는다(팀 #146).
+               *
+               * 만료될 때와 같은 정리다 — 다른 것은 화면에 적히는 이유뿐이다.
+               */
+              on연결끝남={() => {
+                setQr끝난이유("다썼음");
+                setPairingId(null);
+                setPairingExpiresAt(null);
+                setPairingKiosk(null);
+                setOrderSheet(null);
+                setFromQr(false);
+                setScreen("saved");
+                setTab("qr");
+                setQrExpired(true);
+                setQrKey((k) => k + 1);
+              }}
               onApproved={(id) => { setPlanId(id); setScreen("execution"); }}
             />
           )}
