@@ -1017,21 +1017,28 @@ function 순살제안시트({ onAnswer, onCancel }: {
    * 도 같이 달아 둔다 — 안 달면 루트의 "새로 붙은 줄" 감지가 350ms 뒤에 같은
    * 문장을 한 번 더 읽어서 두 번 들린다.
    */
+  /*
+   * 시트 문구와 읽어주기를 같은 t() 결과에서 뽑는다.
+   *
+   * 예전에는 읽어주기 쪽만 한국어 원문을 그대로 썼다 — 언어를 English로 두면
+   * 화면은 영어인데 소리는 한국어 문장을 그대로 읽어서 알아들을 수 없는
+   * 소리가 났다(coderabbitai 리뷰). t() 는 접근성설정.읽기().language 를 매
+   * 호출마다 직접 보므로, 여기서 언어를 따로 안 넘겨도 화면·소리가 같이 맞다.
+   */
+  const 제목 = t("먹기 편한 순살로 하시겠어요?");
+  const 설명 = t("형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.");
+  const 순살버튼 = t("네, 순살로 할게요");
+  const 상관없음버튼 = t("상관없어요");
+
   useEffect(() => {
     if (!접근성설정.읽기().voiceGuide) return;
     그만읽기();
     읽어주기(
-      [
-        "먹기 편한 순살로 하시겠어요?",
-        "형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.",
-        "네, 순살로 할게요",
-        "상관없어요",
-      ].join(". "),
+      [제목, 설명, 순살버튼, 상관없음버튼].join(". "),
       { 언어: 접근성설정.읽기().language },
     );
     return () => 그만읽기();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [제목, 설명, 순살버튼, 상관없음버튼]);
 
   return (
     <div
@@ -1050,15 +1057,17 @@ function 순살제안시트({ onAnswer, onCancel }: {
         style={{ backgroundColor: PAPER, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: `28px ${GAP.screenX}px 24px`, outline: "none" }}
       >
         <h2 id="bone-suggest-title" style={{ ...TYPE.title, color: TEXT_1, margin: 0 }}>
-          먹기 편한 순살로 하시겠어요?
+          {제목}
         </h2>
         <p id="bone-suggest-body" style={{ ...TYPE.body, color: TEXT_2, marginTop: 10 }}>
-          형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.
+          {설명}
         </p>
         <div style={{ marginTop: 24 }}>
-          <PrimaryBtn onClick={() => onAnswer("순살")}>네, 순살로 할게요</PrimaryBtn>
+          {/* 값은 "순살"/"상관없음" 한국어 그대로 넘긴다 — 저장되는 의미값(selections)이고
+              canonical.ts 가 이 한국어를 enum 으로 옮긴다(t.ts 주석). 번역은 보여줄 때뿐이다. */}
+          <PrimaryBtn onClick={() => onAnswer("순살")}>{순살버튼}</PrimaryBtn>
           <div style={{ height: 10 }} />
-          <OutlineBtn onClick={() => onAnswer("상관없음")}>상관없어요</OutlineBtn>
+          <OutlineBtn onClick={() => onAnswer("상관없음")}>{상관없음버튼}</OutlineBtn>
         </div>
       </div>
     </div>
