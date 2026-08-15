@@ -4096,6 +4096,40 @@ function OrderConfirmScreen({
   const 이유있나 = (mapping?.reasons?.length ?? 0) > 0;
   const 이유단계 = 이유먼저 && 이유있나 && mapping?.result !== "not_found";
 
+  /*
+   * 내용이 도착한 뒤에 제목으로 포커스를 옮긴다.
+   *
+   * App 의 화면 전환 효과는 screen 이 바뀌는 그 순간 한 번만 돈다. 그런데 이
+   * 화면은 **비어 있는 채로 뜬다** — 매핑을 기다리는 동안에는 제목이 아직
+   * 없어서, 그 효과는 옮길 곳을 못 찾고 그냥 돌아간다. 추천이 도착해 제목이
+   * 그려질 때는 효과가 다시 돌지 않으므로 포커스는 <body> 에 남는다.
+   *
+   * 이유 화면 ↔ 확인 카드 전환도 같다. 같은 화면 안의 상태 변화라 App 은 모른다.
+   *
+   * 무엇이 주문될지 정하는 자리다. 키보드로 쓰는 사람이 하필 여기서 문서 맨
+   * 위부터 Tab 을 다시 눌러 내려와야 하는 것이 가장 나쁘다.
+   */
+  const 본문칸 = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // 아직 기다리는 중이면 옮길 곳이 없다. 도착하면 이 효과가 다시 돈다.
+    if (!mapping) return;
+    const 뿌리 = 본문칸.current;
+    if (!뿌리) return;
+    /*
+     * 보이는 제목만 고른다.
+     *
+     * 확인 갈래는 이유를 볼 때도 display:none 으로 붙어 있다(아래 주석 참고).
+     * 그냥 첫 제목을 잡으면 화면 밖에 있는 제목에 포커스가 가서, 키보드
+     * 사용자는 자기가 어디 있는지도 모르고 다음 Tab 이 어디서 이어질지도 모른다.
+     */
+    const 제목 = [...뿌리.querySelectorAll<HTMLElement>("h1, h2")].find((e) => e.offsetParent !== null);
+    if (!제목) return;
+    if (!제목.hasAttribute("tabindex")) 제목.setAttribute("tabindex", "-1");
+    // 스크롤을 내려 둔 상태에서 단계가 바뀔 수 있다. 보이게 한 뒤에 잡는다(#120).
+    제목.scrollIntoView({ block: "nearest", inline: "nearest" });
+    제목.focus({ preventScroll: true });
+  }, [mapping, 이유단계]);
+
   const approve = (extra: Omit<ApproveInput, "pairingId" | "sheetId" | "mappingResult"> = {}) => {
     if (!mapping || approving.current) return;
     approving.current = true;
@@ -4119,7 +4153,7 @@ function OrderConfirmScreen({
         <div style={{ height: 1, backgroundColor: BORDER, marginLeft: -GAP.screenX, marginRight: -GAP.screenX }} />
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-6" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX, paddingTop: 24 }} aria-busy={!mapping && !error}>
+      <div ref={본문칸} className="flex-1 overflow-y-auto pb-6" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX, paddingTop: 24 }} aria-busy={!mapping && !error}>
         {!mapping && !error && <OrderMappingLoading />}
 
         {/*
