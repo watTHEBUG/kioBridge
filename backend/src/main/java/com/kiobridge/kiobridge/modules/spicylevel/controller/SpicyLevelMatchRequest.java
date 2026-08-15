@@ -1,3 +1,10 @@
 package com.kiobridge.kiobridge.modules.spicylevel.controller;
 
-public record SpicyLevelMatchRequest(String text) {}
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public record SpicyLevelMatchRequest(
+    @NotBlank
+    @Size(max = 100)
+    String text
+) {}

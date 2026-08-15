@@ -17,23 +17,22 @@ public class SpicyLevelAnchorData {
         Map.entry("엽기떡볶이맛", "HOT"),
         Map.entry("존맛탱매운맛", "HOT"),
         Map.entry("눈물나게매운맛", "HOT"),
-        Map.entry("불맛", "HOT"),
         Map.entry("불지옥맛", "HOT"),
         Map.entry("극한매운맛", "HOT"),
         Map.entry("타는맛", "HOT"),
-        Map.entry("스트레스풀리는맛", "HOT"),
 
         // MEDIUM (중간맛)
         Map.entry("중간맛", "MEDIUM"),
         Map.entry("보통맛", "MEDIUM"),
+        Map.entry("보통이요", "MEDIUM"),
+        Map.entry("보통으로요", "MEDIUM"),
+        Map.entry("그냥 보통", "MEDIUM"),
         Map.entry("약간매운맛", "MEDIUM"),
         Map.entry("적당히매운맛", "MEDIUM"),
         Map.entry("얼큰한맛", "MEDIUM"),
         Map.entry("칼칼한맛", "MEDIUM"),
         Map.entry("적당히칼칼한맛", "MEDIUM"),
         Map.entry("은근매운맛", "MEDIUM"),
-        Map.entry("자극적인맛", "MEDIUM"),
-        Map.entry("김치찌개맛", "MEDIUM"),
 
         // MILD (순한맛)
         Map.entry("순한맛", "MILD"),
@@ -49,6 +48,13 @@ public class SpicyLevelAnchorData {
         Map.entry("연한맛", "MILD"),
         Map.entry("부드러운맛", "MILD"),
         Map.entry("자극없는맛", "MILD"),
-        Map.entry("아기용맛", "MILD")
+        Map.entry("아기용맛", "MILD"),
+
+        // NO_PREFERENCE (상관없음)
+        Map.entry("아무거나", "NO_PREFERENCE"),
+        Map.entry("상관없어요", "NO_PREFERENCE"),
+        Map.entry("아무 맛이나", "NO_PREFERENCE"),
+        Map.entry("다 좋아요", "NO_PREFERENCE"),
+        Map.entry("전부 괜찮아요", "NO_PREFERENCE")
     );
 }

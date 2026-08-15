@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -14,6 +15,12 @@ public class SpicyLevelMatchingService {
 
     private static final int K = 5;
     private static final long CONFIDENCE_THRESHOLD = 3;
+    private static final Set<String> NO_PREFERENCE_KEYWORDS = Set.of(
+        "아무", "상관없", "다 좋", "다좋", "괜찮"
+    );
+    private static final Set<String> MEDIUM_KEYWORDS = Set.of(
+        "보통"
+    );
 
     private final EmbeddingService embeddingService;
     private final SpicyLevelAnchorRepository repository;
@@ -24,6 +31,17 @@ public class SpicyLevelMatchingService {
     }
 
     public SpicyLevelMatchResult match(String text) {
+        if (NO_PREFERENCE_KEYWORDS.stream().anyMatch(text::contains)) {
+            return new SpicyLevelMatchResult(
+                "NO_PREFERENCE", true, Map.of(), List.of("NO_PREFERENCE"), text, null
+            );
+        }
+        if (MEDIUM_KEYWORDS.stream().anyMatch(text::contains)) {
+            return new SpicyLevelMatchResult(
+                "MEDIUM", true, Map.of(), List.of("MEDIUM"), text, null
+            );
+        }
+
         float[] vector = embeddingService.embed(text);
         String literal = VectorFormatter.toPgVectorLiteral(vector);
         List<String> nearest = repository.findNearestSpicyLevels(literal, K);
@@ -42,11 +60,11 @@ public class SpicyLevelMatchingService {
             .toList();
 
         if (topLabels.size() == 1 && maxVotes >= CONFIDENCE_THRESHOLD) {
-            return new SpicyLevelMatchResult(topLabels.get(0), true, counts, null);
+            return new SpicyLevelMatchResult(topLabels.get(0), true, counts, topLabels, text, null);
         }
 
         String question = buildClarificationQuestion(text, topLabels);
-        return new SpicyLevelMatchResult(null, false, counts, question);
+        return new SpicyLevelMatchResult(null, false, counts, topLabels, text, question);
     }
 
     private String buildClarificationQuestion(String text, List<String> candidates) {
@@ -61,6 +79,7 @@ public class SpicyLevelMatchingService {
             case "HOT" -> "매운맛";
             case "MEDIUM" -> "중간맛";
             case "MILD" -> "순한맛";
+            case "NO_PREFERENCE" -> "상관없음";
             default -> level;
         };
     }

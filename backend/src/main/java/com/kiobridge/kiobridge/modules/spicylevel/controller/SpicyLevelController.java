@@ -1,7 +1,7 @@
 package com.kiobridge.kiobridge.modules.spicylevel.controller;
 
-import com.kiobridge.kiobridge.modules.spicylevel.service.SpicyLevelMatchResult;
 import com.kiobridge.kiobridge.modules.spicylevel.service.SpicyLevelMatchingService;
+import jakarta.validation.Valid;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,9 +19,9 @@ public class SpicyLevelController {
         this.matchingService = matchingService;
     }
 
-    /** POST /internal/spicy-level/match — 텍스트를 받아 맵기(HOT/MEDIUM/MILD) 매칭 결과를 반환한다. */
+    /** POST /internal/spicy-level/match — 텍스트를 받아 맵기(HOT/MEDIUM/MILD/NO_PREFERENCE) 매칭 결과를 반환한다. */
     @PostMapping("/match")
-    public SpicyLevelMatchResult match(@RequestBody SpicyLevelMatchRequest request) {
-        return matchingService.match(request.text());
+    public SpicyLevelMatchResponse match(@Valid @RequestBody SpicyLevelMatchRequest request) {
+        return SpicyLevelMatchResponse.from(matchingService.match(request.text()));
     }
 }
