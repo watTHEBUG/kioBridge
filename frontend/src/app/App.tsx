@@ -22,7 +22,7 @@ import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글, 다읽을때까지 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
-import { 부를때까지기다리기, 물어보지않고들을수있나, 말로예아니오받기 } from "@/api/wake";
+import { 부를때까지기다리기, 말로예아니오받기, 마이크상태보기, 마이크허락받기, type 마이크상태 } from "@/api/wake";
 import { 말에서고르기, 예아니오, 뒤로가자고했나, 다음가자고했나 } from "@/api/voice";
 import { 맵기물어보기 } from "@/api/spicy";
 import { 입력출처 } from "@/api/inputsource";
@@ -404,12 +404,32 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
    * 물음은 아래에 글로 띄운다. 소리 안내가 그 글을 읽고, 그 뒤에 답을 듣는다 —
    * 화면에 없는 말을 귀로만 들려주면 눈으로 보는 사람과 다른 것을 듣게 된다.
    */
+  /*
+   * 마이크가 어떤 상태인지 화면이 알고 있어야 한다.
+   *
+   * 여태 '이미 허용됨' 이 아니면 **아무것도 안 하고 아무 말도 안 했다.** 그래서
+   * 처음 오신 분에게는 이 길이 있는지조차 안 보였고, 화면은 멀쩡한데 말을 걸어도
+   * 반응이 없었다 — 이 앱이 가장 피하려던 자리를 우리가 만든 셈이다.
+   *
+   * 이제 상태를 보고 그에 맞는 말을 한다. 아직 안 물어본 자리에는 한 번 물어볼
+   * 단추를 내민다. 브라우저는 사람이 누른 자리에서만 물어 주므로 그 단추가 있어야
+   * 한다 — 그 한 번이 지나면 다음부터는 손을 안 대도 된다.
+   */
+  const [마이크, set마이크] = useState<마이크상태>("모름");
+  /** 허락을 받은 뒤 아래 두 효과를 다시 걸기 위한 세대. */
+  const [허락세대, set허락세대] = useState(0);
+  useEffect(() => {
+    let 살아있나 = true;
+    void 마이크상태보기().then((s) => { if (살아있나) set마이크(s); });
+    return () => { 살아있나 = false; };
+  }, [허락세대]);
+
   const [동의듣기, set동의듣기] = useState<"안함" | "묻는중" | "그만함">("안함");
   useEffect(() => {
-    if (동의함 || !소리켜짐 || !소리로주고받나()) { set동의듣기("안함"); return; }
+    if (동의함 || !소리켜짐 || !소리로주고받나() || 마이크 !== "됨") { set동의듣기("안함"); return; }
     let 살아있나 = true;
     let 듣던것: { 그만기다리기: () => void } | null = null;
-    void 물어보지않고들을수있나().then((되나) => {
+    void Promise.resolve(true).then((되나) => {
       if (!살아있나 || !되나) return;
       set동의듣기("묻는중");
       듣던것 = 말로예아니오받기(언어, {
@@ -423,14 +443,14 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
       살아있나 = false;
       듣던것?.그만기다리기();
     };
-  }, [동의함, 소리켜짐, 언어, on동의]);
+  }, [동의함, 소리켜짐, 언어, 마이크, on동의]);
 
   const [부르기상태, set부르기상태] = useState<"안함" | "기다림" | "그만함">("안함");
   useEffect(() => {
-    if (!동의함 || !소리켜짐 || !소리로주고받나()) { set부르기상태("안함"); return; }
+    if (!동의함 || !소리켜짐 || !소리로주고받나() || 마이크 !== "됨") { set부르기상태("안함"); return; }
     let 살아있나 = true;
     let 기다리던것: { 그만기다리기: () => void } | null = null;
-    void 물어보지않고들을수있나().then((되나) => {
+    void Promise.resolve(true).then((되나) => {
       if (!살아있나 || !되나) return;
       set부르기상태("기다림");
       기다리던것 = 부를때까지기다리기(언어, {
@@ -443,7 +463,7 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
       기다리던것?.그만기다리기();
     };
     // 언어가 바뀌면 인식 언어도 바뀌어야 하므로 다시 건다.
-  }, [동의함, 소리켜짐, 언어, onStart]);
+  }, [동의함, 소리켜짐, 언어, 마이크, onStart]);
 
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
@@ -503,6 +523,35 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
           한마디가 동의 전에 서버를 다녀와야 하는데(녹음을 보내 인식한다),
           순서가 뒤집히는 것을 숨기지 않는다.
         */}
+        {/*
+          마이크를 아직 안 물어본 자리. **한 번 물어볼 단추를 내민다.**
+
+          여태 여기서 아무것도 안 했다. 그래서 처음 오신 분에게는 말로 시작하는
+          길이 있는지조차 안 보였고, 말을 걸어도 반응이 없었다 — 화면은 멀쩡한데
+          아무 일도 안 일어나면 사람은 앱이 고장 났다고 여긴다.
+
+          브라우저는 **사람이 누른 자리에서만** 마이크를 물어 준다. 그래서 이
+          단추가 필요하다. 한 번 허락하면 다음부터는 손을 안 대도 된다.
+        */}
+        {!동의함 && 소리켜짐 && (마이크 === "물어봐야함" || 마이크 === "모름") && (
+          <>
+            <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+              말로 답하시려면 마이크를 한 번 허락해 주세요. 허락하시면 다음부터는 손대지 않고 시작할 수 있어요.
+            </p>
+            <OutlineBtn onClick={() => { void 마이크허락받기().then(() => set허락세대((n) => n + 1)); }}>
+              마이크 허락하기
+            </OutlineBtn>
+          </>
+        )}
+        {/*
+          막아 두었다. 우리가 다시 물을 수 없는 자리라, 어디서 푸는지 알려 준다 —
+          "안 됩니다" 만 말하고 끝내면 사용자는 할 수 있는 일이 없다.
+        */}
+        {!동의함 && 소리켜짐 && 마이크 === "막힘" && 들을수있나() && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            마이크가 막혀 있어 말로는 답할 수 없어요. 주소창 옆 자물쇠에서 마이크를 허용하시면 됩니다.
+          </p>
+        )}
         {동의듣기 === "묻는중" && (
           <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
             이용에 동의하시겠어요? 동의하시면 "네" 라고 말씀해 주세요. 대답은 알아듣기 위해 서버로 한 번 전송됩니다.

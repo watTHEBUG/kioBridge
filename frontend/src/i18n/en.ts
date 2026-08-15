@@ -52,6 +52,12 @@ export const EN: Record<string, string> = {
   "끝내기": "Done",
   // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
   "앞 질문": "Previous question",
+  // 마이크를 아직 안 물어본 자리 / 막힌 자리. 아무 말 없이 두지 않는다.
+  "말로 답하시려면 마이크를 한 번 허락해 주세요. 허락하시면 다음부터는 손대지 않고 시작할 수 있어요.":
+    "To answer by voice, allow the microphone once. After that you can start without a tap.",
+  "마이크 허락하기": "Allow microphone",
+  "마이크가 막혀 있어 말로는 답할 수 없어요. 주소창 옆 자물쇠에서 마이크를 허용하시면 됩니다.":
+    "The microphone is blocked, so you cannot answer by voice. Allow it from the lock icon next to the address bar.",
   /*
    * 동의를 말로 받는 길(api/wake.ts 의 말로예아니오받기). 체크박스를 못 찾는
    * 분이 지날 수 있는 유일한 문이라, 이 줄은 소리로도 읽힌다.

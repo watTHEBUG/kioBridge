@@ -1,4 +1,4 @@
-import { 들어보기 } from "@/api/listen";
+import { 들어보기, 들을수있나 } from "@/api/listen";
 import { 예아니오 } from "@/api/voice";
 import { 다읽을때까지 } from "@/api/speech";
 
@@ -68,6 +68,50 @@ export const 물어보지않고들을수있나 = async (): Promise<boolean> => {
   try {
     const p = await navigator.permissions?.query({ name: "microphone" as PermissionName });
     return p?.state === "granted";
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 마이크가 지금 어떤 상태인가. 화면이 무슨 말을 할지 이걸로 정한다.
+ *
+ *   됨        이미 허용됐다. 부르는 말을 기다릴 수 있다.
+ *   물어봐야함 아직 안 물어봤다. **사람이 누른 자리에서** 한 번 물어야 한다.
+ *   막힘      막아 두었다. 우리가 다시 물을 수 없다 — 브라우저 설정에서만 푼다.
+ *   모름      Permissions API 가 없다(사파리 등). 물어봐야함 과 같이 다룬다.
+ *
+ * 모름 을 막힘 으로 치지 않는다. 모른다고 길을 닫으면, 될 수도 있는 기기에서
+ * 아무 말 없이 아무것도 안 하게 된다.
+ */
+export type 마이크상태 = "됨" | "물어봐야함" | "막힘" | "모름";
+
+export const 마이크상태보기 = async (): Promise<마이크상태> => {
+  if (!들을수있나()) return "막힘";
+  try {
+    const p = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+    if (!p) return "모름";
+    return p.state === "granted" ? "됨" : p.state === "denied" ? "막힘" : "물어봐야함";
+  } catch {
+    return "모름";
+  }
+};
+
+/**
+ * 마이크를 한 번 열어 브라우저가 묻게 한다. 허락되면 true.
+ *
+ * **사람이 누른 자리에서만 부른다.** 브라우저는 사용자가 누르지 않은 자리에서
+ * 온 요청을 조용히 막는다 — 그러면 물어보지도 못하고 아무 일도 안 일어난다.
+ *
+ * 연 김에 바로 끈다. 여기서 하려는 일은 녹음이 아니라 허락을 받는 것뿐이다.
+ * 안 끄면 마이크 표시등이 켜진 채로 남아, 듣고 있지도 않은데 듣는 것처럼 보인다.
+ */
+export const 마이크허락받기 = async (): Promise<boolean> => {
+  if (!들을수있나()) return false;
+  try {
+    const 스트림 = await navigator.mediaDevices.getUserMedia({ audio: true });
+    스트림.getTracks().forEach((t) => t.stop());
+    return true;
   } catch {
     return false;
   }
