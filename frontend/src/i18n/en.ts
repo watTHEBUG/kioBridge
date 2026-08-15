@@ -53,6 +53,14 @@ export const EN: Record<string, string> = {
   // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
   "앞 질문": "Previous question",
   /*
+   * 동의를 말로 받는 길(api/wake.ts 의 말로예아니오받기). 체크박스를 못 찾는
+   * 분이 지날 수 있는 유일한 문이라, 이 줄은 소리로도 읽힌다.
+   */
+  "이용에 동의하시겠어요? 동의하시면 \"네\" 라고 말씀해 주세요. 대답은 알아듣기 위해 서버로 한 번 전송됩니다.":
+    "Do you agree to use this service? Say \"yes\" to agree. Your answer is sent once to be recognized.",
+  "잘 못 알아들어서 그만 들을게요. 위 확인란을 눌러 주세요.":
+    "We could not catch that, so we stopped listening. Please tick the box above.",
+  /*
    * 듣는 중 안내 두 줄. 화면에 그대로 박혀 있어서 영어 화면에도 우리말이
    * 남아 있었다(#145 리뷰). 이어 듣기냐 아니냐로 문장이 갈린다.
    */

@@ -22,7 +22,7 @@ import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글, 다읽을때까지 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
-import { 부를때까지기다리기, 물어보지않고들을수있나 } from "@/api/wake";
+import { 부를때까지기다리기, 물어보지않고들을수있나, 말로예아니오받기 } from "@/api/wake";
 import { 말에서고르기, 예아니오, 뒤로가자고했나, 다음가자고했나 } from "@/api/voice";
 import { 맵기물어보기 } from "@/api/spicy";
 import { 입력출처 } from "@/api/inputsource";
@@ -394,6 +394,37 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
    * 그만뒀을 때도 말해 준다. 조용히 멈추면 사용자는 아직 듣는 줄 알고 계속
    * 부른다.
    */
+  /*
+   * 동의를 말로 받는다.
+   *
+   * 동의는 건너뛸 수 없는 관문인데 그 관문이 체크박스라, 화면을 못 보는 분은
+   * 손을 안 대고는 지날 수 없었다. 부르는 말을 알아듣게 만들어 놓고도 그
+   * 앞에서 막혀 있던 셈이다.
+   *
+   * 물음은 아래에 글로 띄운다. 소리 안내가 그 글을 읽고, 그 뒤에 답을 듣는다 —
+   * 화면에 없는 말을 귀로만 들려주면 눈으로 보는 사람과 다른 것을 듣게 된다.
+   */
+  const [동의듣기, set동의듣기] = useState<"안함" | "묻는중" | "그만함">("안함");
+  useEffect(() => {
+    if (동의함 || !소리켜짐 || !소리로주고받나()) { set동의듣기("안함"); return; }
+    let 살아있나 = true;
+    let 듣던것: { 그만기다리기: () => void } | null = null;
+    void 물어보지않고들을수있나().then((되나) => {
+      if (!살아있나 || !되나) return;
+      set동의듣기("묻는중");
+      듣던것 = 말로예아니오받기(언어, {
+        네라고하면: () => { if (살아있나) on동의(true); },
+        // 아니라고 하셨다. 다시 묻지 않는다 — 답을 들은 것이지 못 들은 것이 아니다.
+        아니라고하면: () => { if (살아있나) set동의듣기("안함"); },
+        그만뒀으면: () => { if (살아있나) set동의듣기("그만함"); },
+      });
+    });
+    return () => {
+      살아있나 = false;
+      듣던것?.그만기다리기();
+    };
+  }, [동의함, 소리켜짐, 언어, on동의]);
+
   const [부르기상태, set부르기상태] = useState<"안함" | "기다림" | "그만함">("안함");
   useEffect(() => {
     if (!동의함 || !소리켜짐 || !소리로주고받나()) { set부르기상태("안함"); return; }
@@ -460,6 +491,26 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
         {!동의함 && (
           <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center" }} role="status">
             확인하셔야 시작할 수 있어요
+          </p>
+        )}
+        {/*
+          말로 답할 수 있다고 알린다.
+
+          data-소리조용 을 안 붙인다 — 소리로 읽혀야 이 길이 열린다. 화면을 못
+          보는 분에게는 이 줄이 "말해도 된다" 는 유일한 신호다.
+
+          "서버로 한 번 전송됩니다" 를 같이 적는다. 동의를 말로 받으려면 그
+          한마디가 동의 전에 서버를 다녀와야 하는데(녹음을 보내 인식한다),
+          순서가 뒤집히는 것을 숨기지 않는다.
+        */}
+        {동의듣기 === "묻는중" && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            이용에 동의하시겠어요? 동의하시면 "네" 라고 말씀해 주세요. 대답은 알아듣기 위해 서버로 한 번 전송됩니다.
+          </p>
+        )}
+        {동의듣기 === "그만함" && (
+          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", lineHeight: 1.7 }} role="status">
+            잘 못 알아들어서 그만 들을게요. 위 확인란을 눌러 주세요.
           </p>
         )}
         {/*
