@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "vite build",
     "build:team": "vite build --mode team",
@@ -10,7 +13,8 @@
     "dev:team": "vite --mode team --port 5199 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check:backend": "node tools/check-backend.mjs"
+    "check:backend": "node tools/check-backend.mjs",
+    "check:pairing": "node tools/check-pairing.mjs"
   },
   "dependencies": {
     "lucide-react": "0.487.0",

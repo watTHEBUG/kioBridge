@@ -46,6 +46,11 @@ const 허용경로 = [
    * 뒀다. 그 셋이 각각 오디오를 막는다. 그래서 이 경로만 아래에서 따로 다룬다.
    */
   /^api\/v1\/voice\/transcribe$/,
+  /*
+   * 말한 맵기를 골라 주는 경로(팀 #133). 화면 보기에 없는 말("불닭맛")을
+   * 여기서 받는다 — 자세한 사연은 src/api/spicy.ts 주석에 있다.
+   */
+  /^internal\/spicy-level\/match$/,
   // 승인 한 번으로 조립·제출·검증·실행까지. 프론트가 실제로 쓰는 경로다.
   /^internal\/orchestrator\/approve$/,
   // 추천 계열 (RecommendationController)

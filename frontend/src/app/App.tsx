@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useId, useMemo } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 
 import { Pictogram } from "@/design/Pictogram";
@@ -23,6 +23,7 @@ import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } f
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
 import { 말에서고르기, 예아니오 } from "@/api/voice";
+import { 맵기물어보기 } from "@/api/spicy";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
 import { 접근토큰 } from "@/api/token";
@@ -32,7 +33,7 @@ import type { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것, 돈 } from "@/i18n/apply";
 import { t, tf } from "@/i18n/t";
-import { 이유글 } from "@/i18n/reason";
+import { 이유글, 이유묶기 } from "@/i18n/reason";
 import { 백엔드가아는장소 } from "@/api/canonical";
 import BackendLog from "@/app/BackendLog";
 
@@ -109,6 +110,26 @@ function ProgressBar({ step, total = 3 }: { step: number; total?: number }) {
  */
 const 동의없이볼수있는화면 = new Set<Screen>(["welcome", "login", "signup", "privacy"]);
 
+/**
+ * 소리로 주고받을 수 있나 — 스위치 하나가 듣기와 말하기를 함께 정한다.
+ *
+ * 예전에는 둘이 따로였다. '소리로 읽어 주기' 는 스위치였고, 말하기 단추는
+ * 기기가 되기만 하면 늘 떠 있었다. 그래서 소리를 원하지 않는 사람에게도
+ * 말하기 단추가 보였고, 반대로 읽어 주기만 켠 사람은 왜 말하기가 되는지
+ * 몰랐다 — 한 가지 일을 두 군데서 정하고 있었던 셈이다.
+ *
+ * 하나로 묶는다. 켜면 읽어 주고 말도 받는다. 끄면 둘 다 안 한다.
+ *
+ * 기기가 마이크를 못 주면 켜도 말하기 단추는 안 나온다. 켰는데 아무 일도
+ * 안 일어나는 단추를 두지 않는다는 규칙은 그대로다.
+ *
+ * 훅이 아니라 그냥 읽는다. 조기 반환(`if (!소리로주고받나()) return null`)과
+ * 섞이면 훅 순서가 깨지기 때문이다. App 이 설정을 구독하고 있어서, 스위치를
+ * 바꾸면 App 이 다시 그려지고 이 값도 따라 바뀐다 — 이 파일이 simpleSteps ·
+ * staffAssistancePreferred 를 읽는 방식과 같다.
+ */
+const 소리로주고받나 = (): boolean => 접근성설정.읽기().voiceGuide && 들을수있나();
+
 function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
   동의함: boolean;
   on바꾸기: (v: boolean) => void;
@@ -149,9 +170,17 @@ function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
           한 줄로 줄였다. 무엇을 모으는지는 옆의 '자세히' 가 여는 개인정보 화면이
           말한다 — 체크 옆에 두 줄을 붙여 두면 읽지 않고 넘기게 되고, 정작 자세한
           설명은 그 화면에 또 있다.
+
+          예전에는 "개인정보 수집 동의서" 였다. 그런데 이 앱은 실제 개인정보를
+          **받지 않는다** — 이름·전화번호·주소는 묻지도 저장하지도 않고, 적으려
+          하면 막는다(account.ts 의 개인정보같은글). 모으는 것은 메뉴 조건과
+          도움 설정뿐이다.
+
+          안 받는 것을 받는다고 적어 두면 사용자는 실제보다 더 많이 내주는 줄
+          알고 동의한다. 겁먹고 그만두는 사람도 생긴다. 하는 일을 그대로 적는다.
         */}
         <span style={{ fontSize: 14, color: TEXT_1, lineHeight: 1.6, flex: 1 }}>
-          개인정보 수집 동의서
+          서비스 이용 및 주문표 저장 안내를 확인했어요
         </span>
       </label>
       <button
@@ -329,7 +358,7 @@ function SectionLabel({ text, required, 칸id }: { text: string; required?: bool
  * onStart  익명으로 바로 시작 — 저장은 이번 한 번만, 기기에 남기지 않는다
  * onLogin  선택적 로그인 — 다음에도 불러오고 싶은 사람만 고른다
  */
-function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리 }: {
+function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리, 언어, on언어 }: {
   onStart: () => void;
   onLogin: () => void;
   /** 동의 전에는 어느 길로도 못 들어간다 — 게스트로 시작하는 것도 정보를 쓰는 일이다. */
@@ -338,6 +367,9 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
   onPrivacy: () => void;
   소리켜짐: boolean;
   on소리: () => void;
+  /** 안내 언어. 이 화면 글도 이 값을 따라 바뀐다. */
+  언어: 언어코드;
+  on언어: (v: 언어코드) => void;
 }) {
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
@@ -374,10 +406,9 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
           소리를 못 내는 기기에서는 안 보인다 — 켜도 아무 일이 없는 스위치를 두면
           켠 사람은 켜졌다고 믿는다(도움 설정 화면과 같은 판단이다).
         */}
-        {소리를낼수있나() && (
+        {(소리를낼수있나() || 들을수있나()) && (
           <ToggleRow
-            label="소리로 읽어 주기"
-            sub="화면에 나온 안내를 소리로 읽어 드려요"
+            label="소리로 듣고 답하기"
             on={소리켜짐}
             onToggle={on소리}
           />
@@ -385,7 +416,7 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!동의함 && (
           <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center" }} role="status">
-            동의하셔야 시작할 수 있어요
+            확인하셔야 시작할 수 있어요
           </p>
         )}
         {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
@@ -416,6 +447,45 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
           <Pictogram name="userCircle" size={18} color={TEXT_2} />
           로그인 (선택)
         </button>
+
+        {/*
+          안내 언어 — 화면 맨 아래, 왼쪽이 한국어 오른쪽이 영어.
+
+          제목도 설명도 안 붙인다. 무엇을 고르는지는 글자 자체가 말한다 —
+          "한국어" 와 "English" 는 그 언어를 읽는 사람에게 각각 자기 말이다.
+          설명을 한국어로 붙이면 영어만 읽는 사람에게는 읽을 수 없는 안내가
+          하나 더 늘 뿐이다.
+
+          맨 아래에 두는 이유는 이것이 이 화면에서 **하는 일이 아니라 되돌리는
+          길**이기 때문이다. 대부분은 안 건드리고 지나가고, 필요한 사람만
+          끝에서 찾는다.
+        */}
+        <div
+          className="flex items-center justify-between"
+          style={{ marginTop: 8, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}
+          role="radiogroup"
+          aria-label="안내 언어"
+        >
+          {언어목록.map(({ code, label }) => (
+            <button
+              key={code}
+              type="button"
+              role="radio"
+              aria-checked={언어 === code}
+              lang={code}
+              onClick={() => on언어(code)}
+              style={{
+                minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
+                fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+                backgroundColor: 언어 === code ? RULE : "transparent",
+                color: 언어 === code ? PAPER : TEXT_2,
+                border: "none", cursor: "pointer", transition: "all 0.15s",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -593,7 +663,7 @@ function LoginScreen({ onDone, onBack, onGoSignup, 동의함, on동의, onPrivac
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!채워짐 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {동의함 ? "아이디와 비밀번호를 적으면 로그인할 수 있어요" : "동의하셔야 로그인할 수 있어요"}
+            {동의함 ? "아이디와 비밀번호를 적으면 로그인할 수 있어요" : "확인하셔야 로그인할 수 있어요"}
           </p>
         )}
         <PrimaryBtn onClick={보내기} disabled={!채워짐 || 보내는중}>
@@ -745,7 +815,7 @@ function SignupScreen({ onDone, onBack, onGoLogin, 동의함, on동의, onPrivac
         {!보낼수있나 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
             {아이디문제 ?? 비번문제 ?? 다시문제
-              ?? (동의함 ? "아이디와 비밀번호를 적으면 가입할 수 있어요" : "동의하셔야 가입할 수 있어요")}
+              ?? (동의함 ? "아이디와 비밀번호를 적으면 가입할 수 있어요" : "확인하셔야 가입할 수 있어요")}
           </p>
         )}
         <PrimaryBtn onClick={보내기} disabled={!보낼수있나 || 보내는중}>
@@ -1027,6 +1097,13 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    */
   const [상태, set상태] = useState<"쉬는중" | "듣는중" | "처리중">("쉬는중");
   const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
+  /*
+   * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되물을 값들(팀 #133).
+   *
+   * 우리가 고르지 않는다. 화면이 그 값들만 보여 주고 사람이 짚는다 —
+   * 짐작해서 넣으면 고르지 않은 것이 골라진다는 규칙은 여기서도 같다.
+   */
+  const [되물을것, set되물을것] = useState<string[] | null>(null);
   const 듣던것 = useRef<{ 그만두기: (보내기?: boolean) => void } | null>(null);
   const 회차 = useRef(0);
 
@@ -1057,20 +1134,26 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set칸(0);
     set상태("쉬는중");
     set못들음(null);
+    set되물을것(null);
   }, [place]);
 
-  if (!들을수있나() || 축들.length === 0) return null;
+  if (!소리로주고받나() || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
 
   const 다음으로 = () => {
     set못들음(null);
+    // 앞 축에 대한 되물음이 다음 축까지 따라오면 안 된다.
+    set되물을것(null);
     if (마지막인가) { onDone(); return; }
     set칸((n) => n + 1);
   };
 
   // 고른 값을 넣고 다음 칸으로. 여러 개 고르는 칸은 이어 붙이고 그 자리에 머문다.
   const 넣기 = (고른것: string, 말로: boolean) => {
+    // 값이 정해졌으면 되물을 것도 없다. 여러 개 고르는 칸은 다음으로() 를
+    // 안 지나가므로 여기서도 지운다.
+    set되물을것(null);
     const 이전 = 값[지금축.label] ?? [];
     on고르기(지금축.label, 지금축.multi ? [...new Set([...이전, 고른것])] : [고른것], 말로);
     if (지금축.multi) set못들음(null);
@@ -1087,6 +1170,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
      */
     그만읽기();
     set못들음(null);
+    set되물을것(null);
     set상태("듣는중");
     회차.current += 1;
     // 단추를 누른 바로 이 자리에서 듣기 시작한다 — 브라우저는 사람이 누른 자리가
@@ -1114,6 +1198,34 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
       const 답 = 예아니오(r.들은말, 언어 === "en-US");
       if (답 === true) { 넣기(이축.choices[0], true); return; }
       if (답 === false) { 이축.choices.length === 2 ? 넣기(이축.choices[1], true) : 다음으로(); return; }
+
+      /*
+       * 셋째 길 — 보기에 없는 말이면 서버에 물어본다(팀 #133).
+       *
+       * 여기까지 온 것은 화면 보기와도, 예/아니오와도 안 맞았다는 뜻이다.
+       * "불닭맛" 같은 말이 그렇다. 서버는 앵커 표현과의 유사도로 고르므로
+       * 우리 표에 없는 말도 잡는다.
+       *
+       * 맵기만 물어본다. 다른 축은 아직 서버에 그 경로가 없다.
+       *
+       * 늦게 오는 답을 회차로 막는다 — 서버를 한 번 오가는 사이에 사용자가
+       * 그만두거나 다음 축으로 갔을 수 있고, 그때 도착한 답을 넣으면 사용자가
+       * 보고 있지도 않은 축이 채워진다.
+       */
+      if (이축.label === "맵기") {
+        set상태("처리중");
+        void 맵기물어보기(r.들은말, 언어 === "en-US").then((결과) => {
+          if (내회차 !== 회차.current) return;
+          set상태("쉬는중");
+          if ("고른값" in 결과 && 이축.choices.includes(결과.고른값)) { 넣기(결과.고른값, true); return; }
+          if ("되물을것" in 결과) {
+            const 있는것 = 결과.되물을것.filter((v) => 이축.choices.includes(v));
+            if (있는것.length > 0) { set되물을것(있는것); return; }
+          }
+          set못들음("못골랐어요");
+        });
+        return;
+      }
       set못들음("못골랐어요");
     });
   };
@@ -1171,7 +1283,14 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   const 고른것 = 값[지금축.label] ?? [];
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
-      <p style={{ ...TYPE.caption, color: TEXT_2 }}>
+      {/*
+        순번은 읽지 않는다(data-소리조용).
+
+        읽어 주면 "1번째 질문 전체 7개" 로 시작해서, 정작 무엇을 묻는지는 그
+        뒤에 온다. 듣는 사람에게 먼저 필요한 것은 몇 번째인지가 아니라 무엇을
+        묻는지다. 눈으로는 순번이 도움이 되니 화면에는 그대로 둔다.
+      */}
+      <p data-소리조용 style={{ ...TYPE.caption, color: TEXT_2 }}>
         {tf("{n}번째 질문 (전체 {전체}개)", { n: 칸 + 1, 전체: 축들.length })}
       </p>
       <h3 style={{ fontSize: 19, fontWeight: 800, color: TEXT_1, margin: "8px 0 4px" }}>{t(지금축.label)}</h3>
@@ -1180,7 +1299,15 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
         {tf("{보기} — 이것으로 할까요? 그렇게 말씀하셔도 되고, 다른 것을 말씀하셔도 돼요.", { 보기: t(지금축.choices[0]) })}
       </p>
 
-      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
+      {/*
+        보기 칩도 읽지 않는다(data-소리조용).
+
+        바로 위 안내가 이미 무엇을 답하면 되는지 말하고 있다. 칩까지 읽으면
+        "…말씀해 주세요. 켜기. 끄기." 처럼 같은 말을 두 번 듣게 되고, 답할
+        차례에 소리가 아직 안 끝나 있다. 손으로 고르는 사람에게는 화면에
+        그대로 보인다.
+      */}
+      <div data-소리조용 className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
         {지금축.choices.map((c) => (
           <button
             key={c}
@@ -1198,6 +1325,24 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
           </button>
         ))}
       </div>
+
+      {/*
+       * 서버가 애매하다고 한 값들을 되묻는다(팀 #133).
+       *
+       * 우리가 고르지 않는다. 위 보기 줄은 그대로 두고 여기에 한 줄을 더해
+       * "이 둘 중 어느 쪽인지" 만 묻는다 — 짚는 것은 사람이다.
+       *
+       * 문장을 서버에서 받지 않고 여기서 조립하는 이유: 서버 문장에는 사용자가
+       * 말한 값이 박혀 있어 번역표의 열쇠가 될 수 없다. 값만 받아 화면에 실제로
+       * 떠 있는 보기 이름으로 만든다(i18n/en.ts 의 틀).
+       */}
+      {되물을것 && 되물을것.length > 0 && (
+        <p role="status" style={{ fontSize: 14, color: TEXT_1, marginTop: 12, lineHeight: 1.7 }}>
+          {tf("혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.", {
+            들은말: 되물을것.map((v) => t(v)).join(" / "),
+          })}
+        </p>
+      )}
 
       {/*
        * data-소리조용 — 이 안의 글은 '새로 붙은 줄' 읽기에서 빠진다(speech.ts).
@@ -1282,7 +1427,7 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
       </div>
 
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
-        {들을수있나() ? (
+        {소리로주고받나() ? (
           <한칸씩말하기
             place={place}
             언어={언어}
@@ -2093,7 +2238,7 @@ function SavedSheetsScreen({
           + 새 주문표 추가
         </OutlineBtn>
         {/* 말로 만드는 길. 터치 화면에 음성 카드를 끼우지 않고 문에서 가른다. */}
-        {들을수있나() && (
+        {소리로주고받나() && (
           <OutlineBtn onClick={onAddVoiceSheet}>말로 주문표 만들기</OutlineBtn>
         )}
       </StickyFooter>
@@ -2773,7 +2918,10 @@ function SubScreenHeader({ title, kicker, spot, onBack }: {
 function ToggleRow({
   label, sub, on, onToggle,
 }: {
-  label: string; sub: string; on: boolean; onToggle: () => void;
+  label: string;
+  /** 없으면 이름만 보여 준다. 첫 화면처럼 이름으로 이미 뜻이 통하는 자리에서 쓴다. */
+  sub?: string;
+  on: boolean; onToggle: () => void;
 }) {
   return (
     <button
@@ -2789,7 +2937,7 @@ function ToggleRow({
     >
       <span>
         <span style={{ display: "block", fontSize: 17, fontWeight: 700, color: TEXT_1, letterSpacing: "-0.02em" }}>{label}</span>
-        <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4 }}>{sub}</span>
+        {sub && <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4 }}>{sub}</span>}
       </span>
       {/* 색만으로 상태를 알리지 않는다 — 켜짐일 때는 체크 표시도 함께 둔다. */}
       <span
@@ -2847,7 +2995,13 @@ const 바로바꾸는것: 도움항목[] = [
    * 브라우저가 speechSynthesis 를 안 주면 이 줄을 아예 안 보여 준다(쓸수있는것).
    * 켰는데 아무 소리도 안 나면 사용자는 앱이 고장 났다고 생각한다.
    */
-  { key: "voiceGuide", label: "소리로 읽어 주기", sub: "화면에 나온 안내를 소리로 읽어 드려요", 될때만: 소리를낼수있나 },
+  {
+    key: "voiceGuide",
+    label: "소리로 듣고 답하기",
+    sub: "안내를 소리로 읽어 드리고, 말로 답하실 수 있어요",
+    // 읽어 주기와 말하기 중 하나라도 되면 보여 준다. 켜면 되는 쪽이 켜진다.
+    될때만: () => 소리를낼수있나() || 들을수있나(),
+  },
   { key: "simpleSteps", label: "쉬운 단계", sub: "이유 화면을 건너뛰고 바로 확인 화면으로 가요" },
   { key: "mobilitySupport", label: "시간 여유", sub: "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요" },
   { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
@@ -3006,7 +3160,7 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
     듣던것.current?.그만두기(false);
   }, []);
 
-  if (!들을수있나() || 축들.length === 0) return null;
+  if (!소리로주고받나() || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
 
@@ -3071,7 +3225,14 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
 
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
-      <p style={{ ...TYPE.caption, color: TEXT_2 }}>
+      {/*
+        순번은 읽지 않는다(data-소리조용).
+
+        읽어 주면 "1번째 질문 전체 7개" 로 시작해서, 정작 무엇을 묻는지는 그
+        뒤에 온다. 듣는 사람에게 먼저 필요한 것은 몇 번째인지가 아니라 무엇을
+        묻는지다. 눈으로는 순번이 도움이 되니 화면에는 그대로 둔다.
+      */}
+      <p data-소리조용 style={{ ...TYPE.caption, color: TEXT_2 }}>
         {tf("{n}번째 질문 (전체 {전체}개)", { n: 칸 + 1, 전체: 축들.length })}
       </p>
       <h3 style={{ fontSize: 19, fontWeight: 800, color: TEXT_1, margin: "8px 0 4px" }}>{지금축.label}</h3>
@@ -3079,7 +3240,15 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
         {지금축.sub} — 켜 드릴까요? "네" 또는 "아니요" 로 말씀해 주세요.
       </p>
 
-      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
+      {/*
+        보기 칩도 읽지 않는다(data-소리조용).
+
+        바로 위 안내가 이미 무엇을 답하면 되는지 말하고 있다. 칩까지 읽으면
+        "…말씀해 주세요. 켜기. 끄기." 처럼 같은 말을 두 번 듣게 되고, 답할
+        차례에 소리가 아직 안 끝나 있다. 손으로 고르는 사람에게는 화면에
+        그대로 보인다.
+      */}
+      <div data-소리조용 className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
         {([{ label: "켜기", 값: true }, { label: "끄기", 값: false }] as const).map(({ label, 값 }) => (
           <button
             key={label}
@@ -3200,7 +3369,7 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
         ) : (
           <>
             <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
-            {들을수있나() && (
+            {소리로주고받나() && (
               <button
                 type="button"
                 onClick={() => set음성모드(true)}
@@ -3219,8 +3388,12 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
           '키오스크에 전해 드려요' 제목은 뺐다. 그 무리(전해드릴것)가 비면서 제목과
           "지금은 전해 주기만 해요" 안내만 남아 있었다 — 아래에 스위치가 하나도 없는
           제목은 읽는 사람에게 빈 약속이다. 항목이 다시 생기면 제목도 같이 돌아온다.
+
+          안내 언어도 이 화면에서 뺐다. 첫 화면 맨 아래에서 이미 고르고 들어온다 —
+          같은 것을 두 화면에서 물으면, 여기서 처음 보는 사람은 아직 안 고른 줄 알고
+          한 번 더 고르게 된다. 나중에 바꾸고 싶은 사람은 계정 화면의 '접근성 설정'
+          에서 바꾼다(AccessibilityScreen 에는 그대로 있다).
         */}
-        <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
         {/*
           알레르기는 '도움 설정' 이 아니라 안전에 관한 값이라 선 아래에 따로 둔다.
@@ -3531,6 +3704,7 @@ function ReasonStep({ reasons, scoredAxes = [], onNext, 확인중 }: {
   /** 되묻는 상황이면 다음 화면에서 할 일을 미리 알려 준다. */
   확인중?: boolean;
 }) {
+  // 합치기는 부르는 쪽에서 이미 했다(OrderConfirmScreen 의 이유들).
   const 쓴것 = reasons.filter((r) => r.kind === "used");
   const 못맞춘것 = reasons.filter((r) => r.kind === "unmet");
   const 뺀것 = reasons.filter((r) => r.kind === "excluded");
@@ -4035,6 +4209,17 @@ function OrderConfirmScreen({
   const 한도 = 가격한도.읽기();
   const 수량 = Number((sheet.selections?.["수량"]?.[0] ?? "").replace(/[^0-9]/g, "")) || 1;
   /*
+   * 이유는 여기서 한 번만 합쳐 아래로 내려보낸다.
+   *
+   * 서버가 맞은 축마다 한 줄씩 주는 탓에 같은 메뉴 이름이 되풀이됐다
+   * (i18n/reason.ts 의 이유묶기). 화면마다 따로 합치면 접힌 한 줄이 세는
+   * "외 N개" 와 펼친 목록의 줄 수가 어긋난다 — 둘이 같은 목록을 봐야 한다.
+   */
+  const 이유들 = useMemo(
+    () => 이유묶기(mapping?.reasons ?? [], sheet.selections),
+    [mapping?.reasons, sheet.selections],
+  );
+  /*
    * 승인 버튼이 있는 화면은 셋이다 — exact · changed · low_confidence. 셋 다
    * MappedItem 을 그리고 셋 다 담긴다. 한 곳에만 안내를 달면 나머지 둘에서는
    * 합계가 한도를 넘어도 아무 말 없이 담긴다(#100 리뷰).
@@ -4096,6 +4281,40 @@ function OrderConfirmScreen({
   const 이유있나 = (mapping?.reasons?.length ?? 0) > 0;
   const 이유단계 = 이유먼저 && 이유있나 && mapping?.result !== "not_found";
 
+  /*
+   * 내용이 도착한 뒤에 제목으로 포커스를 옮긴다.
+   *
+   * App 의 화면 전환 효과는 screen 이 바뀌는 그 순간 한 번만 돈다. 그런데 이
+   * 화면은 **비어 있는 채로 뜬다** — 매핑을 기다리는 동안에는 제목이 아직
+   * 없어서, 그 효과는 옮길 곳을 못 찾고 그냥 돌아간다. 추천이 도착해 제목이
+   * 그려질 때는 효과가 다시 돌지 않으므로 포커스는 <body> 에 남는다.
+   *
+   * 이유 화면 ↔ 확인 카드 전환도 같다. 같은 화면 안의 상태 변화라 App 은 모른다.
+   *
+   * 무엇이 주문될지 정하는 자리다. 키보드로 쓰는 사람이 하필 여기서 문서 맨
+   * 위부터 Tab 을 다시 눌러 내려와야 하는 것이 가장 나쁘다.
+   */
+  const 본문칸 = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // 아직 기다리는 중이면 옮길 곳이 없다. 도착하면 이 효과가 다시 돈다.
+    if (!mapping) return;
+    const 뿌리 = 본문칸.current;
+    if (!뿌리) return;
+    /*
+     * 보이는 제목만 고른다.
+     *
+     * 확인 갈래는 이유를 볼 때도 display:none 으로 붙어 있다(아래 주석 참고).
+     * 그냥 첫 제목을 잡으면 화면 밖에 있는 제목에 포커스가 가서, 키보드
+     * 사용자는 자기가 어디 있는지도 모르고 다음 Tab 이 어디서 이어질지도 모른다.
+     */
+    const 제목 = [...뿌리.querySelectorAll<HTMLElement>("h1, h2")].find((e) => e.offsetParent !== null);
+    if (!제목) return;
+    if (!제목.hasAttribute("tabindex")) 제목.setAttribute("tabindex", "-1");
+    // 스크롤을 내려 둔 상태에서 단계가 바뀔 수 있다. 보이게 한 뒤에 잡는다(#120).
+    제목.scrollIntoView({ block: "nearest", inline: "nearest" });
+    제목.focus({ preventScroll: true });
+  }, [mapping, 이유단계]);
+
   const approve = (extra: Omit<ApproveInput, "pairingId" | "sheetId" | "mappingResult"> = {}) => {
     if (!mapping || approving.current) return;
     approving.current = true;
@@ -4119,7 +4338,7 @@ function OrderConfirmScreen({
         <div style={{ height: 1, backgroundColor: BORDER, marginLeft: -GAP.screenX, marginRight: -GAP.screenX }} />
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-6" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX, paddingTop: 24 }} aria-busy={!mapping && !error}>
+      <div ref={본문칸} className="flex-1 overflow-y-auto pb-6" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX, paddingTop: 24 }} aria-busy={!mapping && !error}>
         {!mapping && !error && <OrderMappingLoading />}
 
         {/*
@@ -4167,7 +4386,7 @@ function OrderConfirmScreen({
         */}
         {mapping && 이유단계 && (
           <ReasonStep
-            reasons={mapping.reasons ?? []}
+            reasons={이유들}
             scoredAxes={mapping.scoredAxes}
             확인중={mapping.result === "clarification" || mapping.result === "low_confidence"}
             onNext={() => set이유먼저(false)}
@@ -4193,13 +4412,13 @@ function OrderConfirmScreen({
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={mapping.reasons} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact item={mapping.item} reasons={이유들} 합계알림={합계알림} onReasons={() => set이유먼저(true)} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
           <OrderClarification
             candidates={mapping.candidates ?? []}
             reason={mapping.reason}
-            reasons={mapping.reasons}
+            reasons={이유들}
             onReasons={() => set이유먼저(true)}
             options={mapping.sheetOptions}
             onApprove={(candidateId) => approve({ candidateId })}
@@ -4211,7 +4430,7 @@ function OrderConfirmScreen({
           <OrderChanged
             item={mapping.item}
             diffNote={mapping.diffNote}
-            reasons={mapping.reasons}
+            reasons={이유들}
             합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             onApprove={() => approve({ acknowledgedDiff: true })}
@@ -4232,7 +4451,7 @@ function OrderConfirmScreen({
         {mapping?.result === "low_confidence" && mapping.item && (
           <OrderLowConfidence
             item={mapping.item}
-            reasons={mapping.reasons}
+            reasons={이유들}
             합계알림={합계알림}
             onReasons={() => set이유먼저(true)}
             /* 사용자가 카드를 눌러 "이 메뉴가 맞다"고 짚어야만 여기까지 온다. 그 사실을 서버에도 알린다. */
@@ -5815,6 +6034,8 @@ export default function App() {
           {screen === "welcome" && (
             <WelcomeScreen
               동의함={동의}
+              언어={접근성값.language}
+              on언어={(v) => 접근성설정.바꾸기({ language: v })}
               소리켜짐={접근성값.voiceGuide}
               on소리={() => 접근성설정.바꾸기({ voiceGuide: !접근성값.voiceGuide })}
               on동의={(v) => 개인정보동의.바꾸기(v)}

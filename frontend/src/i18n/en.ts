@@ -35,6 +35,15 @@ export const EN: Record<string, string> = {
     "{보기} — shall we go with this? You can say yes, or say another one.",
   "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요.":
     "We heard you but could not tell which one. Please say it again, or choose above.",
+  /*
+   * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되묻는 줄(팀 #133).
+   *
+   * 서버도 물음 문장을 만들어 주지만 쓰지 않는다. 그 문장에는 사용자가 말한
+   * 값이 박혀 있어서 이 표의 열쇠가 될 수 없다 — 사람마다 다른 말을 하므로
+   * 열쇠가 무한해진다. 값만 받아 여기서 조립한다(api/spicy.ts 주석).
+   */
+  "혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.":
+    "Did you mean {들은말}? Please pick it above.",
   "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
     "The microphone is not available. Please choose by hand above.",
   "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",
@@ -89,6 +98,17 @@ export const EN: Record<string, string> = {
     "Some of your info needs another look — confidence is low.",
   "지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.":
     "It's a busy hour, so takeout menus you can grab without waiting come first.",
+  /*
+   * 여러 축이 맞았을 때 우리가 한 줄로 합친 문장(i18n/reason.ts 의 이유묶기).
+   * 서버가 주는 말이 아니라 우리가 만든 틀이라 자리표시자가 들어 있다.
+   *
+   * 조사 때문에 열쇠가 둘이다 — "포장하기, 매운맛과" 는 받침이 있어 '과',
+   * "매운맛, 포장하기와" 는 없어서 '와' 다. 영어는 조사가 없어 같은 말이 된다.
+   */
+  "선호하신 {것들}과 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
+  "선호하신 {것들}와 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
   "선호하신 이용 방식과 다릅니다.": "Differs from the service type you chose.",
   "선호하신 맵기와 다릅니다.": "Differs from the spice level you chose.",
   "선호하신 뼈/순살과 다릅니다.": "Differs from the bone type you chose.",
@@ -165,12 +185,14 @@ export const EN: Record<string, string> = {
   "입력한 내용은 이번 한 번만 쓰고 지워집니다": "What you enter is used once, then erased",
   "로그인 (선택)": "Log in (optional)",
   "주문에 쓸 정보를 모으고 쓰는 데 동의합니다.": "I agree to the use of my order details.",
+  "서비스 이용 및 주문표 저장 안내를 확인했어요":
+    "I've read how this app works and how order cards are saved",
   "메뉴 조건과 도움 설정이에요. 이름·전화번호는 받지 않아요.":
     "Menu preferences and support settings. We never ask for your name or phone number.",
   "자세히": "Details",
-  "동의하셔야 시작할 수 있어요": "Please agree to continue",
-  "동의하셔야 로그인할 수 있어요": "Please agree to log in",
-  "동의하셔야 가입할 수 있어요": "Please agree to sign up",
+  "확인하셔야 시작할 수 있어요": "Please confirm to continue",
+  "확인하셔야 로그인할 수 있어요": "Please confirm to log in",
+  "확인하셔야 가입할 수 있어요": "Please confirm to sign up",
 
   // ─── 로그인 · 가입 ────────────────────────────────────────────────────────
   "로그인": "Log in",
@@ -237,7 +259,7 @@ export const EN: Record<string, string> = {
   "앱 전체의 글씨와 버튼을 크게 봐요": "Makes all text and buttons bigger",
   "고대비": "High contrast",
   "글씨와 배경의 차이를 더 뚜렷하게 해요": "Sharpens the difference between text and background",
-  "소리로 읽어 주기": "Read aloud",
+  "소리로 듣고 답하기": "Listen and answer by voice",
   "화면에 나온 안내를 소리로 읽어 드려요": "Reads what’s on screen out loud",
   "쉬운 단계": "Fewer steps",
   "이유 화면을 건너뛰고 바로 확인 화면으로 가요": "Skips the reason screen and goes straight to review",
