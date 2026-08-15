@@ -189,6 +189,36 @@ export const 화면글 = (뿌리: HTMLElement, { 바뀌는것빼고 = false } = 
   return 줄;
 };
 
+/**
+ * 읽고 있는 것이 다 끝날 때까지 기다린다.
+ *
+ * 다음 질문을 스스로 시작할 때 꼭 필요하다. 안 기다리면 마이크가 안내를 읽는
+ * 도중에 열리고, 두 가지가 한꺼번에 어긋난다.
+ *
+ *   ① 듣기시작() 이 그만읽기() 를 부르므로 안내가 중간에서 잘린다. 화면을 못
+ *      보는 분은 무엇을 묻는지 못 들은 채 답해야 한다.
+ *   ② 자르지 않더라도 스피커 소리를 마이크가 그대로 주워듣는다. 그 소리가
+ *      녹음에 실려 인식을 망친다(읽어주기 주석의 같은 얘기).
+ *
+ * 최대 기다릴 시간을 둔다. 읽기가 끝났는데 speaking 이 안 내려가는 브라우저가
+ * 있고, 거기서 영원히 멈추면 사용자는 아무 일도 안 일어나는 화면을 본다.
+ */
+export const 다읽을때까지 = (최대 = 8000): Promise<void> =>
+  new Promise((끝) => {
+    if (!소리를낼수있나()) { 끝(); return; }
+    const 시작 = Date.now();
+    let 시계: ReturnType<typeof setInterval>;
+    const 보기 = () => {
+      let 읽는중 = false;
+      try {
+        읽는중 = globalThis.speechSynthesis.speaking || globalThis.speechSynthesis.pending;
+      } catch { /* 못 물어보면 안 읽는 것으로 본다 */ }
+      if (!읽는중 || Date.now() - 시작 >= 최대) { clearInterval(시계); 끝(); }
+    };
+    시계 = setInterval(보기, 120);
+    보기();
+  });
+
 /** 읽던 것을 멈춘다. 스위치를 끄거나 화면을 떠날 때 부른다. */
 export const 그만읽기 = (): void => {
   try {
