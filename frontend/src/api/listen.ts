@@ -40,6 +40,7 @@
  */
 
 import { 말끝지켜보기 } from "@/api/vad";
+import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 
 export type 못들은이유 = "권한없음" | "소리없음" | "안됨";
 
@@ -75,12 +76,33 @@ const 서버로보내기 = async (
   폼.append("audio", 오디오, `clip.${확장자(오디오.type)}`);
   폼.append("language", 언어);
 
+  const 경로 = "/api/bff/api/v1/voice/transcribe";
+  const 시작 = 팀백엔드모드 ? performance.now() : 0;
+  /*
+   * 오간 것에 남긴다. 맵기 매칭과 같은 이유로 여태 빠져 있었다 — 이 호출도
+   * createTeamBackend 를 안 거치고 직접 부른다.
+   *
+   * **본문은 안 남긴다.** 요청은 녹음한 오디오이고 응답은 그 사람이 방금 한
+   * 말이다. 둘 다 개발 패널과 시연 녹화에 그대로 뜨는 자리에 둘 것이 아니다 —
+   * 오디오를 어디에도 저장하지 않는다는 약속(이 파일 머리말)과도 어긋난다.
+   */
+  const 적기 = (상태: number | "실패") => {
+    if (!팀백엔드모드) return;
+    연동기록.남기기({
+      방법: "POST", 경로, 상태,
+      걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
+      가림: true,
+    });
+  };
+
   let res: Response;
   try {
-    res = await fetch("/api/bff/api/v1/voice/transcribe", { method: "POST", body: 폼 });
+    res = await fetch(경로, { method: "POST", body: 폼 });
   } catch {
+    적기("실패");
     return { 못들은이유: "안됨" };
   }
+  적기(res.status);
   /*
    * 서버가 몇 번으로 거절했든 여기서는 "안됨" 하나다.
    *

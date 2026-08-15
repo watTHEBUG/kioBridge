@@ -1,4 +1,5 @@
 import { 개인정보같은글 } from "@/api/account";
+import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 
 /**
  * 말한 맵기를 서버가 골라 준다(팀 #133).
@@ -92,11 +93,32 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
    */
   if (개인정보같은글(글)) return { 못함: true };
 
+  const 경로 = "/api/bff/internal/spicy-level/match";
+  const 시작 = 팀백엔드모드 ? performance.now() : 0;
+  /*
+   * 오간 것에 남긴다. 여태 이 호출만 기록을 안 탔다 — 개발 패널을 보면서
+   * 맵기를 말해도 아무 줄도 안 떠서, 서버에 붙은 것인지 아닌지 알 수 없었다.
+   * createTeamBackend 를 거치지 않고 직접 부르는 자리라 빠져 있었다.
+   *
+   * **본문은 안 남긴다.** 요청에 실리는 것은 사용자가 방금 말한 문장이고,
+   * 응답에는 그 말이 heardText 로 되돌아온다. 그 글은 어디에도 안 담는다는
+   * 것이 이 앱의 규칙이다(voice.ts 의 들은말 주석) — 개발 패널과 시연 녹화에
+   * 뜨는 자리라면 더 그렇다. 무엇이 오갔는지는 경로와 상태로 충분하다.
+   */
+  const 적기 = (상태: number | "실패") => {
+    if (!팀백엔드모드) return;
+    연동기록.남기기({
+      방법: "POST", 경로, 상태,
+      걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
+      가림: true,
+    });
+  };
+
   const 시계 = new AbortController();
   const 타이머 = setTimeout(() => 시계.abort(), 기다릴시간);
   let res: Response;
   try {
-    res = await fetch("/api/bff/internal/spicy-level/match", {
+    res = await fetch(경로, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: 글 }),
@@ -104,10 +126,12 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
     });
   } catch {
     // 끊겼든 시간이 다 됐든 사용자가 할 일은 같다 — 손으로 고른다.
+    적기("실패");
     return { 못함: true };
   } finally {
     clearTimeout(타이머);
   }
+  적기(res.status);
   if (!res.ok) return { 못함: true };
 
   const 본문 = await res.json().catch(() => null) as
