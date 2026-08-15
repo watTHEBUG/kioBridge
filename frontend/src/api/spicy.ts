@@ -1,4 +1,5 @@
 import { 개인정보같은글 } from "@/api/account";
+import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
 
 /**
  * 말한 맵기를 서버가 골라 준다(팀 #133).
@@ -92,26 +93,72 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
    */
   if (개인정보같은글(글)) return { 못함: true };
 
+  const 경로 = "/api/bff/internal/spicy-level/match";
+  const 시작 = 팀백엔드모드 ? performance.now() : 0;
+  const 보낼본문 = JSON.stringify({ text: 글 });
+  /*
+   * 오간 것에 남긴다. 여태 이 호출만 기록을 안 탔다 — 개발 패널을 보면서
+   * 맵기를 말해도 아무 줄도 안 떠서, 서버에 붙은 것인지 아닌지 알 수 없었다.
+   * createTeamBackend 를 거치지 않고 직접 부르는 자리라 빠져 있었다.
+   *
+   * ── 본문까지 남긴다. 그리고 그게 무슨 뜻인지 ────────────────────────────
+   *
+   * 이 기록을 연동 자료로 쓰기로 해서 요청·응답을 그대로 남긴다. 경로와 상태만
+   * 있으면 "요청이 나갔다" 는 알 수 있어도 "이 판정이 서버에서 온 것이다" 는
+   * 못 보인다 — 자료로 쓸 값어치가 거기 있다고 보았다.
+   *
+   * 그런데 그 값이 곧 **사용자가 말한 문장**이다. 요청의 text 와 응답의
+   * heardText 가 그것이고, 이 패널은 배포본에서도 보인다(build:team). 이름이나
+   * 전화번호를 말하면 시연 화면과 녹화에 그대로 찍힌다.
+   *
+   * 이 앱은 실제 개인정보를 받지도 저장하지도 않는다고 화면에서 약속한다.
+   * 이 경로는 애초에 **보기와도 예/아니오와도 안 맞은 말**이 오는 자리라
+   * 무슨 말이 들어올지 모른다 — 그래서 위에서 개인정보처럼 보이는 말을 아예
+   * 안 보내고 있다. 그 문을 만들어 놓고 기록에 남기면 뜻이 없다.
+   *
+   * 무엇이 오갔는지는 경로와 상태로 충분하다.
+   */
+  const 적기 = (상태: number | "실패") => {
+    if (!팀백엔드모드) return;
+    연동기록.남기기({
+      방법: "POST", 경로, 상태,
+      걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
+      // 요청도 응답도 그 사람이 한 말이다. 안 남긴다 — 위 주석 참고.
+      가림: true,
+    });
+  };
+
   const 시계 = new AbortController();
   const 타이머 = setTimeout(() => 시계.abort(), 기다릴시간);
   let res: Response;
   try {
-    res = await fetch("/api/bff/internal/spicy-level/match", {
+    res = await fetch(경로, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: 글 }),
+      body: 보낼본문,
       signal: 시계.signal,
     });
   } catch {
     // 끊겼든 시간이 다 됐든 사용자가 할 일은 같다 — 손으로 고른다.
+    적기("실패");
     return { 못함: true };
   } finally {
     clearTimeout(타이머);
   }
+
+  /*
+   * 글로 먼저 읽고 그것을 기록에 남긴 뒤에 해석한다.
+   *
+   * res.json() 을 바로 부르면 본문을 한 번밖에 못 읽어서 기록에 남길 것이
+   * 없어진다. 해석에 실패해도 무엇이 왔는지는 보여야 한다 — 자료로 쓸 때
+   * 정작 필요한 것이 그 '이상한 응답' 이다.
+   */
+  const 받은글 = await res.text().catch(() => "");
+  적기(res.status);
   if (!res.ok) return { 못함: true };
 
-  const 본문 = await res.json().catch(() => null) as
-    { confident?: boolean; matchedLevel?: string; candidates?: unknown } | null;
+  let 본문: { confident?: boolean; matchedLevel?: string; candidates?: unknown } | null = null;
+  try { 본문 = 받은글 ? JSON.parse(받은글) : null; } catch { 본문 = null; }
   if (!본문) return { 못함: true };
 
   const 후보 = 이름으로(본문.candidates);
