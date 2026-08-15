@@ -464,16 +464,32 @@ describe("사용자에게 읽히는 문장", () => {
     id: "c", menuName: "커피", place: "카페", memo: "", selections: sel,
   });
 
-  it("영문 값에도 로/으로 를 맞춘다", () => {
+  it("영문 값에도 받침에 맞는 조사를 쓴다", () => {
+    // 한글 받침으로는 못 가르는 값들이다. 읽는 소리를 따른다 — 'HOT'은 '핫'이라
+    // 받침이 있고, 'ICE'는 '아이스'라 없다.
     const hot = buildMapping("exact", 카페({ "음료": ["아메리카노"], "온도": ["HOT"] }));
     const ice = buildMapping("exact", 카페({ "음료": ["아메리카노"], "온도": ["ICE"] }));
-    expect((hot.reasons ?? []).map((r) => r.text).join(" ")).toContain("HOT으로");
-    expect((ice.reasons ?? []).map((r) => r.text).join(" ")).toContain("ICE로");
+    expect((hot.reasons ?? []).map((r) => r.text).join(" ")).toContain("HOT과");
+    expect((ice.reasons ?? []).map((r) => r.text).join(" ")).toContain("ICE와");
   });
 
   it("맵기에도 받침에 맞는 조사를 쓴다", () => {
     const r = buildMapping("exact", 땅콩알레르기);
-    expect((r.reasons ?? []).map((x) => x.text).join(" ")).toContain("매운맛으로");
+    expect((r.reasons ?? []).map((x) => x.text).join(" ")).toContain("매운맛과");
+  });
+
+  it("맞은 축은 실서버와 같은 틀로 쓴다 — 그래야 한 줄로 합쳐진다", () => {
+    /*
+     * 화면은 축마다 한 줄씩 오는 이 문장들을 한 줄로 합치는데(i18n/reason.ts 의
+     * 이유묶기), 그 합치기가 이 틀을 알아보고 동작한다. 목이 제 말투로 쓰면
+     * 목에서만 안 합쳐진다 — 실서버는 한 줄인데 시연 화면은 여러 줄이 된다.
+     */
+    const r = buildMapping("exact", 알레르기없음);
+    const 맞은줄 = (r.reasons ?? []).filter((x) => x.kind === "used" && /일치하는 메뉴라/.test(x.text));
+    expect(맞은줄.length).toBeGreaterThan(0);
+    for (const 줄 of 맞은줄) {
+      expect(줄.text).toMatch(/^선호하신 .+?(?:과|와) 일치하는 메뉴라 우선 추천드립니다\.$/);
+    }
   });
 
   it("diffNote 가 라벨을 그대로 이어 붙이지 않는다", () => {
