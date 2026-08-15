@@ -982,6 +982,90 @@ function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }: {
 }
 
 /**
+ * 형태를 안 고른 채 저장하려는 순간에만 뜬다 — 그림 안내·큰 글씨·고대비 중
+ * 하나라도 켜져 있고, 다른 축은 다 골랐는데 형태만 빈 그 경우다.
+ *
+ * 시각 안내가 필요하거나 저시력인 사람에게는 뼈를 발라 먹는 과정 자체가
+ * 허들이 될 수 있다. 그렇다고 앱이 짐작으로 순살을 채워 넣지 않는다 —
+ * 직접 묻고, 사용자가 고른 답만 싣는다. "네"도 "상관없어요"도 둘 다
+ * 형태를 채운 뒤 그대로 저장을 이어간다(OrderSheetScreen 의 저장하기).
+ * 이미 저장하고 시작하기를 한 번 눌렀으니, 답한 뒤 또 눌러야 하면
+ * 왜 두 번 눌러야 하는지부터 설명해야 한다.
+ */
+function 순살제안시트({ onAnswer, onCancel }: {
+  onAnswer: (형태: "순살" | "상관없음") => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  const 가두기 = 포커스가두기(ref, onCancel);
+
+  /*
+   * 뜨는 순간, 앞서 읽고 있던 화면 안내를 끊고 이 시트만 읽는다.
+   *
+   * 이 시트는 화면(screen)을 바꾸지 않는다 — 부모 화면 안의 로컬 상태로만 뜬다.
+   * 그런데 App 루트의 소리 안내 효과는 screen/tab 이 바뀔 때만 "앞의 말을 끊고
+   * 처음부터 다시 읽는다." 이 시트가 뜬 것만으로는 그 효과가 안 걸려서, 안 끊고
+   * 그냥 두면 사용자는 이전 화면을 계속 듣다가 뒤늦게 이 질문을 놓친다.
+   *
+   * 그래서 여기서 직접 끊고(그만읽기) 이 시트의 문장만 읽는다. 아래 data-소리생략
+   * 도 같이 달아 둔다 — 안 달면 루트의 "새로 붙은 줄" 감지가 350ms 뒤에 같은
+   * 문장을 한 번 더 읽어서 두 번 들린다.
+   */
+  useEffect(() => {
+    if (!접근성설정.읽기().voiceGuide) return;
+    그만읽기();
+    읽어주기(
+      [
+        "먹기 편한 순살로 하시겠어요?",
+        "형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.",
+        "네, 순살로 할게요",
+        "상관없어요",
+      ].join(". "),
+      { 언어: 접근성설정.읽기().language },
+    );
+    return () => 그만읽기();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex flex-col justify-end"
+      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      data-소리생략
+    >
+      <div
+        ref={ref}
+        tabIndex={-1}
+        onKeyDown={가두기}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bone-suggest-title"
+        aria-describedby="bone-suggest-body"
+        style={{ backgroundColor: PAPER, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: `28px ${GAP.screenX}px 24px`, outline: "none" }}
+      >
+        <h2 id="bone-suggest-title" style={{ ...TYPE.title, color: TEXT_1, margin: 0 }}>
+          먹기 편한 순살로 하시겠어요?
+        </h2>
+        <p id="bone-suggest-body" style={{ ...TYPE.body, color: TEXT_2, marginTop: 10 }}>
+          형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.
+        </p>
+        <div style={{ marginTop: 24 }}>
+          <PrimaryBtn onClick={() => onAnswer("순살")}>네, 순살로 할게요</PrimaryBtn>
+          <div style={{ height: 10 }} />
+          <OutlineBtn onClick={() => onAnswer("상관없음")}>상관없어요</OutlineBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 모달 안에 Tab 을 가둔다. aria-modal 을 선언한 곳은 전부 이걸 쓴다.
  * 선언만 하고 안 지키면 스크린리더에게 거짓말을 하는 셈이다.
  */
@@ -1414,8 +1498,23 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const 이름칸id = useId();
   // 끝내기를 누르면 여기로 포커스를 옮긴다(아래 onDone). ref 로 잡아 둔다.
   const 이름칸ref = useRef<HTMLInputElement | null>(null);
+  // 순살 제안 시트가 떠 있는가. OrderSheetScreen 과 같은 규칙이다(그 화면의 주석 참고).
+  const [순살배너, set순살배너] = useState(false);
   // 저장은 모든 축이 채워져야 열린다 — 터치 화면과 같은 규칙(catalog.tsx 의 못채운축).
   const 빠진것 = 못채운축(place, selections);
+  const 형태만빠짐 = 빠진것.length === 1 && 빠진것[0] === "형태";
+  const 접근성값 = 접근성설정.읽기();
+  const 순살제안대상 =
+    형태만빠짐 && (접근성값.visualGuidance || 접근성값.largeText || 접근성값.highContrast);
+  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+    // OrderSheetScreen 의 저장하기와 같은 규칙 — 답한 형태만 얹고 나머지는 그대로 둔다.
+    const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
+    onNext({
+      id: newSheetId(),
+      menuName: menuName.trim() || "이름 없는 주문표",
+      place, selections: 최종선택, memo: "",
+    });
+  };
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -1479,22 +1578,27 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
       </div>
 
       <StickyFooter>
-        {빠진것.length > 0 && (
+        {빠진것.length > 0 && !순살제안대상 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
             {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", { 빠진것: 빠진것.map(t).join(", ") })}
           </p>
         )}
         <PrimaryBtn
-          onClick={() => onNext({
-            id: newSheetId(),
-            menuName: menuName.trim() || "이름 없는 주문표",
-            place, selections, memo: "",
-          })}
-          disabled={개인정보같은글(menuName) || 빠진것.length > 0}
+          onClick={() => {
+            if (순살제안대상) { set순살배너(true); return; }
+            저장하기();
+          }}
+          disabled={개인정보같은글(menuName) || (빠진것.length > 0 && !순살제안대상)}
         >
           저장하고 시작하기
         </PrimaryBtn>
       </StickyFooter>
+      {순살배너 && (
+        <순살제안시트
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onCancel={() => set순살배너(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1569,12 +1673,41 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
     () => Object.fromEntries(Object.entries(고칠것?.selections ?? {}).map(([축, 값]) => [축, [...값]])),
   );
   const [memo, setMemo] = useState(고칠것?.memo ?? "");
+  // 순살 제안 시트가 떠 있는가. 형태만 비어 있고 접근성 신호가 있을 때만 연다
+  // (아래 순살제안대상, 순살제안시트 주석).
+  const [순살배너, set순살배너] = useState(false);
 
   // 이름·메모 칸의 id. 라벨을 칸에 묶는 데 쓴다(SectionLabel 주석).
   const 이름칸id = useId();
   const 메모칸id = useId();
 
   const options = place ? DETAIL_OPTIONS[place] : [];
+
+  /*
+   * 형태만 비어 있고, 그림 안내·큰 글씨·고대비 중 하나라도 켜져 있으면
+   * "저장하고 시작하기" 를 눌렀을 때 곧장 막는 대신 순살 제안 시트를 연다.
+   *
+   * 형태 칩을 그리는 시점(화면을 여는 순간)이 아니라 저장을 누르는 시점에
+   * 판단한다 — 미리 배너부터 띄우면 아직 다른 축도 안 골랐는데 형태 얘기부터
+   * 듣게 된다. 형태 말고 다른 축도 비어 있으면(순살만 물어서 해결되는 게
+   * 아니면) 평소처럼 "아직 안 고른 것" 안내로 막는다.
+   */
+  const 빠진축 = 못채운축(place, selections);
+  const 형태만빠짐 = 빠진축.length === 1 && 빠진축[0] === "형태";
+  const 접근성값 = 접근성설정.읽기();
+  const 순살제안대상 =
+    형태만빠짐 && (접근성값.visualGuidance || 접근성값.largeText || 접근성값.highContrast);
+
+  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+    // 답한 형태만 얹는다 — 나머지 selections 는 그대로다(사용자 요청: 기존
+    // 선호는 건드리지 않고 형태만 추가로 채워서 보낸다).
+    const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
+    onNext({
+      id: 고칠것?.id ?? newSheetId(),
+      menuName: menuName.trim() || "이름 없는 주문표",
+      place, selections: 최종선택, memo,
+    });
+  };
 
   const toggleChip = (sectionLabel: string, choice: string, multi: boolean) => {
     const 배타 = options.find((o) => o.label === sectionLabel)?.exclusive ?? [];
@@ -1764,10 +1897,10 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
           주문하는 순간에야 빈 칸을 만났다. '늘 하던 것' 을 저장하는 표라면
           저장 시점에 다 채워져 있어야 한다. 무엇이 비었는지는 이름을 대고 말한다.
         */}
-        {못채운축(place, selections).length > 0 && (
+        {빠진축.length > 0 && !순살제안대상 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
             {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
-              빠진것: 못채운축(place, selections).map(t).join(", "),
+              빠진것: 빠진축.map(t).join(", "),
             })}
           </p>
         )}
@@ -1790,16 +1923,22 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
            * 비워 두면 목록에서 '이름 없는 주문표' 로 보인다 — 빈 줄로 두면 무엇이
            * 저장됐는지 알 수 없다.
            */
-          onClick={() => onNext({
-            id: 고칠것?.id ?? newSheetId(),
-            menuName: menuName.trim() || "이름 없는 주문표",
-            place, selections, memo,
-          })}
-          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || 못채운축(place, selections).length > 0}
+          onClick={() => {
+            // 형태만 비어 있고 접근성 신호가 있으면, 곧장 저장하는 대신 먼저 묻는다.
+            if (순살제안대상) { set순살배너(true); return; }
+            저장하기();
+          }}
+          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || (빠진축.length > 0 && !순살제안대상)}
         >
           {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
         </PrimaryBtn>
       </StickyFooter>
+      {순살배너 && (
+        <순살제안시트
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onCancel={() => set순살배너(false)}
+        />
+      )}
     </div>
   );
 }
