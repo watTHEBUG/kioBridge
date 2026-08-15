@@ -175,7 +175,10 @@ class RecommendationEngineServiceTest {
         Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
         assertThat(recommendation.confidence()).isCloseTo(0.65, offset(0.0001));
-        assertThat(recommendation.requiresReconfirmation()).isFalse();
+        // LOW_CONFIDENCE_THRESHOLD를 프론트(api/backend.ts LOW_CONFIDENCE)와 같은 0.7로 맞췄다.
+        // 남은 후보가 하나뿐이어도 사용자가 밝힌 조건과 실제로 어긋난 게(WARN) 있으면
+        // 0.65는 재확인이 필요한 게 맞다 — 이제 그 판단을 백엔드도 정직하게 응답에 싣는다.
+        assertThat(recommendation.requiresReconfirmation()).isTrue();
     }
 
     @Test
@@ -196,6 +199,7 @@ class RecommendationEngineServiceTest {
     void 뼈타입_선호와_일치하면_점수_보너스와_일치_사유를_받는다() {
         // v5.1.6 RC5부터 CHICKEN_BONE_TYPE_PREFERENCE가 CANDIDATE-scope WARN 규칙으로 추가됐다.
         // serviceType/spicyLevel과 동일하게 PASS가 실제로 나야 "일치" 보너스를 준다.
+        // 형태는 접근성과 직결된 축이라 이용방식/맵기와 같은 무게(1.0/-0.3)를 쓴다 — 컵(0.5/-0.15)과는 다르다.
         Candidate boneless = candidate("CHICKEN-BONELESS", 6000.0, List.of("HOT"));
 
         Map<String, List<RuleEvaluationResult>> passes =
@@ -206,7 +210,7 @@ class RecommendationEngineServiceTest {
 
         Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
-        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(0.5);
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(1.0);
         assertThat(recommendation.recommendationReasons()).contains("선호하신 뼈/순살과 일치하는 메뉴라 우선 추천드립니다.");
     }
 
@@ -222,7 +226,7 @@ class RecommendationEngineServiceTest {
 
         Recommendation recommendation = service.recommend(filterResult, sessionContext(null), profile());
 
-        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(-0.15);
+        assertThat(recommendation.scoreBreakdown().get("boneTypeMatch")).isEqualTo(-0.3);
         assertThat(recommendation.unmetConditions()).contains("선호하신 뼈/순살과 다릅니다.");
     }
 
