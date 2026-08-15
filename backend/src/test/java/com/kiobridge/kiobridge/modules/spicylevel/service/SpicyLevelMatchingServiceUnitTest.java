@@ -104,4 +104,13 @@ class SpicyLevelMatchingServiceUnitTest {
 
         assertThat(result.confident()).isTrue();
     }
+
+    @Test
+    void 매운_거_빼주세요는_되묻기로_처리된다() {
+        SpicyLevelMatchResult result = service.match("매운 거 빼주세요");
+
+        assertThat(result.confident()).isFalse();
+        assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        verifyNoInteractions(embeddingService, repository);
+    }
 }
