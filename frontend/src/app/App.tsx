@@ -3735,6 +3735,7 @@ function 입력도움고르기({ 고른것, on바꾸기 }: {
             }}
           >
             {label}
+            {고른것 === value && <span style={{ marginLeft: 6 }}>(선택됨)</span>}
           </button>
         ))}
       </div>
