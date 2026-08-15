@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SpicyLevelMatchingServiceUnitTest {
@@ -20,6 +21,7 @@ class SpicyLevelMatchingServiceUnitTest {
 
         assertThat(result.confident()).isFalse();
         assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        verifyNoInteractions(embeddingService, repository);
     }
 
     @Test
@@ -28,6 +30,7 @@ class SpicyLevelMatchingServiceUnitTest {
 
         assertThat(result.confident()).isFalse();
         assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        verifyNoInteractions(embeddingService, repository);
     }
 
     @Test
@@ -36,6 +39,7 @@ class SpicyLevelMatchingServiceUnitTest {
 
         assertThat(result.confident()).isFalse();
         assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        verifyNoInteractions(embeddingService, repository);
     }
 
     @Test
@@ -44,6 +48,7 @@ class SpicyLevelMatchingServiceUnitTest {
 
         assertThat(result.confident()).isFalse();
         assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
+        verifyNoInteractions(embeddingService, repository);
     }
 
     @Test
@@ -53,6 +58,7 @@ class SpicyLevelMatchingServiceUnitTest {
         assertThat(result.confident()).isFalse();
         assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
         assertThat(result.clarificationQuestion()).contains("보통맛");
+        verifyNoInteractions(embeddingService, repository);
     }
 
     @Test
@@ -62,6 +68,7 @@ class SpicyLevelMatchingServiceUnitTest {
         assertThat(result.confident()).isFalse();
         assertThat(result.candidates()).containsExactly("MILD", "MEDIUM");
         assertThat(result.clarificationQuestion()).contains("보통맛");
+        verifyNoInteractions(embeddingService, repository);
     }
 
     @Test
@@ -74,5 +81,27 @@ class SpicyLevelMatchingServiceUnitTest {
 
         assertThat(result.confident()).isTrue();
         assertThat(result.matchedLevel()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void 안녕하세요는_부정어로_오탐되지_않는다() {
+        when(embeddingService.embed("안녕하세요")).thenReturn(new float[1536]);
+        when(repository.findNearestSpicyLevels("[" + "0.0,".repeat(1535) + "0.0]", 5))
+            .thenReturn(java.util.List.of("MEDIUM", "MEDIUM", "MEDIUM", "HOT", "MILD"));
+
+        SpicyLevelMatchResult result = service.match("안녕하세요");
+
+        assertThat(result.confident()).isTrue();
+    }
+
+    @Test
+    void 안내라는_단어는_부정어로_오탐되지_않는다() {
+        when(embeddingService.embed("안내")).thenReturn(new float[1536]);
+        when(repository.findNearestSpicyLevels("[" + "0.0,".repeat(1535) + "0.0]", 5))
+            .thenReturn(java.util.List.of("MEDIUM", "MEDIUM", "MEDIUM", "HOT", "MILD"));
+
+        SpicyLevelMatchResult result = service.match("안내");
+
+        assertThat(result.confident()).isTrue();
     }
 }
