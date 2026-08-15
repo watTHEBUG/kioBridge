@@ -1246,7 +1246,6 @@ export default function App() {
               onAddVoiceSheet={() => { set고칠주문표(null); setScreen("voice-sheet"); }}
               onDeleteSheet={deleteSheet}
               onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
-              onGoQr={() => setTab("qr")}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
               onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}
