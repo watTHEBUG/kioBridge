@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,6 +29,12 @@ public class SpicyLevelMatchingService {
         "싫", "말고", "아니", "보다", "이상", "이하"
     );
 
+    private static final Set<String> NEGATION_MARKERS_KO = Set.of(
+        "안 매", "안매", "안 맵", "안맵", "안 돼", "안돼",
+        "않", "말고", "빼주세요", "빼줘", "빼고", "빼줄래"
+    );
+    private static final Pattern NEGATION_PATTERN_EN = Pattern.compile("\\b(no|not)\\b");
+
     private final EmbeddingService embeddingService;
     private final SpicyLevelAnchorRepository repository;
 
@@ -37,6 +44,12 @@ public class SpicyLevelMatchingService {
     }
 
     public SpicyLevelMatchResult match(String text) {
+        if (isNegated(text)) {
+            List<String> candidates = List.of("MILD", "MEDIUM");
+            String question = buildClarificationQuestion(text, candidates);
+            return new SpicyLevelMatchResult(null, false, Map.of(), candidates, text, question);
+        }
+
         if (matchesKeyword(text, NO_PREFERENCE_PHRASES)) {
             return new SpicyLevelMatchResult(
                 "NO_PREFERENCE", true, Map.of(), List.of("NO_PREFERENCE"), text, null
@@ -73,6 +86,13 @@ public class SpicyLevelMatchingService {
         return new SpicyLevelMatchResult(null, false, counts, topLabels, text, question);
     }
 
+    private boolean isNegated(String text) {
+        if (NEGATION_MARKERS_KO.stream().anyMatch(text::contains)) {
+            return true;
+        }
+        return NEGATION_PATTERN_EN.matcher(text.toLowerCase()).find();
+    }
+
     private boolean matchesKeyword(String text, Set<String> phrases) {
         if (EXCLUSION_MARKERS.stream().anyMatch(text::contains)) {
             return false;
@@ -90,7 +110,7 @@ public class SpicyLevelMatchingService {
     private String toKorean(String level) {
         return switch (level) {
             case "HOT" -> "매운맛";
-            case "MEDIUM" -> "중간맛";
+            case "MEDIUM" -> "보통맛";
             case "MILD" -> "순한맛";
             case "NO_PREFERENCE" -> "상관없음";
             default -> level;
