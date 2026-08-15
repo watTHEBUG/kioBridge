@@ -12,8 +12,17 @@ import { 맵기물어보기 } from "./spicy";
  *   ③ 실패하면 조용히 물러난다. 이 경로가 없어도 앱은 손으로 고르기로 돌아간다.
  */
 
+/*
+ * 가짜 응답. text() 도 준다 — 코드가 본문을 글로 먼저 읽기 때문이다(오간 것에
+ * 남기려면 한 번 읽은 뒤에도 원문이 있어야 한다). 진짜 Response 는 둘 다 있다.
+ */
 const 응답 = (본문: unknown, status = 200) =>
-  ({ ok: status >= 200 && status < 300, status, json: async () => 본문 }) as unknown as Response;
+  ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => 본문,
+    text: async () => (typeof 본문 === "string" ? 본문 : JSON.stringify(본문)),
+  }) as unknown as Response;
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -157,8 +166,16 @@ describe("실패하면 조용히 물러난다", () => {
     expect(f).not.toHaveBeenCalled();
   });
 
-  it("본문이 이상해도 던지지 않는다", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error("bad"); } }) as unknown as Response));
+  it("JSON 이 아닌 본문이 와도 던지지 않는다", async () => {
+    // 200 인데 HTML 이 오는 일이 있다(프록시가 끼워 넣는 오류 페이지 등).
+    붙이기("<html>502</html>");
+    await expect(맵기물어보기("불닭맛")).resolves.toEqual({ 못함: true });
+  });
+
+  it("본문을 읽다 터져도 던지지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true, status: 200, text: async () => { throw new Error("bad"); },
+    }) as unknown as Response));
     await expect(맵기물어보기("불닭맛")).resolves.toEqual({ 못함: true });
   });
 });

@@ -95,22 +95,35 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
 
   const 경로 = "/api/bff/internal/spicy-level/match";
   const 시작 = 팀백엔드모드 ? performance.now() : 0;
+  const 보낼본문 = JSON.stringify({ text: 글 });
   /*
    * 오간 것에 남긴다. 여태 이 호출만 기록을 안 탔다 — 개발 패널을 보면서
    * 맵기를 말해도 아무 줄도 안 떠서, 서버에 붙은 것인지 아닌지 알 수 없었다.
    * createTeamBackend 를 거치지 않고 직접 부르는 자리라 빠져 있었다.
    *
-   * **본문은 안 남긴다.** 요청에 실리는 것은 사용자가 방금 말한 문장이고,
-   * 응답에는 그 말이 heardText 로 되돌아온다. 그 글은 어디에도 안 담는다는
-   * 것이 이 앱의 규칙이다(voice.ts 의 들은말 주석) — 개발 패널과 시연 녹화에
-   * 뜨는 자리라면 더 그렇다. 무엇이 오갔는지는 경로와 상태로 충분하다.
+   * ── 본문까지 남긴다. 그리고 그게 무슨 뜻인지 ────────────────────────────
+   *
+   * 이 기록을 연동 자료로 쓰기로 해서 요청·응답을 그대로 남긴다. 경로와 상태만
+   * 있으면 "요청이 나갔다" 는 알 수 있어도 "이 판정이 서버에서 온 것이다" 는
+   * 못 보인다 — 자료로 쓸 값어치가 거기 있다.
+   *
+   * 대신 **사용자가 말한 문장이 화면에 뜬다.** 요청의 text 와 응답의 heardText
+   * 가 그것이고, 이 패널은 배포본에서도 보인다(build:team). 시연 화면과 녹화에
+   * 그대로 찍힌다는 뜻이다.
+   *
+   * 기록은 이 브라우저 메모리에만 있고 최대 60줄까지만 남는다(devlog.ts).
+   * 서버로 가지도, 저장소에 쓰이지도 않는다 — 오디오를 저장하지 않는다는
+   * 약속(listen.ts)은 그대로다.
+   *
+   * 가리고 싶어지면 아래 두 줄을 빼고 `가림: true` 로 되돌리면 된다.
    */
-  const 적기 = (상태: number | "실패") => {
+  const 적기 = (상태: number | "실패", 응답본문?: string) => {
     if (!팀백엔드모드) return;
     연동기록.남기기({
       방법: "POST", 경로, 상태,
       걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
-      가림: true,
+      요청: 보낼본문,
+      ...(응답본문 === undefined ? {} : { 응답: 응답본문 }),
     });
   };
 
@@ -121,7 +134,7 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
     res = await fetch(경로, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: 글 }),
+      body: 보낼본문,
       signal: 시계.signal,
     });
   } catch {
@@ -131,11 +144,20 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
   } finally {
     clearTimeout(타이머);
   }
-  적기(res.status);
+
+  /*
+   * 글로 먼저 읽고 그것을 기록에 남긴 뒤에 해석한다.
+   *
+   * res.json() 을 바로 부르면 본문을 한 번밖에 못 읽어서 기록에 남길 것이
+   * 없어진다. 해석에 실패해도 무엇이 왔는지는 보여야 한다 — 자료로 쓸 때
+   * 정작 필요한 것이 그 '이상한 응답' 이다.
+   */
+  const 받은글 = await res.text().catch(() => "");
+  적기(res.status, 받은글);
   if (!res.ok) return { 못함: true };
 
-  const 본문 = await res.json().catch(() => null) as
-    { confident?: boolean; matchedLevel?: string; candidates?: unknown } | null;
+  let 본문: { confident?: boolean; matchedLevel?: string; candidates?: unknown } | null = null;
+  try { 본문 = 받은글 ? JSON.parse(받은글) : null; } catch { 본문 = null; }
   if (!본문) return { 못함: true };
 
   const 후보 = 이름으로(본문.candidates);
