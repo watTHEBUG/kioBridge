@@ -406,14 +406,6 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
           소리를 못 내는 기기에서는 안 보인다 — 켜도 아무 일이 없는 스위치를 두면
           켠 사람은 켜졌다고 믿는다(도움 설정 화면과 같은 판단이다).
         */}
-        {/*
-          안내 언어를 가장 먼저 묻는다.
-          지금까지는 도움 설정 화면 맨 아래에 있었다. 그런데 **그 화면까지 가려면
-          이 화면을 읽어야 한다** — 한국어를 못 읽는 사람에게는 언어를 바꾸러 가는
-          길 자체가 한국어로 적혀 있었던 셈이다. 소리로 읽어 주기와 같은 이유로
-          첫 화면에 둔다. 여기서 고르면 이 화면 글부터 바로 바뀐다.
-        */}
-        <언어고르기 고른것={언어} on바꾸기={on언어} />
         {(소리를낼수있나() || 들을수있나()) && (
           <ToggleRow
             label="소리로 듣고 답하기"
@@ -456,6 +448,45 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
           <Pictogram name="userCircle" size={18} color={TEXT_2} />
           로그인 (선택)
         </button>
+
+        {/*
+          안내 언어 — 화면 맨 아래, 왼쪽이 한국어 오른쪽이 영어.
+
+          제목도 설명도 안 붙인다. 무엇을 고르는지는 글자 자체가 말한다 —
+          "한국어" 와 "English" 는 그 언어를 읽는 사람에게 각각 자기 말이다.
+          설명을 한국어로 붙이면 영어만 읽는 사람에게는 읽을 수 없는 안내가
+          하나 더 늘 뿐이다.
+
+          맨 아래에 두는 이유는 이것이 이 화면에서 **하는 일이 아니라 되돌리는
+          길**이기 때문이다. 대부분은 안 건드리고 지나가고, 필요한 사람만
+          끝에서 찾는다.
+        */}
+        <div
+          className="flex items-center justify-between"
+          style={{ marginTop: 8, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}
+          role="radiogroup"
+          aria-label="안내 언어"
+        >
+          {언어목록.map(({ code, label }) => (
+            <button
+              key={code}
+              type="button"
+              role="radio"
+              aria-checked={언어 === code}
+              lang={code}
+              onClick={() => on언어(code)}
+              style={{
+                minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
+                fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+                backgroundColor: 언어 === code ? RULE : "transparent",
+                color: 언어 === code ? PAPER : TEXT_2,
+                border: "none", cursor: "pointer", transition: "all 0.15s",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -3355,8 +3386,12 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
           '키오스크에 전해 드려요' 제목은 뺐다. 그 무리(전해드릴것)가 비면서 제목과
           "지금은 전해 주기만 해요" 안내만 남아 있었다 — 아래에 스위치가 하나도 없는
           제목은 읽는 사람에게 빈 약속이다. 항목이 다시 생기면 제목도 같이 돌아온다.
+
+          안내 언어도 이 화면에서 뺐다. 첫 화면 맨 아래에서 이미 고르고 들어온다 —
+          같은 것을 두 화면에서 물으면, 여기서 처음 보는 사람은 아직 안 고른 줄 알고
+          한 번 더 고르게 된다. 나중에 바꾸고 싶은 사람은 계정 화면의 '접근성 설정'
+          에서 바꾼다(AccessibilityScreen 에는 그대로 있다).
         */}
-        <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
         {/*
           알레르기는 '도움 설정' 이 아니라 안전에 관한 값이라 선 아래에 따로 둔다.
