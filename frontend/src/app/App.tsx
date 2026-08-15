@@ -2771,7 +2771,7 @@ const 숫자만읽기 = (글: string): number | null => {
 };
 
 function SavedSheetsScreen({
-  sheets, onAddSheet, onAddVoiceSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
+  sheets, onAddSheet, onAddVoiceSheet, onDeleteSheet, onEditSheet, onOrder, onGoQr, showOrder = false,
 }: {
   sheets: OrderSheet[];
   onAddSheet: () => void;
@@ -2780,6 +2780,8 @@ function SavedSheetsScreen({
   onDeleteSheet: (id: string) => void;
   onEditSheet: (sheet: OrderSheet) => void;
   onOrder: (sheet: OrderSheet) => void;
+  /** QR 화면으로 보낸다. 붙어 있지 않을 때 이 목록에서 나가는 길이다. */
+  onGoQr: () => void;
   showOrder?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(sheets[0]?.id ?? null);
@@ -2916,6 +2918,31 @@ function SavedSheetsScreen({
           >
             이 주문표로 주문하기
           </PrimaryBtn>
+        )}
+        {/*
+          붙어 있지 않으면 주문 단추가 아예 없다. **왜 없는지 말하고 길을 낸다.**
+
+          예전에는 단추만 조용히 사라졌다. 주문표는 눈앞에 있는데 주문할 방법이
+          없고, 무엇을 하면 되는지도 안 적혀 있었다. 한 번 주문하고 돌아온 사람이
+          다른 주문표로 또 주문하려 할 때가 바로 이 자리다 — 연결은 한 번 쓰면
+          끝나므로(팀 계약) 다시 찍어야 하는데, 화면은 아무 말도 안 했다.
+          '막을 때 이유를 말한다' 는 이 화면의 다른 안내들과 같은 규칙이다.
+
+          주문표가 하나도 없을 때는 안 띄운다. 그때는 먼저 만들라는 빈 목록 안내가
+          이미 있고, 여기에 QR 얘기까지 겹치면 무엇부터 할지가 흐려진다.
+
+          아래 QR 탭으로도 갈 수 있지만 단추를 따로 둔다 — 화면을 못 보는 분에게는
+          '아래 탭' 이 찾아가야 하는 곳이고, 이 자리가 방금 막힌 자리다.
+        */}
+        {!showOrder && sheets.length > 0 && (
+          <>
+            <div role="status">
+              <InfoBox variant="info">
+                주문하시려면 키오스크의 QR을 찍어 주세요. 한 번 찍으면 한 번 주문할 수 있어요.
+              </InfoBox>
+            </div>
+            <PrimaryBtn onClick={onGoQr}>QR 찍으러 가기</PrimaryBtn>
+          </>
         )}
         <OutlineBtn onClick={onAddSheet}>
           + 새 주문표 추가
@@ -7160,6 +7187,7 @@ export default function App() {
               onAddVoiceSheet={() => { set고칠주문표(null); setScreen("voice-sheet"); }}
               onDeleteSheet={deleteSheet}
               onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
+              onGoQr={() => setTab("qr")}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
               onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}

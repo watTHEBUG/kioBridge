@@ -369,6 +369,13 @@ export const EN: Record<string, string> = {
    *
    * '시작하기' 는 붙어 있을 때만 열리고, 그 한 번에 저장까지 한다.
    */
+  /*
+   * 붙어 있지 않을 때 목록 아래에 뜨는 안내와 길. 주문 단추가 사라지는 자리라
+   * 왜 없는지 말해 준다(App.tsx 의 SavedSheetsScreen).
+   */
+  "주문하시려면 키오스크의 QR을 찍어 주세요. 한 번 찍으면 한 번 주문할 수 있어요.":
+    "To order, scan the kiosk's QR code. One scan lets you order once.",
+  "QR 찍으러 가기": "Go scan the QR code",
   "저장하기": "Save",
   "시작하기": "Start",
   /*
