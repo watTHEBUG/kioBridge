@@ -35,6 +35,15 @@ export const EN: Record<string, string> = {
     "{보기} — shall we go with this? You can say yes, or say another one.",
   "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요.":
     "We heard you but could not tell which one. Please say it again, or choose above.",
+  /*
+   * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되묻는 줄(팀 #133).
+   *
+   * 서버도 물음 문장을 만들어 주지만 쓰지 않는다. 그 문장에는 사용자가 말한
+   * 값이 박혀 있어서 이 표의 열쇠가 될 수 없다 — 사람마다 다른 말을 하므로
+   * 열쇠가 무한해진다. 값만 받아 여기서 조립한다(api/spicy.ts 주석).
+   */
+  "혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.":
+    "Did you mean {들은말}? Please pick it above.",
   "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
     "The microphone is not available. Please choose by hand above.",
   "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",

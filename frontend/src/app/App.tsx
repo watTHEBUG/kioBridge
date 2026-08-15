@@ -23,6 +23,7 @@ import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } f
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
 import { 말에서고르기, 예아니오 } from "@/api/voice";
+import { 맵기물어보기 } from "@/api/spicy";
 import { 입력출처 } from "@/api/inputsource";
 import { 가격한도 } from "@/api/budget";
 import { 접근토큰 } from "@/api/token";
@@ -1027,6 +1028,13 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
    */
   const [상태, set상태] = useState<"쉬는중" | "듣는중" | "처리중">("쉬는중");
   const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | null>(null);
+  /*
+   * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되물을 값들(팀 #133).
+   *
+   * 우리가 고르지 않는다. 화면이 그 값들만 보여 주고 사람이 짚는다 —
+   * 짐작해서 넣으면 고르지 않은 것이 골라진다는 규칙은 여기서도 같다.
+   */
+  const [되물을것, set되물을것] = useState<string[] | null>(null);
   const 듣던것 = useRef<{ 그만두기: (보내기?: boolean) => void } | null>(null);
   const 회차 = useRef(0);
 
@@ -1057,6 +1065,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set칸(0);
     set상태("쉬는중");
     set못들음(null);
+    set되물을것(null);
   }, [place]);
 
   if (!들을수있나() || 축들.length === 0) return null;
@@ -1065,12 +1074,17 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
 
   const 다음으로 = () => {
     set못들음(null);
+    // 앞 축에 대한 되물음이 다음 축까지 따라오면 안 된다.
+    set되물을것(null);
     if (마지막인가) { onDone(); return; }
     set칸((n) => n + 1);
   };
 
   // 고른 값을 넣고 다음 칸으로. 여러 개 고르는 칸은 이어 붙이고 그 자리에 머문다.
   const 넣기 = (고른것: string, 말로: boolean) => {
+    // 값이 정해졌으면 되물을 것도 없다. 여러 개 고르는 칸은 다음으로() 를
+    // 안 지나가므로 여기서도 지운다.
+    set되물을것(null);
     const 이전 = 값[지금축.label] ?? [];
     on고르기(지금축.label, 지금축.multi ? [...new Set([...이전, 고른것])] : [고른것], 말로);
     if (지금축.multi) set못들음(null);
@@ -1087,6 +1101,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
      */
     그만읽기();
     set못들음(null);
+    set되물을것(null);
     set상태("듣는중");
     회차.current += 1;
     // 단추를 누른 바로 이 자리에서 듣기 시작한다 — 브라우저는 사람이 누른 자리가
@@ -1114,6 +1129,34 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
       const 답 = 예아니오(r.들은말, 언어 === "en-US");
       if (답 === true) { 넣기(이축.choices[0], true); return; }
       if (답 === false) { 이축.choices.length === 2 ? 넣기(이축.choices[1], true) : 다음으로(); return; }
+
+      /*
+       * 셋째 길 — 보기에 없는 말이면 서버에 물어본다(팀 #133).
+       *
+       * 여기까지 온 것은 화면 보기와도, 예/아니오와도 안 맞았다는 뜻이다.
+       * "불닭맛" 같은 말이 그렇다. 서버는 앵커 표현과의 유사도로 고르므로
+       * 우리 표에 없는 말도 잡는다.
+       *
+       * 맵기만 물어본다. 다른 축은 아직 서버에 그 경로가 없다.
+       *
+       * 늦게 오는 답을 회차로 막는다 — 서버를 한 번 오가는 사이에 사용자가
+       * 그만두거나 다음 축으로 갔을 수 있고, 그때 도착한 답을 넣으면 사용자가
+       * 보고 있지도 않은 축이 채워진다.
+       */
+      if (이축.label === "맵기") {
+        set상태("처리중");
+        void 맵기물어보기(r.들은말, 언어 === "en-US").then((결과) => {
+          if (내회차 !== 회차.current) return;
+          set상태("쉬는중");
+          if ("고른값" in 결과 && 이축.choices.includes(결과.고른값)) { 넣기(결과.고른값, true); return; }
+          if ("되물을것" in 결과) {
+            const 있는것 = 결과.되물을것.filter((v) => 이축.choices.includes(v));
+            if (있는것.length > 0) { set되물을것(있는것); return; }
+          }
+          set못들음("못골랐어요");
+        });
+        return;
+      }
       set못들음("못골랐어요");
     });
   };
@@ -1198,6 +1241,24 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
           </button>
         ))}
       </div>
+
+      {/*
+       * 서버가 애매하다고 한 값들을 되묻는다(팀 #133).
+       *
+       * 우리가 고르지 않는다. 위 보기 줄은 그대로 두고 여기에 한 줄을 더해
+       * "이 둘 중 어느 쪽인지" 만 묻는다 — 짚는 것은 사람이다.
+       *
+       * 문장을 서버에서 받지 않고 여기서 조립하는 이유: 서버 문장에는 사용자가
+       * 말한 값이 박혀 있어 번역표의 열쇠가 될 수 없다. 값만 받아 화면에 실제로
+       * 떠 있는 보기 이름으로 만든다(i18n/en.ts 의 틀).
+       */}
+      {되물을것 && 되물을것.length > 0 && (
+        <p role="status" style={{ fontSize: 14, color: TEXT_1, marginTop: 12, lineHeight: 1.7 }}>
+          {tf("혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.", {
+            들은말: 되물을것.map((v) => t(v)).join(" / "),
+          })}
+        </p>
+      )}
 
       {/*
        * data-소리조용 — 이 안의 글은 '새로 붙은 줄' 읽기에서 빠진다(speech.ts).
