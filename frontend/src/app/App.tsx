@@ -19,7 +19,7 @@ import {
   LOGIN_ID_MAX, PASSWORD_MIN, MENU_NAME_MAX, MEMO_MAX, type Account,
 } from "@/api/account";
 import { 연동기록, 팀백엔드모드 } from "@/api/devlog";
-import { 접근성설정, 언어목록, type 도움설정, type 언어코드 } from "@/api/a11y";
+import { 접근성설정, 언어목록, type 도움설정, type 언어코드, type PreferredInputHint } from "@/api/a11y";
 import { 소리를낼수있나, 읽어주기, 그만읽기, 화면글, 다읽을때까지 } from "@/api/speech";
 import { 들을수있나, 들어보기, type 못들은이유 } from "@/api/listen";
 import { 말에서고르기, 예아니오, 뒤로가자고했나, 다음가자고했나 } from "@/api/voice";
@@ -1015,8 +1015,159 @@ function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }: {
 }
 
 /**
+ * 형태(뼈/순살) 제안이 필요할 수 있는 접근성 신호 전부.
+ *
+ * 이름을 손불편신호있나 로 뒀던 적이 있는데 틀린 이름이었다 — visualGuidance·
+ * largeText·highContrast 는 손이 아니라 **시각** 신호다. 이 함수는 서로 다른
+ * 두 경로를 하나로 묶는다.
+ *
+ *   시각 경로   안 보여서 뼈를 발라내기 어렵다   (visualGuidance·largeText·highContrast)
+ *   손 경로     손이 뜻대로 안 움직여서 어렵다     (mobilitySupport·SWITCH·ASSISTED)
+ *
+ * 두 경로 다 "뼈 바르기가 허들이 될 수 있다" 는 같은 결론으로 이어지길래
+ * 하나의 판정 함수로 묶었다 — 이름은 그 결론(순살 제안 여부)을 가리키게
+ * 짓는다.
+ *
+ * 처음엔 시각 신호만 봤다 — 그때는 이 앱이 손 관련 신호를 아예 안 받고
+ * 있었다("일단 시각 관련해서만 판단" 결정).
+ *
+ * ── SWITCH·ASSISTED·mobilitySupport 를 넣는 게 비약 아니냐는 지적에 대해 ─────
+ *
+ * 맞는 말이다 — SWITCH·ASSISTED 는 "키오스크 버튼을 어떻게 누르는가"(입력
+ * 방식)이고, mobilitySupport 도 이 코드베이스에서 실제로 하는 일은 "시간 여유
+ * 를 준다"(자동 만료 화면 전환을 안 함)이다. 셋 다 "뼈를 손으로 바르기 힘든가"
+ * 를 직접 말하는 값이 아니다. 이 앱에는 그 질문을 문자 그대로 묻는 칸이 없다 —
+ * 그래서 이미 받고 있는 신호 중 손 움직임에 가장 가까운 것들을 대신 쓴다
+ * (mobilitySupport 는 정의 자체에 "손 조작이 힘들다" 가 들어 있고, SWITCH·
+ * ASSISTED 는 스위치·대리 조작이 필요할 만큼 손 조작이 정교하지 않다는 뜻이다).
+ *
+ * 이 비약이 위험하지 않은 이유는 따로 있다 — 이 함수가 참이어도 형태를
+ * **바로 채우지 않는다.** 순살제안시트를 띄워 "네/상관없어요" 로 사용자에게
+ * 직접 물어보고, 그 답만 싣는다(아래 순살제안시트 주석). 신호가 잘못 켜져
+ * 있어도 최악의 경우는 안 맞는 질문 하나가 떴다가 한 번 눌러 넘기는 것뿐이다
+ * — 사용자가 고른 적 없는 값이 조용히 채워지는 일은 없다.
+ */
+const 순살제안신호있나 = (설정: 도움설정): boolean =>
+  설정.visualGuidance || 설정.largeText || 설정.highContrast
+  || 설정.mobilitySupport
+  || 설정.preferredInputHint === "SWITCH" || 설정.preferredInputHint === "ASSISTED";
+
+/**
+ * 형태를 안 고른 채 저장하려는 순간에만 뜬다 — 위 순살제안신호있나 가 참이고,
+ * 다른 축은 다 골랐는데 형태만 빈 그 경우다.
+ *
+ * 시각 안내가 필요하거나 저시력인 사람에게는 뼈를 발라 먹는 과정 자체가
+ * 허들이 될 수 있다. 그렇다고 앱이 짐작으로 순살을 채워 넣지 않는다 —
+ * 직접 묻고, 사용자가 고른 답만 싣는다. "네"도 "상관없어요"도 둘 다
+ * 형태를 채운 뒤 그대로 저장을 이어간다(OrderSheetScreen 의 저장하기).
+ * 이미 저장하고 시작하기를 한 번 눌렀으니, 답한 뒤 또 눌러야 하면
+ * 왜 두 번 눌러야 하는지부터 설명해야 한다.
+ */
+function 순살제안시트({ onAnswer, onCancel }: {
+  onAnswer: (형태: "순살" | "상관없음") => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const 이전포커스 = useRef<HTMLElement | null>(null);
+  /*
+   * 포커스를 열 때 저장했다가 닫을 때 되돌리는 일만 한다 — 마운트·언마운트
+   * 한 번씩이라 의존성 배열을 비워 둔다.
+   *
+   * 전에는 여기에 onCancel 을 의존성으로 넣고 Escape 도 같이 처리했다. onCancel
+   * 은 부모가 매 렌더마다 새로 만들어 주는 인라인 함수라, 시트가 열려 있는 동안
+   * 부모가 리렌더되면 이 effect 가 정리(cleanup)됐다가 다시 걸렸다 — 그 사이
+   * cleanup 이 배경 요소로 포커스를 되돌렸다가, 곧바로 다시 걸린 effect 가 시트로
+   * 도로 옮겨서 포커스가 튀었다. Escape 는 아래 포커스가두기 한 곳에서만
+   * 처리한다(그 함수 주석 참고) — 여기서 window 에 또 리스너를 달 필요가 없다
+   * (coderabbitai 리뷰).
+   */
+  useEffect(() => {
+    이전포커스.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    ref.current?.focus();
+    return () => {
+      if (이전포커스.current?.isConnected) 이전포커스.current.focus();
+    };
+  }, []);
+  const 가두기 = 포커스가두기(ref, onCancel);
+
+  /*
+   * 뜨는 순간, 앞서 읽고 있던 화면 안내를 끊고 이 시트만 읽는다.
+   *
+   * 이 시트는 화면(screen)을 바꾸지 않는다 — 부모 화면 안의 로컬 상태로만 뜬다.
+   * 그런데 App 루트의 소리 안내 효과는 screen/tab 이 바뀔 때만 "앞의 말을 끊고
+   * 처음부터 다시 읽는다." 이 시트가 뜬 것만으로는 그 효과가 안 걸려서, 안 끊고
+   * 그냥 두면 사용자는 이전 화면을 계속 듣다가 뒤늦게 이 질문을 놓친다.
+   *
+   * 그래서 여기서 직접 끊고(그만읽기) 이 시트의 문장만 읽는다. 아래 data-소리생략
+   * 도 같이 달아 둔다 — 안 달면 루트의 "새로 붙은 줄" 감지가 350ms 뒤에 같은
+   * 문장을 한 번 더 읽어서 두 번 들린다.
+   */
+  /*
+   * 시트 문구와 읽어주기를 같은 t() 결과에서 뽑는다.
+   *
+   * 예전에는 읽어주기 쪽만 한국어 원문을 그대로 썼다 — 언어를 English로 두면
+   * 화면은 영어인데 소리는 한국어 문장을 그대로 읽어서 알아들을 수 없는
+   * 소리가 났다(coderabbitai 리뷰). t() 는 접근성설정.읽기().language 를 매
+   * 호출마다 직접 보므로, 여기서 언어를 따로 안 넘겨도 화면·소리가 같이 맞다.
+   */
+  const 제목 = t("먹기 편한 순살로 하시겠어요?");
+  const 설명 = t("형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.");
+  const 순살버튼 = t("네, 순살로 할게요");
+  const 상관없음버튼 = t("상관없어요");
+
+  useEffect(() => {
+    if (!접근성설정.읽기().voiceGuide) return;
+    그만읽기();
+    읽어주기(
+      [제목, 설명, 순살버튼, 상관없음버튼].join(". "),
+      { 언어: 접근성설정.읽기().language },
+    );
+    return () => 그만읽기();
+  }, [제목, 설명, 순살버튼, 상관없음버튼]);
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex flex-col justify-end"
+      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      data-소리생략
+    >
+      <div
+        ref={ref}
+        tabIndex={-1}
+        onKeyDown={가두기}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bone-suggest-title"
+        aria-describedby="bone-suggest-body"
+        style={{ backgroundColor: PAPER, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: `28px ${GAP.screenX}px 24px`, outline: "none" }}
+      >
+        <h2 id="bone-suggest-title" style={{ ...TYPE.title, color: TEXT_1, margin: 0 }}>
+          {제목}
+        </h2>
+        <p id="bone-suggest-body" style={{ ...TYPE.body, color: TEXT_2, marginTop: 10 }}>
+          {설명}
+        </p>
+        <div style={{ marginTop: 24 }}>
+          {/* 값은 "순살"/"상관없음" 한국어 그대로 넘긴다 — 저장되는 의미값(selections)이고
+              canonical.ts 가 이 한국어를 enum 으로 옮긴다(t.ts 주석). 번역은 보여줄 때뿐이다. */}
+          <PrimaryBtn onClick={() => onAnswer("순살")}>{순살버튼}</PrimaryBtn>
+          <div style={{ height: 10 }} />
+          <OutlineBtn onClick={() => onAnswer("상관없음")}>{상관없음버튼}</OutlineBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 모달 안에 Tab 을 가둔다. aria-modal 을 선언한 곳은 전부 이걸 쓴다.
  * 선언만 하고 안 지키면 스크린리더에게 거짓말을 하는 셈이다.
+ *
+ * Escape 도 여기 한 곳에서만 처리한다. 부르는 쪽에서 창을 여는 effect 안에
+ * 따로 window keydown 리스너를 또 달면, 같은 Escape 를 두 곳이 처리하려 들거나
+ * 그 effect 의 의존성 배열에 onClose 가 끼어 부모가 리렌더될 때마다 리스너가
+ * 갈아 끼워진다(coderabbitai 리뷰).
  */
 function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   return (e: React.KeyboardEvent) => {
@@ -1028,8 +1179,18 @@ function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onClose: (
     if (!대상 || 대상.length === 0) return;
     const 처음 = 대상[0];
     const 마지막 = 대상[대상.length - 1];
-    if (e.shiftKey && document.activeElement === 처음) { e.preventDefault(); 마지막.focus(); }
-    else if (!e.shiftKey && document.activeElement === 마지막) { e.preventDefault(); 처음.focus(); }
+    /*
+     * 열리자마자 포커스는 컨테이너 자신(tabIndex=-1)에 가 있다 — 제목·설명을
+     * 먼저 읽게 하려는 것이다(순살제안시트 등). 그런데 컨테이너는 원래 탭
+     * 순서 밖이라, 이 상태에서 Shift+Tab 을 누르면 "처음이 아니니" 이 함수가
+     * 아무 것도 안 하고, 브라우저가 배경(겹 밖)의 이전 요소로 포커스를 새어
+     * 보낸다(coderabbitai 리뷰). 컨테이너에 있을 때는 '처음' 취급해 준다 —
+     * Shift+Tab 이면 마지막으로 감싸고, 그냥 Tab 이면 원래도 다음(처음 버튼)
+     * 으로 자연스럽게 가므로 손댈 것이 없다.
+     */
+    const 지금 = document.activeElement === ref.current ? 처음 : document.activeElement;
+    if (e.shiftKey && 지금 === 처음) { e.preventDefault(); 마지막.focus(); }
+    else if (!e.shiftKey && 지금 === 마지막) { e.preventDefault(); 처음.focus(); }
   };
 }
 
@@ -1726,8 +1887,22 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const 이름칸id = useId();
   // 끝내기를 누르면 여기로 포커스를 옮긴다(아래 onDone). ref 로 잡아 둔다.
   const 이름칸ref = useRef<HTMLInputElement | null>(null);
+  // 순살 제안 시트가 떠 있는가. OrderSheetScreen 과 같은 규칙이다(그 화면의 주석 참고).
+  const [순살배너, set순살배너] = useState(false);
   // 저장은 모든 축이 채워져야 열린다 — 터치 화면과 같은 규칙(catalog.tsx 의 못채운축).
   const 빠진것 = 못채운축(place, selections);
+  const 형태만빠짐 = 빠진것.length === 1 && 빠진것[0] === "형태";
+  const 접근성값 = 접근성설정.읽기();
+  const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
+  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+    // OrderSheetScreen 의 저장하기와 같은 규칙 — 답한 형태만 얹고 나머지는 그대로 둔다.
+    const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
+    onNext({
+      id: newSheetId(),
+      menuName: menuName.trim() || "이름 없는 주문표",
+      place, selections: 최종선택, memo: "",
+    });
+  };
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
@@ -1791,22 +1966,27 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
       </div>
 
       <StickyFooter>
-        {빠진것.length > 0 && (
+        {빠진것.length > 0 && !순살제안대상 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
             {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", { 빠진것: 빠진것.map(t).join(", ") })}
           </p>
         )}
         <PrimaryBtn
-          onClick={() => onNext({
-            id: newSheetId(),
-            menuName: menuName.trim() || "이름 없는 주문표",
-            place, selections, memo: "",
-          })}
-          disabled={개인정보같은글(menuName) || 빠진것.length > 0}
+          onClick={() => {
+            if (순살제안대상) { set순살배너(true); return; }
+            저장하기();
+          }}
+          disabled={개인정보같은글(menuName) || (빠진것.length > 0 && !순살제안대상)}
         >
           저장하고 시작하기
         </PrimaryBtn>
       </StickyFooter>
+      {순살배너 && (
+        <순살제안시트
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onCancel={() => set순살배너(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1881,12 +2061,40 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
     () => Object.fromEntries(Object.entries(고칠것?.selections ?? {}).map(([축, 값]) => [축, [...값]])),
   );
   const [memo, setMemo] = useState(고칠것?.memo ?? "");
+  // 순살 제안 시트가 떠 있는가. 형태만 비어 있고 접근성 신호가 있을 때만 연다
+  // (아래 순살제안대상, 순살제안시트 주석).
+  const [순살배너, set순살배너] = useState(false);
 
   // 이름·메모 칸의 id. 라벨을 칸에 묶는 데 쓴다(SectionLabel 주석).
   const 이름칸id = useId();
   const 메모칸id = useId();
 
   const options = place ? DETAIL_OPTIONS[place] : [];
+
+  /*
+   * 형태만 비어 있고, 순살제안신호있나 가 참이면(시각 신호 또는 손 관련 신호)
+   * "저장하고 시작하기" 를 눌렀을 때 곧장 막는 대신 순살 제안 시트를 연다.
+   *
+   * 형태 칩을 그리는 시점(화면을 여는 순간)이 아니라 저장을 누르는 시점에
+   * 판단한다 — 미리 배너부터 띄우면 아직 다른 축도 안 골랐는데 형태 얘기부터
+   * 듣게 된다. 형태 말고 다른 축도 비어 있으면(순살만 물어서 해결되는 게
+   * 아니면) 평소처럼 "아직 안 고른 것" 안내로 막는다.
+   */
+  const 빠진축 = 못채운축(place, selections);
+  const 형태만빠짐 = 빠진축.length === 1 && 빠진축[0] === "형태";
+  const 접근성값 = 접근성설정.읽기();
+  const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
+
+  const 저장하기 = (형태값?: "순살" | "상관없음") => {
+    // 답한 형태만 얹는다 — 나머지 selections 는 그대로다(사용자 요청: 기존
+    // 선호는 건드리지 않고 형태만 추가로 채워서 보낸다).
+    const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
+    onNext({
+      id: 고칠것?.id ?? newSheetId(),
+      menuName: menuName.trim() || "이름 없는 주문표",
+      place, selections: 최종선택, memo,
+    });
+  };
 
   const toggleChip = (sectionLabel: string, choice: string, multi: boolean) => {
     const 배타 = options.find((o) => o.label === sectionLabel)?.exclusive ?? [];
@@ -2076,10 +2284,10 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
           주문하는 순간에야 빈 칸을 만났다. '늘 하던 것' 을 저장하는 표라면
           저장 시점에 다 채워져 있어야 한다. 무엇이 비었는지는 이름을 대고 말한다.
         */}
-        {못채운축(place, selections).length > 0 && (
+        {빠진축.length > 0 && !순살제안대상 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
             {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
-              빠진것: 못채운축(place, selections).map(t).join(", "),
+              빠진것: 빠진축.map(t).join(", "),
             })}
           </p>
         )}
@@ -2102,16 +2310,22 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
            * 비워 두면 목록에서 '이름 없는 주문표' 로 보인다 — 빈 줄로 두면 무엇이
            * 저장됐는지 알 수 없다.
            */
-          onClick={() => onNext({
-            id: 고칠것?.id ?? newSheetId(),
-            menuName: menuName.trim() || "이름 없는 주문표",
-            place, selections, memo,
-          })}
-          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || 못채운축(place, selections).length > 0}
+          onClick={() => {
+            // 형태만 비어 있고 접근성 신호가 있으면, 곧장 저장하는 대신 먼저 묻는다.
+            if (순살제안대상) { set순살배너(true); return; }
+            저장하기();
+          }}
+          disabled={개인정보같은글(memo) || 개인정보같은글(menuName) || (빠진축.length > 0 && !순살제안대상)}
         >
           {고칠것 ? "고친 내용 저장하기" : "저장하고 시작하기"}
         </PrimaryBtn>
       </StickyFooter>
+      {순살배너 && (
+        <순살제안시트
+          onAnswer={(형태값) => { set순살배너(false); 저장하기(형태값); }}
+          onCancel={() => set순살배너(false)}
+        />
+      )}
     </div>
   );
 }
@@ -3426,6 +3640,59 @@ function 언어고르기({ 고른것, on바꾸기 }: { 고른것: 언어코드; 
   );
 }
 
+/**
+ * 키오스크에서 어떻게 조작하는지, 사용자가 직접 밝히는 자리.
+ *
+ * VOICE/TOUCH 처럼 이 앱에서 감지할 수 있는 값이 아니다 — 스위치 보조기기나
+ * 다른 사람의 도움은 화면 어디에도 감지할 단서가 없다. 그래서 짐작하지 않고
+ * 직접 물어본다("혹시 순살이 편하실까요?" 배너와 같은 원칙 — 추측 대신 확인).
+ *
+ * 셋 중 하나만 고를 수 있다. 스위치로도 쓰고 다른 사람 도움도 받는 경우를 담을
+ * 값이 계약에 따로 없다 — 회의 결과 MULTIMODAL 은 이번엔 안 만들기로 했다.
+ * 하나를 고르면 나머지는 자동으로 꺼진다(언어고르기와 같은 라디오 모양).
+ */
+function 입력도움고르기({ 고른것, on바꾸기 }: {
+  고른것: PreferredInputHint;
+  on바꾸기: (v: PreferredInputHint) => void;
+}) {
+  const 보기: { value: PreferredInputHint; label: string }[] = [
+    { value: "NONE", label: "특별히 없어요" },
+    { value: "SWITCH", label: "보조기기(스위치)를 써요" },
+    { value: "ASSISTED", label: "다른 사람이 도와줘요" },
+  ];
+  return (
+    <div style={{ paddingTop: 16 }}>
+      <span style={{ display: "block", fontSize: 17, fontWeight: 700, color: TEXT_1, letterSpacing: "-0.02em" }}>
+        키오스크에서 어떻게 조작하시나요
+      </span>
+      <span style={{ display: "block", fontSize: 13, color: TEXT_2, marginTop: 4, marginBottom: 10 }}>
+        키오스크가 미리 준비할 수 있도록 전해 드려요
+      </span>
+      <div className="flex flex-wrap" style={{ gap: 6 }} role="radiogroup" aria-label="키오스크에서 어떻게 조작하시나요">
+        {보기.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={고른것 === value}
+            onClick={() => on바꾸기(value)}
+            style={{
+              minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
+              fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+              backgroundColor: 고른것 === value ? RULE : CANVAS,
+              color: 고른것 === value ? PAPER : TEXT_CHIP,
+              border: "none", cursor: "pointer", transition: "all 0.15s",
+            }}
+          >
+            {label}
+            {고른것 === value && <span style={{ marginLeft: 6 }}>(선택됨)</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 머리카락 굵기 선으로 이어 붙인 스위치 묶음. 두 화면이 같은 모양으로 쓴다. */
 function 도움목록({ 항목들, 설정, onChange }: {
   항목들: 도움항목[];
@@ -3824,15 +4091,20 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
           </>
         )}
         {/*
-          '키오스크에 전해 드려요' 제목은 뺐다. 그 무리(전해드릴것)가 비면서 제목과
-          "지금은 전해 주기만 해요" 안내만 남아 있었다 — 아래에 스위치가 하나도 없는
-          제목은 읽는 사람에게 빈 약속이다. 항목이 다시 생기면 제목도 같이 돌아온다.
+          '키오스크에 전해 드려요' 무리는 한동안 비어 있었다(그림 안내·소리 대신
+          화면이 이번 환경(chicken-store)에서는 안 쓰여서 뺐다). 이제 하나가
+          다시 생겼다 — 조작 방식은 어느 환경에서든 킷이 그대로 쓴다.
 
-          안내 언어도 이 화면에서 뺐다. 첫 화면 맨 아래에서 이미 고르고 들어온다 —
+          안내 언어는 이 화면에서 뺐다. 첫 화면 맨 아래에서 이미 고르고 들어온다 —
           같은 것을 두 화면에서 물으면, 여기서 처음 보는 사람은 아직 안 고른 줄 알고
           한 번 더 고르게 된다. 나중에 바꾸고 싶은 사람은 계정 화면의 '접근성 설정'
           에서 바꾼다(AccessibilityScreen 에는 그대로 있다).
         */}
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24, marginBottom: 2 }}>키오스크에 전해 드려요</h2>
+        <입력도움고르기
+          고른것={설정.preferredInputHint}
+          on바꾸기={(v) => onChange({ preferredInputHint: v })}
+        />
 
         {/*
           알레르기는 '도움 설정' 이 아니라 안전에 관한 값이라 선 아래에 따로 둔다.
@@ -3889,9 +4161,14 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
         <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
 
         {/*
-          '키오스크에 전해 드려요' 제목과 안내는 뺐다(위 설정 화면과 같은 이유).
-          빈 무리 위에 제목만 남아 있었다. 항목이 다시 생기면 같이 돌아온다.
+          '키오스크에 전해 드려요' 무리도 위 설정 화면과 같은 이유로 한동안
+          비어 있었다. 조작 방식(입력도움고르기)이 다시 생겨서 제목도 함께 둔다.
         */}
+        <h2 style={{ ...TYPE.label, color: TEXT_2, marginTop: 24, marginBottom: 2 }}>키오스크에 전해 드려요</h2>
+        <입력도움고르기
+          고른것={설정.preferredInputHint}
+          on바꾸기={(v) => onChange({ preferredInputHint: v })}
+        />
         <언어고르기 고른것={설정.language} on바꾸기={(v) => onChange({ language: v })} />
 
         {/*
@@ -3904,6 +4181,16 @@ function AccessibilityScreen({ 설정, onChange, onBack }: {
           알레르기는 가입할 때, 가격 한도는 주문표를 만들 때 묻는다.
         */}
       </div>
+      {/*
+        스위치는 누르는 즉시 적용된다(SetupScreen 과 같은 원칙) — 이 버튼은 저장을
+        하는 게 아니라 "다 됐다" 는 걸 눈으로 확인시켜 주는 자리다.
+        예전에는 뒤로가기 화살표 하나뿐이었다. 설정을 만지러 들어온 화면에
+        나가는 길이 그 작은 화살표뿐이면, 다 골랐다는 확신 없이 뒤로 가게 된다 —
+        이 화면 자체가 "골랐으면 끝" 이라는 걸 말해 주는 자리가 없었다.
+      */}
+      <StickyFooter>
+        <PrimaryBtn onClick={onBack}>확인</PrimaryBtn>
+      </StickyFooter>
     </div>
   );
 }

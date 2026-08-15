@@ -31,7 +31,11 @@ export interface CanonicalProfile {
     hearingSupport: boolean; mobilitySupport: boolean; highContrast: boolean;
     staffAssistancePreferred: boolean;
   };
-  interaction: { preferredInput: "TOUCH" | "VOICE"; language: string; confirmationRequired: boolean };
+  interaction: {
+    preferredInput: "TOUCH" | "VOICE" | "SWITCH" | "ASSISTED";
+    language: string;
+    confirmationRequired: boolean;
+  };
   consent: { personalization: boolean; retentionPolicy: "UNTIL_USER_DELETES" };
 }
 
@@ -139,9 +143,21 @@ export function toCanonicalProfile(
      * 설정이지 입력 방식이 아니다.** 말로 채우고 읽어 주기를 껐으면 TOUCH 로
      * 나갔고, 손으로 고르고 읽어 주기를 켰으면 VOICE 로 나갔다. 키오스크는 이
      * 값을 보고 안내 방식을 정하므로 틀리면 그쪽이 잘못 준비한다(#99 리뷰).
+     *
+     * ── SWITCH/ASSISTED 가 VOICE/TOUCH 감지보다 우선한다 ──────────────────────
+     *
+     * VOICE/TOUCH 는 "이번 이용을 실제로 무엇으로 채웠나" 를 보고 뒤늦게 정하는
+     * 값이다. 그런데 스위치 보조기기·다른 사람의 도움은 이 웹 화면에서 감지할
+     * 방법이 없다 — 그래서 접근성 화면에서 미리 밝힌 값(preferredInputHint)이
+     * 있으면 그걸 그대로 쓴다. 이번 주문표를 우연히 손으로 채웠다고 해서, 평소
+     * 스위치로 조작한다고 밝힌 사람에게 키오스크가 손 조작 안내를 준비하게 두면
+     * 안 된다 — 밝힌 사실이 이번 한 번의 입력 방식보다 더 믿을 만한 신호다.
      */
     interaction: {
-      preferredInput: opts.말로채웠나 ? "VOICE" : "TOUCH",
+      preferredInput:
+        opts.접근성?.preferredInputHint === "SWITCH" ? "SWITCH"
+        : opts.접근성?.preferredInputHint === "ASSISTED" ? "ASSISTED"
+        : opts.말로채웠나 ? "VOICE" : "TOUCH",
       /*
        * 안내받고 싶은 언어. 여태 "ko-KR" 로 박혀 있었다.
        *

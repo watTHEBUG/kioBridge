@@ -428,6 +428,13 @@ export const EN: Record<string, string> = {
   "2개": "2",
   "3개": "3",
 
+  // 형태를 안 고르고 저장하려는데 접근성 신호가 있을 때 뜨는 순살 제안 시트.
+  "먹기 편한 순살로 하시겠어요?": "Would boneless be easier to eat?",
+  "형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.":
+    "You haven’t picked bone or boneless yet. Deboning chicken can be difficult, so we wanted to ask.",
+  "네, 순살로 할게요": "Yes, boneless please",
+  "상관없어요": "No preference",
+
   // ─── QR · 연결 ────────────────────────────────────────────────────────────
   "키오스크의 QR 코드를": "Point your camera at",
   "카메라에 맞춰주세요": "the kiosk’s QR code",

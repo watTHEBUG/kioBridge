@@ -1,5 +1,5 @@
 import type { PlaceType, OrderSheet } from "@/domain/types";
-import { 기본도움설정, 아는언어인가, type 도움설정 } from "@/api/a11y";
+import { 기본도움설정, 아는언어인가, 아는선호입력값인가, type 도움설정 } from "@/api/a11y";
 import { 아는알레르기 } from "@/api/allergy";
 import type { AllergenId } from "@/api/canonical";
 // client.ts 의 KioBridgeError 를 그대로 쓴다. 화면은 이미 그 타입 하나로 오류를 다루고 있어서
@@ -307,11 +307,13 @@ const 프로필읽기 = (v: unknown): AccountPreferences | null => {
     ? o.accessibility : {}) as Record<string, unknown>;
   const a11y = { ...기본도움설정 };
   for (const 칸 of Object.keys(기본도움설정) as (keyof 도움설정)[]) {
-    if (칸 !== "language" && typeof 받은[칸] === "boolean") a11y[칸] = 받은[칸] as boolean;
+    if (칸 !== "language" && 칸 !== "preferredInputHint" && typeof 받은[칸] === "boolean") a11y[칸] = 받은[칸] as boolean;
   }
   // 언어만 boolean 이 아니다. 아는 값일 때만 받는다 — 아무 문자열이나 들어오면
   // 서버의 BCP 47 검사에 걸려 주문 자체가 안 된다(session.ts 와 같은 이유).
   if (아는언어인가(받은.language)) a11y.language = 받은.language;
+  // preferredInputHint 도 boolean 이 아니다 — 같은 이유로 아는 값일 때만 받는다.
+  if (아는선호입력값인가(받은.preferredInputHint)) a11y.preferredInputHint = 받은.preferredInputHint;
   // 아는 여섯만 받는다. 모르는 값이 섞이면 서버가 UNKNOWN 으로 읽고 주문을 막는다.
   const allergies = Array.isArray(o.allergies) ? o.allergies.filter(아는알레르기) : [];
   return { a11y, allergies };
