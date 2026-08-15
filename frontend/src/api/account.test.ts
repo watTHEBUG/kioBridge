@@ -4,8 +4,10 @@ import {
   clearAccountMock, createTeamAccount, mockAccount, setAccountMockDelay,
   아이디검사, 비밀번호검사, 못올리는이유,
   LOGIN_ID_MAX, PASSWORD_MIN, MENU_NAME_MAX, MEMO_MAX, PROFILE_ID_MAX,
+  type AccountPreferences,
 } from "./account";
 import { KioBridgeError } from "./client";
+import { 기본도움설정 } from "./a11y";
 import type { OrderSheet } from "@/domain/types";
 
 // 이 파일이 잠그는 것은 하나다 — 로그인은 선택이지만, 하기로 한 사람에게는
@@ -313,6 +315,45 @@ describe("목 — 주문표", () => {
     const 다시 = await mockAccount.listSheets(a.userId);
     expect(다시[0].selections["맵기"]).toEqual(["매운맛"]);
     expect(다시[0].menuName).toBe("닭강정");
+  });
+});
+
+describe("목 — 계정 프로필(도움 설정·알레르기)", () => {
+  const 프로필: AccountPreferences = {
+    a11y: { ...기본도움설정, largeText: true, voiceGuide: true },
+    allergies: ["PEANUT", "SHRIMP"],
+  };
+
+  it("저장한 적 없으면 null 이다", async () => {
+    // null 은 '아직 계정에 없다' 는 뜻이다. 화면이 이걸 보고 기기 값을 심는다.
+    const a = await mockAccount.signup("할머니1", "1234");
+    expect(await mockAccount.getPreferences(a.userId)).toBeNull();
+  });
+
+  it("저장하면 그대로 돌아온다", async () => {
+    const a = await mockAccount.signup("할머니1", "1234");
+    await mockAccount.putPreferences(a.userId, 프로필);
+    expect(await mockAccount.getPreferences(a.userId)).toEqual(프로필);
+  });
+
+  it("모르는 알레르기는 걸러서 담는다", async () => {
+    // 실서버가 걸러낼 값을 목이 통과시키면 목에서만 되는 값이 생긴다.
+    const a = await mockAccount.signup("할머니1", "1234");
+    await mockAccount.putPreferences(a.userId, {
+      a11y: { ...기본도움설정 },
+      allergies: ["PEANUT", "우주먼지"] as unknown as AccountPreferences["allergies"],
+    });
+    expect((await mockAccount.getPreferences(a.userId))!.allergies).toEqual(["PEANUT"]);
+  });
+
+  it("불러온 것을 고쳐도 저장소는 그대로다", async () => {
+    // 주문표복사와 같은 이유다 — 화면이 받은 객체를 그대로 상태에 넣는다.
+    const a = await mockAccount.signup("할머니1", "1234");
+    await mockAccount.putPreferences(a.userId, 프로필);
+    const 받은 = (await mockAccount.getPreferences(a.userId))!;
+    받은.allergies.push("MILK");
+    받은.a11y.largeText = false;
+    expect(await mockAccount.getPreferences(a.userId)).toEqual(프로필);
   });
 });
 
@@ -677,5 +718,48 @@ describe("계정 삭제 — 실패의 종류를 가른다", () => {
      */
     globalThis.fetch = vi.fn(async () => 응답({ message: "boom" }, 500)) as unknown as typeof fetch;
     expect(await createTeamAccount().deleteAccount(7)).toBe("못지움");
+  });
+
+  it("계정을 지우면 계정에 딸린 프로필도 사라진다", async () => {
+    // '모두 지워요' 가 사실이어야 한다. 계정만 지우고 프로필이 남으면
+    // 같은 아이디로 다시 가입한 사람에게 앞사람 설정이 따라붙는다.
+    const a = await mockAccount.signup("할머니2", "1234");
+    await mockAccount.putPreferences(a.userId, { a11y: { ...기본도움설정, largeText: true }, allergies: ["PEANUT"] });
+    expect(await mockAccount.getPreferences(a.userId)).not.toBeNull();
+    await mockAccount.deleteAccount(a.userId);
+    expect(await mockAccount.getPreferences(a.userId)).toBeNull();
+  });
+});
+
+describe("팀 백엔드 — 계정 프로필", () => {
+  it("GET 은 preferences 경로로 가고, 서버 모양을 화면 모양으로 옮긴다", async () => {
+    globalThis.fetch = vi.fn(async () => 응답({
+      accessibility: { ...기본도움설정, largeText: true }, allergies: ["PEANUT"],
+    })) as unknown as typeof fetch;
+    const p = await createTeamAccount().getPreferences(7);
+    expect(부른것()[0][0]).toBe("/api/bff/api/v1/users/7/preferences");
+    expect(p).toEqual({ a11y: { ...기본도움설정, largeText: true }, allergies: ["PEANUT"] });
+  });
+
+  it("아직 없는 경로라 404 여도 던지지 않는다 — null 로 물러난다", async () => {
+    /*
+     * 이 경로는 서버에 아직 없다(docs/BACKEND_INTEGRATION.md 요청). 여기서 던지면
+     * 로그인 자체가 실패한 것처럼 보인다. claimCode 와 같은 판단 — 미리 부르고,
+     * 서버가 받기 시작하는 날 그냥 켜진다.
+     */
+    globalThis.fetch = vi.fn(async () => 응답({ code: "NOT_FOUND" }, 404)) as unknown as typeof fetch;
+    expect(await createTeamAccount().getPreferences(7)).toBeNull();
+  });
+
+  it("PUT 실패도 던지지 않는다 — 기기 값이 기준이다", async () => {
+    globalThis.fetch = vi.fn(async () => 응답({ message: "not implemented" }, 501)) as unknown as typeof fetch;
+    await expect(createTeamAccount().putPreferences(7, {
+      a11y: { ...기본도움설정 }, allergies: [],
+    })).resolves.toBeUndefined();
+    const [url, init] = 부른것()[0];
+    expect(url).toBe("/api/bff/api/v1/users/7/preferences");
+    expect(init.method).toBe("PUT");
+    // 서버로 나가는 열쇠 이름은 계약(accessibility)이다. 내부 이름(a11y)이 아니다.
+    expect(JSON.parse(String(init.body))).toHaveProperty("accessibility");
   });
 });

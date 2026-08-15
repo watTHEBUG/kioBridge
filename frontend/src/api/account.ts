@@ -1,4 +1,7 @@
 import type { PlaceType, OrderSheet } from "@/domain/types";
+import { 기본도움설정, 아는언어인가, type 도움설정 } from "@/api/a11y";
+import { 아는알레르기 } from "@/api/allergy";
+import type { AllergenId } from "@/api/canonical";
 // client.ts 의 KioBridgeError 를 그대로 쓴다. 화면은 이미 그 타입 하나로 오류를 다루고 있어서
 // 계정 오류만 다른 타입이면 화면에 분기가 하나 더 생긴다. backend.ts 도 같은 방식이다.
 import { KioBridgeError } from "@/api/client";
@@ -41,6 +44,18 @@ export interface Account {
   loginId: string;
 }
 
+/**
+ * 계정에 남는 프로필 — 도움 설정과 알레르기.
+ *
+ * 주문표는 이미 계정에 남는데 이 둘은 기기에만 있었다. 그런데 이 둘이야말로
+ * 그 사람에 대한 사실이다 — 다른 기기에서 로그인한 사람이 알레르기를 다시
+ * 고르다 빠뜨리면 그 주문은 안 걸러진다. 빠뜨려도 되는 값이 아니라서 계정에 둔다.
+ */
+export interface AccountPreferences {
+  a11y: 도움설정;
+  allergies: AllergenId[];
+}
+
 export interface AccountApi {
   signup(loginId: string, password: string): Promise<Account>;
   login(loginId: string, password: string): Promise<Account>;
@@ -68,6 +83,16 @@ export interface AccountApi {
    * 하나로 뭉치면 일시 장애에도 "기능이 없다" 고 잘못 말하게 된다(#106 리뷰).
    */
   deleteAccount(userId: number): Promise<"지웠음" | "경로없음" | "못지움">;
+  /**
+   * 계정에 저장된 프로필(도움 설정·알레르기). 저장한 적 없으면 null.
+   *
+   * **실패도 null 이다 — 던지지 않는다.** 프로필은 편의지 로그인을 막을 값이
+   * 아니고, 서버에 이 경로가 생기기 전까지는 늘 실패한다. claimCode 와 같은
+   * 판단이다: 미리 부르고, 서버가 받기 시작하는 날 그냥 동작한다.
+   */
+  getPreferences(userId: number): Promise<AccountPreferences | null>;
+  /** 프로필을 계정에 남긴다. 실패해도 던지지 않는다 — 기기 값이 기준이다. */
+  putPreferences(userId: number, prefs: AccountPreferences): Promise<void>;
 }
 
 // ─── 입력 규칙 — 백엔드 제약을 그대로 옮긴다 ──────────────────────────────────
@@ -271,6 +296,32 @@ const 주문표복사 = (p: OrderSheet): OrderSheet => ({
   selections: Object.fromEntries(Object.entries(p.selections ?? {}).map(([축, 값]) => [축, [...값]])),
 });
 
+/**
+ * 서버가 준 프로필이 우리가 아는 모양인지 본다. 칸별로 안전한 쪽으로 되돌린다 —
+ * session.ts 의 접근성읽기와 같은 판단이다. 서버 응답도 손댈 수 있는 값으로 취급한다.
+ */
+const 프로필읽기 = (v: unknown): AccountPreferences | null => {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const 받은 = (typeof o.accessibility === "object" && o.accessibility !== null
+    ? o.accessibility : {}) as Record<string, unknown>;
+  const a11y = { ...기본도움설정 };
+  for (const 칸 of Object.keys(기본도움설정) as (keyof 도움설정)[]) {
+    if (칸 !== "language" && typeof 받은[칸] === "boolean") a11y[칸] = 받은[칸] as boolean;
+  }
+  // 언어만 boolean 이 아니다. 아는 값일 때만 받는다 — 아무 문자열이나 들어오면
+  // 서버의 BCP 47 검사에 걸려 주문 자체가 안 된다(session.ts 와 같은 이유).
+  if (아는언어인가(받은.language)) a11y.language = 받은.language;
+  // 아는 여섯만 받는다. 모르는 값이 섞이면 서버가 UNKNOWN 으로 읽고 주문을 막는다.
+  const allergies = Array.isArray(o.allergies) ? o.allergies.filter(아는알레르기) : [];
+  return { a11y, allergies };
+};
+
+const 프로필복사 = (p: AccountPreferences): AccountPreferences => ({
+  a11y: { ...p.a11y },
+  allergies: [...p.allergies],
+});
+
 // ─── 목 구현 ──────────────────────────────────────────────────────────────────
 
 let 목지연 = 500;
@@ -293,6 +344,7 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  */
 const 계정들 = new Map<string, { userId: number; password: string }>();
 const 서버주문표 = new Map<number, Map<string, OrderSheet>>();
+const 서버프로필 = new Map<number, AccountPreferences>();
 let 다음userId = 1;
 
 export const mockAccount: AccountApi = {
@@ -355,7 +407,23 @@ export const mockAccount: AccountApi = {
       if (계정.userId === userId) 계정들.delete(아이디);
     }
     서버주문표.delete(userId);
+    // 계정을 지우면 계정에 딸린 프로필도 같이 사라진다.
+    서버프로필.delete(userId);
     return "지웠음";
+  },
+
+  async getPreferences(userId) {
+    await delay(목지연);
+    const p = 서버프로필.get(userId);
+    // 나갈 때 복사한다 — 주문표와 같은 이유다(주문표복사 주석).
+    return p ? 프로필복사(p) : null;
+  },
+
+  async putPreferences(userId, prefs) {
+    await delay(목지연);
+    // 실서버처럼 모르는 값을 걸러서 담는다. 목이 더 관대하면 목에서만 통과하는 값이 생긴다.
+    const 검증 = 프로필읽기({ accessibility: prefs.a11y, allergies: prefs.allergies });
+    if (검증) 서버프로필.set(userId, 검증);
   },
 };
 
@@ -363,6 +431,7 @@ export const mockAccount: AccountApi = {
 export const clearAccountMock = (): void => {
   계정들.clear();
   서버주문표.clear();
+  서버프로필.clear();
   다음userId = 1;
 };
 
@@ -410,7 +479,7 @@ const 계정만 = (r: Account & { accessToken?: unknown; expiresAt?: unknown }):
 };
 
 export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
-  const 부르기 = async <T>(방법: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> => {
+  const 부르기 = async <T>(방법: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<T> => {
     const 시작 = 팀백엔드모드 ? performance.now() : 0;
     /*
      * 가입.로그인 경로는 본문을 남기지 않는다 — 비밀번호가 화면 구석 패널과
@@ -589,6 +658,32 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
         const 코드 = (e as KioBridgeError)?.code;
         return 코드 === "HTTP_404" || 코드 === "HTTP_405" || 코드 === "NOT_ALLOWED"
           ? "경로없음" : "못지움";
+      }
+    },
+
+    /*
+     * 프로필 두 경로는 실패를 삼킨다 — 이 API 의 계약이 그렇다(AccountApi 주석).
+     * 서버에 아직 없는 경로라(docs/BACKEND_INTEGRATION.md 요청) 지금은 404 가
+     * 정상이고, 그때마다 화면에 오류를 띄우면 로그인 자체가 실패한 것처럼 보인다.
+     * claimCode 처럼 미리 부르고, 서버가 받기 시작하는 날 그냥 켜진다.
+     */
+    async getPreferences(userId) {
+      try {
+        const r = await 부르기<unknown>("GET", `/api/v1/users/${encodeURIComponent(userId)}/preferences`);
+        return 프로필읽기(r);
+      } catch {
+        return null;
+      }
+    },
+
+    async putPreferences(userId, prefs) {
+      try {
+        await 부르기<void>("PUT", `/api/v1/users/${encodeURIComponent(userId)}/preferences`, {
+          accessibility: prefs.a11y,
+          allergies: prefs.allergies,
+        });
+      } catch {
+        /* 편의 저장이다. 실패해도 화면은 기기 값으로 그대로 간다. */
       }
     },
   };
