@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,10 +29,10 @@ public class SpicyLevelMatchingService {
         "싫", "말고", "아니", "보다", "이상", "이하"
     );
 
-    // 부정어 — 있으면 "매운맛" 등 단어가 있어도 정반대 의미이므로 임베딩 매칭 전에 걸러낸다
-    private static final Set<String> NEGATION_MARKERS = Set.of(
-        "안 ", "안맵", "않", "말고", "빼고", "no", "not"
+    private static final Set<String> NEGATION_MARKERS_KO = Set.of(
+        "안 ", "안맵", "않", "말고", "빼고"
     );
+    private static final Pattern NEGATION_PATTERN_EN = Pattern.compile("\\b(no|not)\\b");
 
     private final EmbeddingService embeddingService;
     private final SpicyLevelAnchorRepository repository;
@@ -42,8 +43,7 @@ public class SpicyLevelMatchingService {
     }
 
     public SpicyLevelMatchResult match(String text) {
-        String lower = text.toLowerCase();
-        if (NEGATION_MARKERS.stream().anyMatch(lower::contains)) {
+        if (isNegated(text)) {
             List<String> candidates = List.of("MILD", "MEDIUM");
             String question = buildClarificationQuestion(text, candidates);
             return new SpicyLevelMatchResult(null, false, Map.of(), candidates, text, question);
@@ -83,6 +83,13 @@ public class SpicyLevelMatchingService {
 
         String question = buildClarificationQuestion(text, topLabels);
         return new SpicyLevelMatchResult(null, false, counts, topLabels, text, question);
+    }
+
+    private boolean isNegated(String text) {
+        if (NEGATION_MARKERS_KO.stream().anyMatch(text::contains)) {
+            return true;
+        }
+        return NEGATION_PATTERN_EN.matcher(text.toLowerCase()).find();
     }
 
     private boolean matchesKeyword(String text, Set<String> phrases) {
