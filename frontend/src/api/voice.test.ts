@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { 말에서고르기, 말로채울수있나, 예아니오 } from "./voice";
+import { 말에서고르기, 말로채울수있나, 예아니오, 뒤로가자고했나 } from "./voice";
 
 /*
  * 이 파일이 지키는 것 하나 — **말하지 않은 조건이 주문표에 섞이지 않는다.**
@@ -227,5 +227,48 @@ describe("예/아니오 — 애매한 것을 예나 아니오로 읽지 않는�
     expect(예아니오("no", true)).toBe(false);
     expect(예아니오("i do not want it", true)).toBe(false);
     expect(예아니오("yes", true)).toBe(true);
+  });
+});
+
+describe("앞 질문으로 돌아가 달라는 말", () => {
+  /*
+   * 화면을 못 보는 분에게는 이 말이 앞 칸을 고칠 유일한 길이다. 단추는 눈으로
+   * 보고 누르는 분을 위한 같은 문이고, 이 표가 손을 안 쓰는 쪽을 연다.
+   */
+  it("되돌아가자는 말을 알아듣는다", () => {
+    for (const 말 of ["뒤로", "뒤로 가 주세요", "이전", "이전 질문이요", "되돌려 주세요", "앞 질문"]) {
+      expect(뒤로가자고했나(말)).toBe(true);
+    }
+  });
+
+  it("보기 이름과 평범한 답은 명령으로 읽지 않는다", () => {
+    /*
+     * 여기 걸리면 그 말은 답이 아니라 명령이 된다. 실제로 나올 법한 답이
+     * 걸리면, 고르려던 값 대신 앞 칸으로 튕겨 나간다.
+     */
+    for (const 말 of ["포장하기", "매운맛", "순살", "두 개", "네", "아니요", "먹고 갈게요", "종이컵"]) {
+      expect(뒤로가자고했나(말)).toBe(false);
+    }
+  });
+
+  it("빈 말은 아니다", () => {
+    expect(뒤로가자고했나("")).toBe(false);
+    expect(뒤로가자고했나("   ")).toBe(false);
+  });
+
+  it("영어는 낱말로 있을 때만 본다", () => {
+    // 'boneless' 는 순살의 영어 답이다. 그 안의 'bone' 처럼 글자만 겹치는 것을
+    // 세면, 순살을 말한 사람이 앞 칸으로 튕긴다(#39 리뷰와 같은 이유).
+    expect(뒤로가자고했나("back", true)).toBe(true);
+    expect(뒤로가자고했나("go back please", true)).toBe(true);
+    expect(뒤로가자고했나("previous", true)).toBe(true);
+    expect(뒤로가자고했나("backbone", true)).toBe(false);
+    expect(뒤로가자고했나("boneless", true)).toBe(false);
+    expect(뒤로가자고했나("two spicy boneless to go", true)).toBe(false);
+  });
+
+  it("우리말 표는 영어 화면에서 안 걸린다", () => {
+    // 영어 화면에서는 인식기도 en-US 라 우리말이 올 일이 없다. 표를 섞지 않는다.
+    expect(뒤로가자고했나("뒤로", true)).toBe(false);
   });
 });

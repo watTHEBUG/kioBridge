@@ -50,6 +50,10 @@ export const EN: Record<string, string> = {
   "그만 듣기": "Stop listening",
   "건너뛰기": "Skip",
   "끝내기": "Done",
+  // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
+  "앞 질문": "Previous question",
+  "여기가 첫 질문이라 더 앞으로는 갈 수 없어요.":
+    "This is the first question, so there is nothing before it.",
 
   // 이 기기에 남길지 묻는 화면. 비로그인일 때만 지난다.
   "저장할까요?": "Save this?",
