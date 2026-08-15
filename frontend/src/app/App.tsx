@@ -1145,22 +1145,43 @@ function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }: {
 /**
  * 형태(뼈/순살) 제안이 필요할 수 있는 접근성 신호 전부.
  *
- * 처음엔 시각 신호(visualGuidance·largeText·highContrast)만 봤다 — 그때는 이 앱이
- * 손 관련 신호를 아예 안 받고 있었다("일단 시각 관련해서만 판단" 결정).
+ * 이름을 손불편신호있나 로 뒀던 적이 있는데 틀린 이름이었다 — visualGuidance·
+ * largeText·highContrast 는 손이 아니라 **시각** 신호다. 이 함수는 서로 다른
+ * 두 경로를 하나로 묶는다.
  *
- * 이제 mobilitySupport(오래 서 있기 어렵거나 손 조작이 힘들다)와
- * preferredInputHint(SWITCH·ASSISTED — 스위치 보조기기나 다른 사람의 도움으로
- * 조작한다)가 생겼다. 뼈를 발라 먹는 건 애초에 손을 정교하게 움직이는 일이라,
- * 사실 이 손 신호들이 시각 신호보다 더 직접적인 근거다 — 뒤늦게 더한 게 아니라
- * 원래 있어야 했는데 데이터가 없어서 못 넣었던 것을 이제 채우는 것이다.
+ *   시각 경로   안 보여서 뼈를 발라내기 어렵다   (visualGuidance·largeText·highContrast)
+ *   손 경로     손이 뜻대로 안 움직여서 어렵다     (mobilitySupport·SWITCH·ASSISTED)
+ *
+ * 두 경로 다 "뼈 바르기가 허들이 될 수 있다" 는 같은 결론으로 이어지길래
+ * 하나의 판정 함수로 묶었다 — 이름은 그 결론(순살 제안 여부)을 가리키게
+ * 짓는다.
+ *
+ * 처음엔 시각 신호만 봤다 — 그때는 이 앱이 손 관련 신호를 아예 안 받고
+ * 있었다("일단 시각 관련해서만 판단" 결정).
+ *
+ * ── SWITCH·ASSISTED·mobilitySupport 를 넣는 게 비약 아니냐는 지적에 대해 ─────
+ *
+ * 맞는 말이다 — SWITCH·ASSISTED 는 "키오스크 버튼을 어떻게 누르는가"(입력
+ * 방식)이고, mobilitySupport 도 이 코드베이스에서 실제로 하는 일은 "시간 여유
+ * 를 준다"(자동 만료 화면 전환을 안 함)이다. 셋 다 "뼈를 손으로 바르기 힘든가"
+ * 를 직접 말하는 값이 아니다. 이 앱에는 그 질문을 문자 그대로 묻는 칸이 없다 —
+ * 그래서 이미 받고 있는 신호 중 손 움직임에 가장 가까운 것들을 대신 쓴다
+ * (mobilitySupport 는 정의 자체에 "손 조작이 힘들다" 가 들어 있고, SWITCH·
+ * ASSISTED 는 스위치·대리 조작이 필요할 만큼 손 조작이 정교하지 않다는 뜻이다).
+ *
+ * 이 비약이 위험하지 않은 이유는 따로 있다 — 이 함수가 참이어도 형태를
+ * **바로 채우지 않는다.** 순살제안시트를 띄워 "네/상관없어요" 로 사용자에게
+ * 직접 물어보고, 그 답만 싣는다(아래 순살제안시트 주석). 신호가 잘못 켜져
+ * 있어도 최악의 경우는 안 맞는 질문 하나가 떴다가 한 번 눌러 넘기는 것뿐이다
+ * — 사용자가 고른 적 없는 값이 조용히 채워지는 일은 없다.
  */
-const 손불편신호있나 = (설정: 도움설정): boolean =>
+const 순살제안신호있나 = (설정: 도움설정): boolean =>
   설정.visualGuidance || 설정.largeText || 설정.highContrast
   || 설정.mobilitySupport
   || 설정.preferredInputHint === "SWITCH" || 설정.preferredInputHint === "ASSISTED";
 
 /**
- * 형태를 안 고른 채 저장하려는 순간에만 뜬다 — 위 손불편신호있나 가 참이고,
+ * 형태를 안 고른 채 저장하려는 순간에만 뜬다 — 위 순살제안신호있나 가 참이고,
  * 다른 축은 다 골랐는데 형태만 빈 그 경우다.
  *
  * 시각 안내가 필요하거나 저시력인 사람에게는 뼈를 발라 먹는 과정 자체가
@@ -1922,7 +1943,7 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
   const 빠진것 = 못채운축(place, selections);
   const 형태만빠짐 = 빠진것.length === 1 && 빠진것[0] === "형태";
   const 접근성값 = 접근성설정.읽기();
-  const 순살제안대상 = 형태만빠짐 && 손불편신호있나(접근성값);
+  const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
   const 저장하기 = (형태값?: "순살" | "상관없음") => {
     // OrderSheetScreen 의 저장하기와 같은 규칙 — 답한 형태만 얹고 나머지는 그대로 둔다.
     const 최종선택 = 형태값 ? { ...selections, 형태: [형태값] } : selections;
@@ -2101,7 +2122,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   const options = place ? DETAIL_OPTIONS[place] : [];
 
   /*
-   * 형태만 비어 있고, 손불편신호있나 가 참이면(시각 신호 또는 손 관련 신호)
+   * 형태만 비어 있고, 순살제안신호있나 가 참이면(시각 신호 또는 손 관련 신호)
    * "저장하고 시작하기" 를 눌렀을 때 곧장 막는 대신 순살 제안 시트를 연다.
    *
    * 형태 칩을 그리는 시점(화면을 여는 순간)이 아니라 저장을 누르는 시점에
@@ -2112,7 +2133,7 @@ function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산, on예�
   const 빠진축 = 못채운축(place, selections);
   const 형태만빠짐 = 빠진축.length === 1 && 빠진축[0] === "형태";
   const 접근성값 = 접근성설정.읽기();
-  const 순살제안대상 = 형태만빠짐 && 손불편신호있나(접근성값);
+  const 순살제안대상 = 형태만빠짐 && 순살제안신호있나(접근성값);
 
   const 저장하기 = (형태값?: "순살" | "상관없음") => {
     // 답한 형태만 얹는다 — 나머지 selections 는 그대로다(사용자 요청: 기존
