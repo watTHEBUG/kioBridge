@@ -1015,17 +1015,26 @@ function 순살제안시트({ onAnswer, onCancel }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const 이전포커스 = useRef<HTMLElement | null>(null);
+  /*
+   * 포커스를 열 때 저장했다가 닫을 때 되돌리는 일만 한다 — 마운트·언마운트
+   * 한 번씩이라 의존성 배열을 비워 둔다.
+   *
+   * 전에는 여기에 onCancel 을 의존성으로 넣고 Escape 도 같이 처리했다. onCancel
+   * 은 부모가 매 렌더마다 새로 만들어 주는 인라인 함수라, 시트가 열려 있는 동안
+   * 부모가 리렌더되면 이 effect 가 정리(cleanup)됐다가 다시 걸렸다 — 그 사이
+   * cleanup 이 배경 요소로 포커스를 되돌렸다가, 곧바로 다시 걸린 effect 가 시트로
+   * 도로 옮겨서 포커스가 튀었다. Escape 는 아래 포커스가두기 한 곳에서만
+   * 처리한다(그 함수 주석 참고) — 여기서 window 에 또 리스너를 달 필요가 없다
+   * (coderabbitai 리뷰).
+   */
   useEffect(() => {
     이전포커스.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("keydown", onKey);
       if (이전포커스.current?.isConnected) 이전포커스.current.focus();
     };
-  }, [onCancel]);
+  }, []);
   const 가두기 = 포커스가두기(ref, onCancel);
 
   /*
@@ -1100,6 +1109,11 @@ function 순살제안시트({ onAnswer, onCancel }: {
 /**
  * 모달 안에 Tab 을 가둔다. aria-modal 을 선언한 곳은 전부 이걸 쓴다.
  * 선언만 하고 안 지키면 스크린리더에게 거짓말을 하는 셈이다.
+ *
+ * Escape 도 여기 한 곳에서만 처리한다. 부르는 쪽에서 창을 여는 effect 안에
+ * 따로 window keydown 리스너를 또 달면, 같은 Escape 를 두 곳이 처리하려 들거나
+ * 그 effect 의 의존성 배열에 onClose 가 끼어 부모가 리렌더될 때마다 리스너가
+ * 갈아 끼워진다(coderabbitai 리뷰).
  */
 function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   return (e: React.KeyboardEvent) => {
@@ -1111,8 +1125,18 @@ function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onClose: (
     if (!대상 || 대상.length === 0) return;
     const 처음 = 대상[0];
     const 마지막 = 대상[대상.length - 1];
-    if (e.shiftKey && document.activeElement === 처음) { e.preventDefault(); 마지막.focus(); }
-    else if (!e.shiftKey && document.activeElement === 마지막) { e.preventDefault(); 처음.focus(); }
+    /*
+     * 열리자마자 포커스는 컨테이너 자신(tabIndex=-1)에 가 있다 — 제목·설명을
+     * 먼저 읽게 하려는 것이다(순살제안시트 등). 그런데 컨테이너는 원래 탭
+     * 순서 밖이라, 이 상태에서 Shift+Tab 을 누르면 "처음이 아니니" 이 함수가
+     * 아무 것도 안 하고, 브라우저가 배경(겹 밖)의 이전 요소로 포커스를 새어
+     * 보낸다(coderabbitai 리뷰). 컨테이너에 있을 때는 '처음' 취급해 준다 —
+     * Shift+Tab 이면 마지막으로 감싸고, 그냥 Tab 이면 원래도 다음(처음 버튼)
+     * 으로 자연스럽게 가므로 손댈 것이 없다.
+     */
+    const 지금 = document.activeElement === ref.current ? 처음 : document.activeElement;
+    if (e.shiftKey && 지금 === 처음) { e.preventDefault(); 마지막.focus(); }
+    else if (!e.shiftKey && 지금 === 마지막) { e.preventDefault(); 처음.focus(); }
   };
 }
 
