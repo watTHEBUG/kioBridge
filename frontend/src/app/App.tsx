@@ -110,6 +110,26 @@ function ProgressBar({ step, total = 3 }: { step: number; total?: number }) {
  */
 const 동의없이볼수있는화면 = new Set<Screen>(["welcome", "login", "signup", "privacy"]);
 
+/**
+ * 소리로 주고받을 수 있나 — 스위치 하나가 듣기와 말하기를 함께 정한다.
+ *
+ * 예전에는 둘이 따로였다. '소리로 읽어 주기' 는 스위치였고, 말하기 단추는
+ * 기기가 되기만 하면 늘 떠 있었다. 그래서 소리를 원하지 않는 사람에게도
+ * 말하기 단추가 보였고, 반대로 읽어 주기만 켠 사람은 왜 말하기가 되는지
+ * 몰랐다 — 한 가지 일을 두 군데서 정하고 있었던 셈이다.
+ *
+ * 하나로 묶는다. 켜면 읽어 주고 말도 받는다. 끄면 둘 다 안 한다.
+ *
+ * 기기가 마이크를 못 주면 켜도 말하기 단추는 안 나온다. 켰는데 아무 일도
+ * 안 일어나는 단추를 두지 않는다는 규칙은 그대로다.
+ *
+ * 훅이 아니라 그냥 읽는다. 조기 반환(`if (!소리로주고받나()) return null`)과
+ * 섞이면 훅 순서가 깨지기 때문이다. App 이 설정을 구독하고 있어서, 스위치를
+ * 바꾸면 App 이 다시 그려지고 이 값도 따라 바뀐다 — 이 파일이 simpleSteps ·
+ * staffAssistancePreferred 를 읽는 방식과 같다.
+ */
+const 소리로주고받나 = (): boolean => 접근성설정.읽기().voiceGuide && 들을수있나();
+
 function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
   동의함: boolean;
   on바꾸기: (v: boolean) => void;
@@ -150,9 +170,17 @@ function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
           한 줄로 줄였다. 무엇을 모으는지는 옆의 '자세히' 가 여는 개인정보 화면이
           말한다 — 체크 옆에 두 줄을 붙여 두면 읽지 않고 넘기게 되고, 정작 자세한
           설명은 그 화면에 또 있다.
+
+          예전에는 "개인정보 수집 동의서" 였다. 그런데 이 앱은 실제 개인정보를
+          **받지 않는다** — 이름·전화번호·주소는 묻지도 저장하지도 않고, 적으려
+          하면 막는다(account.ts 의 개인정보같은글). 모으는 것은 메뉴 조건과
+          도움 설정뿐이다.
+
+          안 받는 것을 받는다고 적어 두면 사용자는 실제보다 더 많이 내주는 줄
+          알고 동의한다. 겁먹고 그만두는 사람도 생긴다. 하는 일을 그대로 적는다.
         */}
         <span style={{ fontSize: 14, color: TEXT_1, lineHeight: 1.6, flex: 1 }}>
-          개인정보 수집 동의서
+          서비스 이용 및 주문표 저장 안내를 확인했어요
         </span>
       </label>
       <button
@@ -330,7 +358,7 @@ function SectionLabel({ text, required, 칸id }: { text: string; required?: bool
  * onStart  익명으로 바로 시작 — 저장은 이번 한 번만, 기기에 남기지 않는다
  * onLogin  선택적 로그인 — 다음에도 불러오고 싶은 사람만 고른다
  */
-function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리 }: {
+function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리, 언어, on언어 }: {
   onStart: () => void;
   onLogin: () => void;
   /** 동의 전에는 어느 길로도 못 들어간다 — 게스트로 시작하는 것도 정보를 쓰는 일이다. */
@@ -339,6 +367,9 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
   onPrivacy: () => void;
   소리켜짐: boolean;
   on소리: () => void;
+  /** 안내 언어. 이 화면 글도 이 값을 따라 바뀐다. */
+  언어: 언어코드;
+  on언어: (v: 언어코드) => void;
 }) {
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
@@ -375,10 +406,18 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
           소리를 못 내는 기기에서는 안 보인다 — 켜도 아무 일이 없는 스위치를 두면
           켠 사람은 켜졌다고 믿는다(도움 설정 화면과 같은 판단이다).
         */}
-        {소리를낼수있나() && (
+        {/*
+          안내 언어를 가장 먼저 묻는다.
+          지금까지는 도움 설정 화면 맨 아래에 있었다. 그런데 **그 화면까지 가려면
+          이 화면을 읽어야 한다** — 한국어를 못 읽는 사람에게는 언어를 바꾸러 가는
+          길 자체가 한국어로 적혀 있었던 셈이다. 소리로 읽어 주기와 같은 이유로
+          첫 화면에 둔다. 여기서 고르면 이 화면 글부터 바로 바뀐다.
+        */}
+        <언어고르기 고른것={언어} on바꾸기={on언어} />
+        {(소리를낼수있나() || 들을수있나()) && (
           <ToggleRow
-            label="소리로 읽어 주기"
-            sub="화면에 나온 안내를 소리로 읽어 드려요"
+            label="소리로 듣고 답하기"
+            sub="안내를 소리로 읽어 드리고, 말로 답하실 수 있어요"
             on={소리켜짐}
             onToggle={on소리}
           />
@@ -386,7 +425,7 @@ function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소�
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!동의함 && (
           <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center" }} role="status">
-            동의하셔야 시작할 수 있어요
+            확인하셔야 시작할 수 있어요
           </p>
         )}
         {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
@@ -594,7 +633,7 @@ function LoginScreen({ onDone, onBack, onGoSignup, 동의함, on동의, onPrivac
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
         {!채워짐 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {동의함 ? "아이디와 비밀번호를 적으면 로그인할 수 있어요" : "동의하셔야 로그인할 수 있어요"}
+            {동의함 ? "아이디와 비밀번호를 적으면 로그인할 수 있어요" : "확인하셔야 로그인할 수 있어요"}
           </p>
         )}
         <PrimaryBtn onClick={보내기} disabled={!채워짐 || 보내는중}>
@@ -746,7 +785,7 @@ function SignupScreen({ onDone, onBack, onGoLogin, 동의함, on동의, onPrivac
         {!보낼수있나 && (
           <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
             {아이디문제 ?? 비번문제 ?? 다시문제
-              ?? (동의함 ? "아이디와 비밀번호를 적으면 가입할 수 있어요" : "동의하셔야 가입할 수 있어요")}
+              ?? (동의함 ? "아이디와 비밀번호를 적으면 가입할 수 있어요" : "확인하셔야 가입할 수 있어요")}
           </p>
         )}
         <PrimaryBtn onClick={보내기} disabled={!보낼수있나 || 보내는중}>
@@ -1068,7 +1107,7 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
     set되물을것(null);
   }, [place]);
 
-  if (!들을수있나() || 축들.length === 0) return null;
+  if (!소리로주고받나() || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
 
@@ -1214,7 +1253,14 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
   const 고른것 = 값[지금축.label] ?? [];
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
-      <p style={{ ...TYPE.caption, color: TEXT_2 }}>
+      {/*
+        순번은 읽지 않는다(data-소리조용).
+
+        읽어 주면 "1번째 질문 전체 7개" 로 시작해서, 정작 무엇을 묻는지는 그
+        뒤에 온다. 듣는 사람에게 먼저 필요한 것은 몇 번째인지가 아니라 무엇을
+        묻는지다. 눈으로는 순번이 도움이 되니 화면에는 그대로 둔다.
+      */}
+      <p data-소리조용 style={{ ...TYPE.caption, color: TEXT_2 }}>
         {tf("{n}번째 질문 (전체 {전체}개)", { n: 칸 + 1, 전체: 축들.length })}
       </p>
       <h3 style={{ fontSize: 19, fontWeight: 800, color: TEXT_1, margin: "8px 0 4px" }}>{t(지금축.label)}</h3>
@@ -1223,7 +1269,15 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
         {tf("{보기} — 이것으로 할까요? 그렇게 말씀하셔도 되고, 다른 것을 말씀하셔도 돼요.", { 보기: t(지금축.choices[0]) })}
       </p>
 
-      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
+      {/*
+        보기 칩도 읽지 않는다(data-소리조용).
+
+        바로 위 안내가 이미 무엇을 답하면 되는지 말하고 있다. 칩까지 읽으면
+        "…말씀해 주세요. 켜기. 끄기." 처럼 같은 말을 두 번 듣게 되고, 답할
+        차례에 소리가 아직 안 끝나 있다. 손으로 고르는 사람에게는 화면에
+        그대로 보인다.
+      */}
+      <div data-소리조용 className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
         {지금축.choices.map((c) => (
           <button
             key={c}
@@ -1343,7 +1397,7 @@ function VoiceSheetScreen({ 언어, onNext, onBack }: {
       </div>
 
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
-        {들을수있나() ? (
+        {소리로주고받나() ? (
           <한칸씩말하기
             place={place}
             언어={언어}
@@ -2154,7 +2208,7 @@ function SavedSheetsScreen({
           + 새 주문표 추가
         </OutlineBtn>
         {/* 말로 만드는 길. 터치 화면에 음성 카드를 끼우지 않고 문에서 가른다. */}
-        {들을수있나() && (
+        {소리로주고받나() && (
           <OutlineBtn onClick={onAddVoiceSheet}>말로 주문표 만들기</OutlineBtn>
         )}
       </StickyFooter>
@@ -2908,7 +2962,13 @@ const 바로바꾸는것: 도움항목[] = [
    * 브라우저가 speechSynthesis 를 안 주면 이 줄을 아예 안 보여 준다(쓸수있는것).
    * 켰는데 아무 소리도 안 나면 사용자는 앱이 고장 났다고 생각한다.
    */
-  { key: "voiceGuide", label: "소리로 읽어 주기", sub: "화면에 나온 안내를 소리로 읽어 드려요", 될때만: 소리를낼수있나 },
+  {
+    key: "voiceGuide",
+    label: "소리로 듣고 답하기",
+    sub: "안내를 소리로 읽어 드리고, 말로 답하실 수 있어요",
+    // 읽어 주기와 말하기 중 하나라도 되면 보여 준다. 켜면 되는 쪽이 켜진다.
+    될때만: () => 소리를낼수있나() || 들을수있나(),
+  },
   { key: "simpleSteps", label: "쉬운 단계", sub: "이유 화면을 건너뛰고 바로 확인 화면으로 가요" },
   { key: "mobilitySupport", label: "시간 여유", sub: "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요" },
   { key: "staffAssistancePreferred", label: "직원 도움", sub: "승인 화면에도 직원에게 보여 달라는 안내를 띄워요" },
@@ -3067,7 +3127,7 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
     듣던것.current?.그만두기(false);
   }, []);
 
-  if (!들을수있나() || 축들.length === 0) return null;
+  if (!소리로주고받나() || 축들.length === 0) return null;
   const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
   const 마지막인가 = 칸 >= 축들.length - 1;
 
@@ -3132,7 +3192,14 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
 
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
-      <p style={{ ...TYPE.caption, color: TEXT_2 }}>
+      {/*
+        순번은 읽지 않는다(data-소리조용).
+
+        읽어 주면 "1번째 질문 전체 7개" 로 시작해서, 정작 무엇을 묻는지는 그
+        뒤에 온다. 듣는 사람에게 먼저 필요한 것은 몇 번째인지가 아니라 무엇을
+        묻는지다. 눈으로는 순번이 도움이 되니 화면에는 그대로 둔다.
+      */}
+      <p data-소리조용 style={{ ...TYPE.caption, color: TEXT_2 }}>
         {tf("{n}번째 질문 (전체 {전체}개)", { n: 칸 + 1, 전체: 축들.length })}
       </p>
       <h3 style={{ fontSize: 19, fontWeight: 800, color: TEXT_1, margin: "8px 0 4px" }}>{지금축.label}</h3>
@@ -3140,7 +3207,15 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone }: {
         {지금축.sub} — 켜 드릴까요? "네" 또는 "아니요" 로 말씀해 주세요.
       </p>
 
-      <div className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
+      {/*
+        보기 칩도 읽지 않는다(data-소리조용).
+
+        바로 위 안내가 이미 무엇을 답하면 되는지 말하고 있다. 칩까지 읽으면
+        "…말씀해 주세요. 켜기. 끄기." 처럼 같은 말을 두 번 듣게 되고, 답할
+        차례에 소리가 아직 안 끝나 있다. 손으로 고르는 사람에게는 화면에
+        그대로 보인다.
+      */}
+      <div data-소리조용 className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
         {([{ label: "켜기", 값: true }, { label: "끄기", 값: false }] as const).map(({ label, 값 }) => (
           <button
             key={label}
@@ -3261,7 +3336,7 @@ function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, o
         ) : (
           <>
             <도움목록 항목들={쓸수있는것(바로바꾸는것)} 설정={설정} onChange={onChange} />
-            {들을수있나() && (
+            {소리로주고받나() && (
               <button
                 type="button"
                 onClick={() => set음성모드(true)}
@@ -5910,6 +5985,8 @@ export default function App() {
           {screen === "welcome" && (
             <WelcomeScreen
               동의함={동의}
+              언어={접근성값.language}
+              on언어={(v) => 접근성설정.바꾸기({ language: v })}
               소리켜짐={접근성값.voiceGuide}
               on소리={() => 접근성설정.바꾸기({ voiceGuide: !접근성값.voiceGuide })}
               on동의={(v) => 개인정보동의.바꾸기(v)}

@@ -27,6 +27,32 @@
  * 한다고 말하지 않는다.
  */
 
+/**
+ * 이 기기에 있는 목소리 중 더 자연스러운 것을 고른다. 없으면 null.
+ *
+ * 여태 아무것도 안 골라서 브라우저 기본이 나왔다. 윈도우·안드로이드의 한국어
+ * 기본은 대개 오래된 합성음이라 말투가 딱딱하다 — 어르신께 읽어 드리는
+ * 앱에서 그 소리로 안내가 나가면 듣기 힘들다는 말을 들었다.
+ *
+ * 이름으로 고른다. 표준이 정한 규칙은 아니지만, 실제 기기에서 신경망 목소리는
+ * 이름에 Google · Natural · Neural · Siri 같은 말이 붙는다. 없으면 고르지
+ * 않고 두어 브라우저 기본으로 간다 — 지금과 같아질 뿐 나빠지지 않는다.
+ *
+ * getVoices() 는 처음 몇 번 빈 배열을 준다(목록을 늦게 채우는 브라우저가 있다).
+ * 그때도 그냥 null 이라 기본 목소리로 읽고, 다음 문장부터 좋은 목소리가 잡힌다.
+ */
+const 좋은이름 = /google|natural|neural|premium|enhanced|siri|yuna|sora/i;
+const 나은목소리 = (언어: string): SpeechSynthesisVoice | null => {
+  try {
+    const 목록 = globalThis.speechSynthesis?.getVoices?.() ?? [];
+    // 언어가 먼저다. 한국어 문장을 영어 목소리로 읽으면 알아들을 수 없다.
+    const 같은언어 = 목록.filter((v) => v.lang?.replace("_", "-").toLowerCase().startsWith(언어.slice(0, 2).toLowerCase()));
+    return 같은언어.find((v) => 좋은이름.test(v.name)) ?? null;
+  } catch {
+    return null;
+  }
+};
+
 /** 이 브라우저에서 소리 안내가 되는가. 화면이 스위치를 내밀지 말지 이걸로 정한다. */
 export const 소리를낼수있나 = (): boolean => {
   try {
@@ -75,8 +101,13 @@ export const 읽어주기 = (
      * 그래서 부르는 쪽이 '지금 화면의 언어' 를 준다(a11y 의 language).
      */
     u.lang = 언어;
+    // 이 기기에 더 자연스러운 목소리가 있으면 그걸 쓴다. 없으면 기본 그대로다.
+    const 고른목소리 = 나은목소리(언어);
+    if (고른목소리) u.voice = 고른목소리;
     // 기본 속도는 이 앱을 쓰는 분들에게 빠르다. 조금 늦춘다.
     u.rate = 0.95;
+    // 기본 높이는 또박또박하지만 사무적으로 들린다. 아주 조금 올려 부드럽게.
+    u.pitch = 1.05;
     globalThis.speechSynthesis.speak(u);
   } catch {
     /* 목소리가 없거나 브라우저가 막았다. 화면 글은 그대로 있다. */

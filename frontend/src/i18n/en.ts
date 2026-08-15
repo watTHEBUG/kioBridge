@@ -174,12 +174,14 @@ export const EN: Record<string, string> = {
   "입력한 내용은 이번 한 번만 쓰고 지워집니다": "What you enter is used once, then erased",
   "로그인 (선택)": "Log in (optional)",
   "주문에 쓸 정보를 모으고 쓰는 데 동의합니다.": "I agree to the use of my order details.",
+  "서비스 이용 및 주문표 저장 안내를 확인했어요":
+    "I've read how this app works and how order cards are saved",
   "메뉴 조건과 도움 설정이에요. 이름·전화번호는 받지 않아요.":
     "Menu preferences and support settings. We never ask for your name or phone number.",
   "자세히": "Details",
-  "동의하셔야 시작할 수 있어요": "Please agree to continue",
-  "동의하셔야 로그인할 수 있어요": "Please agree to log in",
-  "동의하셔야 가입할 수 있어요": "Please agree to sign up",
+  "확인하셔야 시작할 수 있어요": "Please confirm to continue",
+  "확인하셔야 로그인할 수 있어요": "Please confirm to log in",
+  "확인하셔야 가입할 수 있어요": "Please confirm to sign up",
 
   // ─── 로그인 · 가입 ────────────────────────────────────────────────────────
   "로그인": "Log in",
@@ -246,7 +248,7 @@ export const EN: Record<string, string> = {
   "앱 전체의 글씨와 버튼을 크게 봐요": "Makes all text and buttons bigger",
   "고대비": "High contrast",
   "글씨와 배경의 차이를 더 뚜렷하게 해요": "Sharpens the difference between text and background",
-  "소리로 읽어 주기": "Read aloud",
+  "소리로 듣고 답하기": "Listen and answer by voice",
   "화면에 나온 안내를 소리로 읽어 드려요": "Reads what’s on screen out loud",
   "쉬운 단계": "Fewer steps",
   "이유 화면을 건너뛰고 바로 확인 화면으로 가요": "Skips the reason screen and goes straight to review",

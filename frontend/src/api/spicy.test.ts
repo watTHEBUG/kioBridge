@@ -44,10 +44,36 @@ describe("서버가 잡아 준 맵기를 화면 이름으로 옮긴다", () => {
     expect(await 맵기물어보기("아무거나")).toEqual({ 고른값: "상관없음" });
   });
 
-  it("모르는 enum 은 버린다", async () => {
-    // 서버에 값이 하나 늘어도 화면에 없는 이름이 사용자에게 가면 안 된다.
+  it("모르는 enum 은 화면에 안 내보내되, 서버의 '모르겠다' 를 지우지는 않는다", async () => {
+    /*
+     * 화면에 없는 이름을 사용자에게 보여 주면 안 되니 EXTRA_HOT 은 뺀다.
+     * 그런데 빼고 나면 보통맛 하나만 남는다 — 그걸 확정으로 삼으면 **서버가
+     * 망설인 것을 우리가 없애는 셈**이다. 서버는 둘 사이에서 확신을 못 했다.
+     */
     붙이기({ confident: false, matchedLevel: null, candidates: ["MEDIUM", "EXTRA_HOT"] });
+    expect(await 맵기물어보기("얼큰한맛")).toEqual({ 되물을것: ["보통맛"] });
+  });
+
+  it("모르는 값이 없으면 하나 남은 후보는 그대로 쓴다", async () => {
+    // 위 시험이 '언제나 되묻는다' 로 헛통과하지 않도록 지킨다.
+    붙이기({ confident: false, matchedLevel: null, candidates: ["MEDIUM"] });
     expect(await 맵기물어보기("얼큰한맛")).toEqual({ 고른값: "보통맛" });
+  });
+});
+
+describe("개인정보처럼 보이는 말은 보내지 않는다", () => {
+  /*
+   * 여기 오는 것은 보기와도 예/아니오와도 안 맞은 말이라, 사람이 무슨 말을
+   * 했는지 알 수 없다. 그대로 보내면 그 말이 BFF 를 지나 백엔드를 거쳐
+   * OpenAI 까지 간다. 이 앱은 실제 개인정보를 받지도 저장하지도 않는다고
+   * 화면에서 약속하고 있다.
+   */
+  it("전화번호·주민번호·주소는 네트워크로 안 나간다", async () => {
+    const f = 붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"] });
+    for (const 말 of ["010-1234-5678", "901010-1234567", "행복로 12"]) {
+      expect(await 맵기물어보기(말)).toEqual({ 못함: true });
+    }
+    expect(f).not.toHaveBeenCalled();
   });
 });
 

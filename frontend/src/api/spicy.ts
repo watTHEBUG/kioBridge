@@ -1,4 +1,5 @@
 import { 아니라고했나 } from "@/api/voice";
+import { 개인정보같은글 } from "@/api/account";
 
 /**
  * 말한 맵기를 서버가 골라 준다(팀 #133).
@@ -48,26 +49,63 @@ export type 맵기결과 =
   /** 못 골랐다(서버 없음·오류·부정 걸림). 화면은 원래 하던 대로 간다. */
   | { 못함: true };
 
-/** 서버가 준 enum 목록을 화면 칩 이름으로. 모르는 값은 버린다. */
-const 이름으로 = (값들: unknown): string[] =>
-  Array.isArray(값들)
-    ? 값들.filter((v): v is string => typeof v === "string").map((v) => 칩이름[v]).filter(Boolean)
-    : [];
+/**
+ * 서버가 준 enum 목록을 화면 칩 이름으로.
+ *
+ * 모르는 값이 있었는지도 같이 돌려준다. 그걸 조용히 버리면 **서버의 '모르겠다'
+ * 가 우리 쪽에서 '확정' 으로 바뀐다** — 서버가 [MEDIUM, EXTRA_HOT] 을 놓고
+ * 확신 못 한다고 했는데, 우리가 EXTRA_HOT 을 버리면 보통맛 하나만 남아서
+ * 마치 정해진 것처럼 보인다. 서버가 망설인 것을 우리가 없앨 수는 없다.
+ */
+const 이름으로 = (값들: unknown): { 이름들: string[]; 모르는것있나: boolean } => {
+  if (!Array.isArray(값들)) return { 이름들: [], 모르는것있나: false };
+  const 글자만 = 값들.filter((v): v is string => typeof v === "string");
+  const 이름들 = 글자만.map((v) => 칩이름[v]).filter(Boolean);
+  return { 이름들, 모르는것있나: 이름들.length !== 글자만.length };
+};
+
+/**
+ * 서버가 이만큼 안에 답하지 않으면 포기한다.
+ *
+ * 없으면 화면이 '인식 중…' 에 머문 채 말하기 단추가 계속 잠겨 있다. 사용자는
+ * 무엇을 기다리는지도 모르고 손으로 고를 수도 없다 — 안 되는 것보다 나쁘다.
+ * 임베딩 한 번은 보통 1초 안쪽이고, BFF 도 15초에 끊는다.
+ */
+const 기다릴시간 = 8000;
 
 export const 맵기물어보기 = async (들은말: string, 영어인가 = false): Promise<맵기결과> => {
   const 글 = 들은말.replace(/\s+/g, " ").trim();
   // 서버가 @Size(max = 100) 을 걸어 두었다. 넘겨 봐야 400 이라 여기서 접는다.
   if (글 === "" || 글.length > 100) return { 못함: true };
 
+  /*
+   * 개인정보처럼 보이는 말은 **보내지 않는다.**
+   *
+   * 여기 오는 것은 보기와도 예/아니오와도 안 맞은 말이라, 사람이 무슨 말을
+   * 했는지 알 수 없다. 전화번호나 주소를 말했으면 그 말이 우리 BFF 를 지나
+   * 백엔드를 거쳐 OpenAI 까지 간다. 이 앱은 실제 개인정보를 받지도 저장하지도
+   * 않는다고 화면에서 약속하고 있다.
+   *
+   * 메모·메뉴 이름에 쓰는 것과 같은 가드를 쓴다(account.ts). 말로 들어오는
+   * 길만 예외로 두면 막아 둔 뜻이 없다.
+   */
+  if (개인정보같은글(글)) return { 못함: true };
+
+  const 시계 = new AbortController();
+  const 타이머 = setTimeout(() => 시계.abort(), 기다릴시간);
   let res: Response;
   try {
     res = await fetch("/api/bff/internal/spicy-level/match", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: 글 }),
+      signal: 시계.signal,
     });
   } catch {
+    // 끊겼든 시간이 다 됐든 사용자가 할 일은 같다 — 손으로 고른다.
     return { 못함: true };
+  } finally {
+    clearTimeout(타이머);
   }
   if (!res.ok) return { 못함: true };
 
@@ -83,7 +121,7 @@ export const 맵기물어보기 = async (들은말: string, 영어인가 = false
    * 무엇을 원하는지가 아니라 무엇을 원하지 않는지만 말한 것이라 여전히
    * 물어봐야 하기 때문이다.
    */
-  const 원래후보 = 이름으로(본문.candidates);
+  const { 이름들: 원래후보, 모르는것있나 } = 이름으로(본문.candidates);
   const 남은후보 = 원래후보.filter((이름) => !아니라고했나(글, 이름, 영어인가));
   const 부정걸림 = 남은후보.length !== 원래후보.length;
 
@@ -103,6 +141,6 @@ export const 맵기물어보기 = async (들은말: string, 영어인가 = false
    * 원하는 것이라는 보장은 없다 — 순한맛일 수도 보통맛일 수도 있고, 서버가
    * 그 둘 중 하나만 후보로 올렸을 수도 있다. 우리가 고르면 그건 짐작이다.
    */
-  if (남은후보.length === 1 && !부정걸림) return { 고른값: 남은후보[0] };
+  if (남은후보.length === 1 && !부정걸림 && !모르는것있나) return { 고른값: 남은후보[0] };
   return { 되물을것: 남은후보 };
 };
