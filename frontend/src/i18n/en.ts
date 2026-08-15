@@ -89,6 +89,17 @@ export const EN: Record<string, string> = {
     "Some of your info needs another look — confidence is low.",
   "지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.":
     "It's a busy hour, so takeout menus you can grab without waiting come first.",
+  /*
+   * 여러 축이 맞았을 때 우리가 한 줄로 합친 문장(i18n/reason.ts 의 이유묶기).
+   * 서버가 주는 말이 아니라 우리가 만든 틀이라 자리표시자가 들어 있다.
+   *
+   * 조사 때문에 열쇠가 둘이다 — "포장하기, 매운맛과" 는 받침이 있어 '과',
+   * "매운맛, 포장하기와" 는 없어서 '와' 다. 영어는 조사가 없어 같은 말이 된다.
+   */
+  "선호하신 {것들}과 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
+  "선호하신 {것들}와 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
   "선호하신 이용 방식과 다릅니다.": "Differs from the service type you chose.",
   "선호하신 맵기와 다릅니다.": "Differs from the spice level you chose.",
   "선호하신 뼈/순살과 다릅니다.": "Differs from the bone type you chose.",
