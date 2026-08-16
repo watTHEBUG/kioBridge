@@ -1,9 +1,9 @@
 import { Pictogram } from "@/design/Pictogram";
-import { BORDER, FONT, GAP, PAPER, RADIUS, RULE, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
+import { BORDER, GAP, PAPER, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
 import { 언어목록, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나 } from "@/api/speech";
 import { 들을수있나 } from "@/api/listen";
-import { ToggleRow, AppLogo, ConsentCheck, PrimaryBtn } from "@/app/ui";
+import { AppLogo, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/ui";
 
 /**
  * 첫 화면.
@@ -155,23 +155,14 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
           aria-label="안내 언어"
         >
           {언어목록.map(({ code, label }) => (
-            <button
+            <RadioChip
               key={code}
-              type="button"
-              role="radio"
-              aria-checked={언어 === code}
+              name="첫 화면 안내 언어"
+              label={label}
               lang={code}
-              onClick={() => on언어(code)}
-              style={{
-                minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
-                fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
-                backgroundColor: 언어 === code ? RULE : "transparent",
-                color: 언어 === code ? PAPER : TEXT_2,
-                border: "none", cursor: "pointer", transition: "all 0.15s",
-              }}
-            >
-              {label}
-            </button>
+              골랐나={언어 === code}
+              onPick={() => on언어(code)}
+            />
           ))}
         </div>
       </div>

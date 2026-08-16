@@ -895,15 +895,19 @@ export function VoiceSheetScreen({ 언어, onNext, onBack, 주문할수있나 = 
   }, [selections, menuName]);
   return (
     <div className="flex flex-col h-full kb-paper">
-      <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
-        <BackButton onClick={onBack} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>말로 만드는 주문표</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
-          한 칸씩 여쭤볼게요. 말씀하셔도 되고, 보기를 눌러 고르셔도 돼요
-        </p>
-      </div>
-
+      {/*
+        머리를 스크롤 영역 안에 둔다 — 이유는 Saved.tsx 의 같은 자리 주석에 있다.
+        큰 글씨에서 제목이 여러 줄이 되면 머리와 아래 단추만으로 틀보다 커져서,
+        가운데가 0 까지 줄어도 저장·시작 단추가 화면 밖으로 밀려 잘렸다.
+      */}
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        <div style={{ paddingTop: 12 }}>
+          <BackButton onClick={onBack} />
+          <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>말로 만드는 주문표</h1>
+          <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+            한 칸씩 여쭤볼게요. 말씀하셔도 되고, 보기를 눌러 고르셔도 돼요
+          </p>
+        </div>
         {소리로주고받나() ? (
           <한칸씩말하기
             place={place}
@@ -1191,13 +1195,20 @@ export function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산,
          * 가입 흐름은 가입(1) → 호칭(2) 둘로 끝난다.
          */}
         <BackButton onClick={onBack} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>{고칠것 ? "주문표 고치기" : "메뉴 주문표"}</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
-          {고칠것 ? "고치고 저장하면 이 주문표가 바뀌어요" : "자주 주문하는 메뉴를 저장해두세요"}
-        </p>
       </div>
 
+      {/*
+        머리를 스크롤 영역 안에 둔다 — 이유는 Saved.tsx 의 같은 자리 주석에 있다.
+        큰 글씨에서 제목이 여러 줄이 되면 머리와 아래 단추만으로 틀보다 커져서,
+        가운데가 0 까지 줄어도 저장·시작 단추가 화면 밖으로 밀려 잘렸다.
+      */}
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        <div>
+          <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>{고칠것 ? "주문표 고치기" : "메뉴 주문표"}</h1>
+          <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+            {고칠것 ? "고치고 저장하면 이 주문표가 바뀌어요" : "자주 주문하는 메뉴를 저장해두세요"}
+          </p>
+        </div>
         {/*
           음성 카드는 뺐다. 말로 만드는 길은 별도 화면(VoiceSheetScreen)으로 갈랐다 —
           터치로 만들 사람에게 음성 카드는 소음이었다. 들은 말을 저장하지 않는 규칙과
@@ -1310,41 +1321,39 @@ export function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산,
             </p>
           )}
         </div>
+
+        {/*
+          왜 아직 저장할 수 없는지 알려 주는 줄들. **바닥이 아니라 여기 둔다.**
+
+          바닥에 두었더니 큰 글씨에서 이 문장들이 여러 줄로 늘어나 바닥만 864px 이
+          됐다 — 틀이 715px 인데. 그러면 저장·시작 단추가 화면 밖으로 밀려서, 다
+          채워 놓고도 저장할 방법이 없었다.
+
+          바닥에는 누를 것만 남긴다. 이 줄들은 읽는 것이라 본문과 함께 굴러가도
+          된다. 무엇을 더 골라야 하는지는 바로 위 칸들을 보면서 읽는 편이 낫다.
+        */}
+        <div style={{ marginTop: 20 }}>
+          {로그인함 && !place && (
+            <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+              <span style={{ fontWeight: 600, color: TEXT_1 }}>장소</span>를 정해 두시면 다음에 로그인해도 불러올 수 있어요
+            </p>
+          )}
+          {빠진축.length > 0 && !순살제안대상 && (
+            <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+              {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
+                빠진것: 빠진축.map(t).join(", "),
+              })}
+            </p>
+          )}
+          {!주문할수있나 && !(빠진축.length > 0 && !순살제안대상) && (
+            <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+              QR을 찍으면 저장과 함께 바로 시작할 수 있어요
+            </p>
+          )}
+        </div>
       </div>
 
       <StickyFooter>
-        {/*
-          서버는 장소가 빈 주문표를 받지 않는다(place 가 @NotBlank). 올리고 나서 400 을
-          받아 "못 올렸어요" 를 띄우는 대신, 저장하기 전에 무엇을 하면 되는지 말한다.
-          막지는 않는다 — 장소는 선택 항목이고, 이 기기에는 그대로 저장된다.
-        */}
-        {로그인함 && !place && (
-          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            <span style={{ fontWeight: 600, color: TEXT_1 }}>장소</span>를 정해 두시면 다음에 로그인해도 불러올 수 있어요
-          </p>
-        )}
-        {/*
-          모든 축을 골라야 저장이 열린다(제품 결정 — catalog.tsx 의 못채운축).
-          예전에는 알려만 주고 막지 않았는데, 반쯤 채운 주문표를 저장해 두면
-          주문하는 순간에야 빈 칸을 만났다. '늘 하던 것' 을 저장하는 표라면
-          저장 시점에 다 채워져 있어야 한다. 무엇이 비었는지는 이름을 대고 말한다.
-        */}
-        {빠진축.length > 0 && !순살제안대상 && (
-          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
-              빠진것: 빠진축.map(t).join(", "),
-            })}
-          </p>
-        )}
-        {/*
-          붙은 키오스크가 없으면 '시작하기' 는 못 누른다. 왜 못 누르는지 말해 준다 —
-          회색이 된 단추만 두면 사용자는 자기가 무엇을 덜 채웠는지 찾아 헤맨다.
-        */}
-        {!주문할수있나 && !(빠진축.length > 0 && !순살제안대상) && (
-          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            QR을 찍으면 저장과 함께 바로 시작할 수 있어요
-          </p>
-        )}
         {/*
           저장과 시작을 갈랐다.
           ─────────────────────────────────────────────────────────────────────
