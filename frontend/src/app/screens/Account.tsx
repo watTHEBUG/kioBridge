@@ -227,8 +227,13 @@ export function SignupScreen({ onDone, onBack, onGoLogin, 동의함, on동의, o
   const 비번문제 = password ? 비밀번호검사(password) : null;
   const 다시문제 = 다시 && 다시 !== password ? "두 번 적은 비밀번호가 서로 달라요" : null;
 
+  /*
+   * 동의를 조건에 넣는다. 로그인 화면은 이미 넣고 있었는데(채워짐) 가입만
+   * 빠져 있었다 — 칸을 다 채우면 동의를 안 눌러도 가입이 됐다. 동의는 건너뛸
+   * 수 없는 관문이고, 계정을 만드는 자리가 그것을 가장 먼저 지켜야 한다.
+   */
   const 보낼수있나 =
-    loginId.trim() !== "" && password !== "" && 다시 !== "" &&
+    loginId.trim() !== "" && password !== "" && 다시 !== "" && 동의함 &&
     !아이디문제 && !비번문제 && !다시문제;
 
   const 보내기 = () => {

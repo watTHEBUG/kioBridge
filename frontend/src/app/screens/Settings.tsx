@@ -334,8 +334,19 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
     // 들어올 때 한 번만. 칸마다 다시 여는 일은 이어서예약 이 한다.
   }, []);
 
-  if (!소리로주고받나() || 축들.length === 0) return null;
-  const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
+  /*
+   * 지금 묻고 있는 축. 축이 하나도 없으면 undefined 다.
+   *
+   * 예전에는 바로 위에서 `축들.length === 0` 이면 null 을 반환했다. 그런데 그
+   * 자리가 **훅 두 개 사이**였다 — 아래 예약 effect 를 건너뛰게 된다. 소리로
+   * 주고받기 스위치는 이 카드가 떠 있는 동안에도 꺼질 수 있고(App 이 접근성
+   * 설정을 구독한다), 그 순간 렌더마다 훅 개수가 달라져 React 가
+   * "Rendered fewer hooks than expected" 로 멈춘다.
+   *
+   * 그래서 반환을 그리기 직전으로 내리고, 여기서는 없을 수도 있는 값으로 둔다.
+   * 이 값을 쓰는 effect 는 각자 없으면 물러난다.
+   */
+  const 지금축 = 축들.length > 0 ? 축들[Math.min(칸, 축들.length - 1)] : undefined;
   const 마지막인가 = 칸 >= 축들.length - 1;
 
   const 이어서예약 = () => {
@@ -369,6 +380,9 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
   };
 
   const 넣기 = (켬: boolean) => {
+    // 축이 없으면 넣을 곳도 없다. 화면은 이미 접혀 있고, 늦게 도착한 답이
+    // 여기로 올 수 있다(듣던 것이 끝나는 사이에 스위치가 꺼진 경우).
+    if (!지금축) return;
     onChange({ [지금축.key]: 켬 });
     다음으로(true);
   };
@@ -462,6 +476,8 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
     다음으로(false);
   };
 
+  // 그릴 것이 없으면 여기서 접는다. 훅은 위에서 모두 지났다(지금축 주석).
+  if (!소리로주고받나() || !지금축) return null;
   return (
     /*
       소리로 읽을 때는 이 카드 안만 읽는다(speech.ts 의 화면글).

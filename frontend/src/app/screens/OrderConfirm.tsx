@@ -274,7 +274,13 @@ export function OptionCard({
             className="flex items-center"
             style={{ gap: 4, marginTop: 3, whiteSpace: "nowrap", fontSize: 12, fontWeight: 700, color: selected ? PAPER : P }}
           >
-            <span aria-hidden="true">🌿</span>조건 일치
+            {/*
+              이모지를 쓰지 않는다. 상태를 나타내는 자리라 심사 규칙이 선 아이콘을
+              요구한다 — 이 파일의 다른 상태 배지도 모두 Pictogram 이다.
+              이모지는 기기마다 모양이 다르고, aria-hidden 을 붙여도 자리 자체가
+              상태 표시다.
+            */}
+            <Pictogram name="checkCircle" size={13} color={selected ? PAPER : P} />조건 일치
           </span>
         )}
         </span>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pictogram } from "@/design/Pictogram";
-import { BORDER, FAIL, FONT, GAP, NUM, ON_DARK, P, RADIUS, RULE, SERIF, SURFACE, TEXT_1, TEXT_2, TYPE, WARN } from "@/design/tokens";
+import { BORDER, FAIL, FONT, GAP, NUM, ON_DARK, P, PAPER, RADIUS, RULE, SERIF, SURFACE, TEXT_1, TEXT_2, TYPE, WARN } from "@/design/tokens";
 import { PairingResult, PairingState } from "@/domain/types";
 import { KioBridgeError, api } from "@/api/client";
 import { tf } from "@/i18n/t";
@@ -64,8 +64,25 @@ export function PairingConnected({
             <p style={{ ...TYPE.label, color: TEXT_1, marginBottom: 5 }}>세션 유효시간</p>
             <p style={{ fontSize: 13, color: TEXT_2, lineHeight: 1.5 }}>만료되면 QR을 다시 스캔해 주세요</p>
           </div>
-          {/* 1초마다 바뀐다. 바뀔 때마다 읽으면 1초에 한 번씩 남은 시간을 듣는다. */}
-          <span data-소리조용 style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}>{mm}:{ss}</span>
+          {/*
+            1초마다 바뀐다. **aria-live 에서 빼낸다.**
+
+            이 화면 전체가 role="status" aria-live="polite" 그릇 안에 있다(아래
+            QrScreen). 그러면 브라우저가 이 숫자가 바뀔 때마다 낭독한다 — 화면을
+            못 보는 분은 다음에 무엇을 눌러야 하는지 대신 초 세는 소리만 듣고,
+            '주문표 선택하기' 가 있다는 것을 들을 틈이 없다.
+
+            data-소리조용 은 이 앱의 자체 읽어주기만 거른다. 브라우저의 aria-live
+            처리와는 상관이 없어서, 그 표만으로는 못 막았다.
+
+            aria-hidden 으로 낭독에서 빼고, 남은 시간은 화면으로 본다. 만료는
+            숫자를 세지 않아도 알 수 있게 별도 화면이 말해 준다(PairingExpired).
+          */}
+          <span
+            aria-hidden="true"
+            data-소리조용
+            style={{ fontFamily: SERIF, fontSize: 44, lineHeight: 1, color: TEXT_1, ...NUM }}
+          >{mm}:{ss}</span>
         </div>
       </div>
 
@@ -80,7 +97,12 @@ export function QrScanButton({ onScan }: { onScan: () => void }) {
   return (
     <PrimaryBtn onClick={onScan}>
       <span className="flex items-center justify-center gap-2">
-        <Pictogram name="qrCode" size={21} color="white" />
+        {/*
+          단추 글자와 같은 색을 쓴다. PrimaryBtn 은 바탕이 RULE, 글자가 PAPER 이고
+          둘 다 팔레트를 따라 뒤집힌다. 여기만 "white" 로 박아 두면 어두운 판에서
+          밝은 단추 위에 흰 아이콘이 되어 묻힌다.
+        */}
+        <Pictogram name="qrCode" size={21} color={PAPER} />
         QR 다시 스캔하기
       </span>
     </PrimaryBtn>
