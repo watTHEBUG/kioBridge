@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Pictogram } from "@/design/Pictogram";
-import { BORDER, CANVAS, FAIL, FAIL_BG, FONT, GAP, NUM, P, PAPER, RADIUS, RULE, SERIF, SURFACE, TEXT_1, TEXT_2, TEXT_3, TYPE, WARN, WARN_BG } from "@/design/tokens";
+import { BORDER, CANVAS, FAIL, FAIL_BG, FONT, GAP, NUM, P, PAPER, RADIUS, RULE, SERIF, SUCCESS_BG, SURFACE, TEXT_1, TEXT_2, TEXT_3, TYPE, WARN, WARN_BG } from "@/design/tokens";
 import { ApproveInput, MappedItem, MappedOption, MappingCandidate, MappingResponse, OrderSheet, RecommendationReason } from "@/domain/types";
 import { KioBridgeError, api } from "@/api/client";
 import { 접근성설정 } from "@/api/a11y";
@@ -258,7 +258,9 @@ export function OptionCard({
               flexShrink: 0, width: 24, height: 24, borderRadius: "50%",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 13, fontWeight: 800, ...NUM,
-              backgroundColor: 순위 === 1 ? (selected ? PAPER : RULE) : "transparent",
+              // 1 등 배지는 초록으로 채운다 — 줄의 초록 띠와 같은 뜻이다.
+              // 고른 줄에서는 예전대로 뒤집는다(검은 면에 초록을 얹으면 3.5:1 이라 묻힌다).
+              backgroundColor: 순위 === 1 ? (selected ? PAPER : P) : "transparent",
               color: 순위 === 1 ? (selected ? RULE : PAPER) : (selected ? PAPER : TEXT_2),
               border: 순위 === 1 ? "none" : `1.5px solid ${selected ? PAPER : TEXT_2}`,
             }}
@@ -316,13 +318,52 @@ export function OptionCard({
    * 쌓여 보여 무엇을 고르는 자리인지가 흐려진다. 줄로 나누면 목록이 하나로
    * 읽히고, 고른 줄만 검게 반전돼서 어디를 골랐는지가 한눈에 들어온다.
    */
+  /*
+   * 1 순위만 초록 면을 깐다.
+   *
+   * 여태 셋이 같은 종이색 위에 나란히 있었고, 순위는 왼쪽의 작은 숫자 배지
+   * 하나가 지고 있었다. 그 배지는 24px 이라 훑어볼 때는 안 보인다 — 서버가
+   * 가장 잘 맞는다고 한 것이 화면에서 가장 안 띄는 셈이었다.
+   *
+   * ── 왜 초록인가 ────────────────────────────────────────────────────────────
+   *
+   * 이 팔레트의 '면' 은 전부 종이색 대비 1.1 이다(SURFACE·CANVAS·초록면 다).
+   * 면만 바꿔서는 색이 달라 보이지 않는다. 실제로 달라 보이는 값은
+   * 검정(17.79)과 초록(5.02)뿐인데, 검정은 이미 '고른 줄' 의 뜻이다.
+   *
+   * 그래서 초록으로 간다. 면은 조용하고, **왼쪽 4px 초록 띠와 초록 배지가
+   * 실제로 보이는 몫**을 진다.
+   *
+   * 맞바꾼 것 — 같은 줄의 '조건 일치' 글자도 초록이라, 한 화면에서 초록이 두
+   * 가지를 가리키게 됐다("화면당 한 곳", tokens.ts). 대신 뜻이 겹치지 않게
+   * 자리를 갈라 뒀다: 줄 전체(면·띠·순위 배지)는 순위, 이름 아래 작은 글자
+   * 한 줄은 조건 일치다.
+   *
+   * ── 대비(실측) ─────────────────────────────────────────────────────────────
+   *
+   *   초록 띠 대 종이색            5.02  (컨트롤 경계 3:1)
+   *   '조건 일치' 글자 대 초록면   4.63  (글자 4.5:1)
+   *   메뉴 이름 대 초록면         16.38
+   *   가격·부제 대 초록면          4.68
+   *   배지 흰 글자 대 초록         5.02
+   *
+   * **색으로만 말하지 않는다.** 숫자 배지와 읽어 주는 이름("추천 1순위, …")이
+   * 그대로 있다. 초록은 거들기만 한다.
+   *
+   * 고른 줄은 예전대로 검은 면이다 — 고른 것과 1 등을 같은 세기로 그리면
+   * 무엇을 고른 것인지가 흐려진다.
+   */
+  const 일등면 = 순위 === 1 && !selected;
   const 겉모양 = {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-    padding: "18px 16px", borderRadius: selected ? RADIUS.card : 0,
+    padding: "18px 16px", borderRadius: selected || 일등면 ? RADIUS.card : 0,
     cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1, fontFamily: FONT,
     border: "none", width: "100%",
-    // 고른 것은 검은 면. 초록은 '조건 일치' 한 곳에만 남긴다.
-    backgroundColor: selected ? RULE : "transparent",
+    // 고른 것은 검은 면. 1 등은 초록 면.
+    backgroundColor: selected ? RULE : 일등면 ? SUCCESS_BG : "transparent",
+    // 왼쪽 띠는 안쪽 그림자로 그린다. border 로 그리면 그 두께만큼 안쪽이 밀려서
+    // 1 순위 줄의 글자가 나머지 줄과 어긋난다.
+    boxShadow: 일등면 ? `inset 4px 0 0 ${P}` : "none",
     transition: "background-color 0.15s",
   } as const;
 

@@ -128,6 +128,134 @@ export function 순살제안시트({ onAnswer, onCancel }: {
   );
 }
 
+/**
+ * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되묻는 창(팀 #133).
+ *
+ * ── 왜 창으로 바꿨나 ────────────────────────────────────────────────────────
+ *
+ * 예전에는 보기 줄 아래에 한 줄만 붙였다 — "혹시 순한맛 / 보통맛 말씀이신가요?
+ * **위에서** 짚어 주세요." 그 한 줄이 세 가지로 나빴다.
+ *
+ *   ① 짚을 곳이 여기가 아니라 위였다. 되물어 놓고 답할 자리를 다른 데 두면,
+ *      화면을 못 보는 분은 어디를 눌러야 하는지 알 수 없다.
+ *   ② 보기가 넷이어도 후보는 둘인데, 화면에는 넷이 그대로 늘어서 있었다.
+ *      무엇이 후보인지 표시가 없었다.
+ *   ③ 한 줄이라 놓치기 쉬웠다. 다음 안내가 이어 나오면 그대로 흘러갔다.
+ *
+ * 창으로 띄우고 **후보만** 단추로 낸다. 짚으면 그 값이 그대로 들어가고 다음
+ * 질문으로 넘어간다 — 되물음과 답이 한자리에 있다.
+ *
+ * ── 우리가 고르지 않는다 ────────────────────────────────────────────────────
+ *
+ * 후보 단추는 서로 생김새가 같다. 하나를 눈에 띄게 만들면 앱이 답을 미는 셈이고,
+ * 그러면 "고르지 않은 조건이 섞이면 안 된다" 는 이 앱의 규칙을 화면이 어긴다.
+ * 서버도 어느 쪽이라고 말하지 못해서 여기까지 온 것이다.
+ *
+ * ── 말로도 답할 수 있다 ─────────────────────────────────────────────────────
+ *
+ * 창이 떠 있는 동안에도 이어 듣기 예약은 살아 있다(부르는 쪽의 이어서예약).
+ * "순한맛" 이라고 말하면 같은 자리로 들어가고 창은 닫힌다 — 손을 안 쓰는 분에게
+ * 창이 새 문턱이 되면 안 된다.
+ */
+export function 되묻기시트({ 축이름, 값들, onPick, onCancel }: {
+  축이름: string;
+  /** 서버가 애매하다고 한 값들. 화면에 실제로 있는 보기만 걸러서 들어온다. */
+  값들: string[];
+  onPick: (값: string) => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const 이전포커스 = useRef<HTMLElement | null>(null);
+  // 포커스 저장·되돌리기. 빈 의존성인 이유는 순살제안시트의 같은 자리 주석에 있다.
+  useEffect(() => {
+    이전포커스.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    ref.current?.focus();
+    return () => {
+      if (이전포커스.current?.isConnected) 이전포커스.current.focus();
+    };
+  }, []);
+  const 가두기 = 포커스가두기(ref, onCancel);
+
+  /*
+   * 문구와 읽어주기를 같은 t() 결과에서 뽑는다 — 순살제안시트와 같은 이유다
+   * (영어로 두면 화면만 영어이고 소리는 한국어가 나오던 것).
+   *
+   * 값 이름은 보기 이름 그대로 쓴다. 서버가 만들어 준 물음 문장은 안 쓴다 —
+   * 거기에는 사용자가 말한 말이 박혀 있어 번역표의 열쇠가 될 수 없다(i18n/en.ts).
+   */
+  /*
+   * 축 이름을 제목에 넣는다. 창이 뜨면 뒤의 질문 카드가 가려져서, 무엇을 묻던
+   * 중이었는지가 화면에서 사라진다.
+   *
+   * 조사를 안 붙인다 — '맵기를/형태를' 을 맞추려면 받침 판별이 필요한데 그
+   * 도우미는 mock.ts 안에만 있고, 무엇보다 이 문장은 번역표의 열쇠라 조사가
+   * 값에 따라 갈리면 열쇠가 둘로 늘어난다.
+   */
+  const 제목 = tf("{축} — 혹시 이 중에 있나요?", { 축: t(축이름) });
+  const 설명 = t("말씀하신 것과 가까운 것을 찾았어요. 맞는 것을 짚어 주세요.");
+  const 그만 = t("아니에요, 다시 말할게요");
+  const 값이름 = 값들.map((v) => t(v));
+
+  useEffect(() => {
+    if (!접근성설정.읽기().voiceGuide) return;
+    그만읽기();
+    읽어주기([제목, 설명, ...값이름, 그만].join(". "), { 언어: 접근성설정.읽기().language });
+    return () => 그만읽기();
+    // 값이름 은 배열이라 매 렌더 새 참조다. 문장으로 묶어서 값이 같으면 안 돌게 한다.
+  }, [제목, 설명, 그만, 값이름.join(". ")]);
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex flex-col justify-end"
+      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      data-소리생략
+    >
+      <div
+        ref={ref}
+        tabIndex={-1}
+        onKeyDown={가두기}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reask-title"
+        aria-describedby="reask-body"
+        /*
+         * 틀을 넘지 못하게 한다.
+         *
+         * 후보는 많아야 넷이고(맵기), 큰 글씨를 켜고 재 보니 715 중 625 까지 찼다 —
+         * 지금은 들어가지만 남는 것이 90px 뿐이다. 보기 이름이 길어지거나 언어가
+         * 바뀌면 넘어가고, 그러면 맨 아래 '아니에요' 가 화면 밖으로 나가서 창을
+         * 닫을 길이 사라진다. 넘칠 때는 안에서 굴러가게 둔다(StickyFooter 와 같은 그물).
+         */
+        style={{ backgroundColor: PAPER, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: `28px ${GAP.screenX}px 24px`, outline: "none", maxHeight: "92%", overflowY: "auto" }}
+      >
+        <h2 id="reask-title" style={{ ...TYPE.title, color: TEXT_1, margin: 0 }}>{제목}</h2>
+        <p id="reask-body" style={{ ...TYPE.body, color: TEXT_2, marginTop: 10 }}>{설명}</p>
+        <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* 값은 한국어 그대로 넘긴다 — 저장되는 의미값이고 번역은 보여줄 때뿐이다. */}
+          {값들.map((v) => (
+            <OutlineBtn key={v} onClick={() => onPick(v)}>{t(v)}</OutlineBtn>
+          ))}
+        </div>
+        {/*
+          그만두는 길은 한 톤 낮춘다. 후보 단추와 같은 무게로 두면 "아니에요" 가
+          보기 중 하나처럼 읽힌다.
+        */}
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            width: "100%", minHeight: 44, marginTop: 14, background: "transparent", border: "none",
+            color: TEXT_2, fontSize: 15, fontWeight: 600, fontFamily: FONT, cursor: "pointer",
+          }}
+        >
+          {그만}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 let 주문표일련번호 = 0;
 
 export const newSheetId = () => `p${Date.now()}_${++주문표일련번호}`;
@@ -681,13 +809,37 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
   // 그릴 것이 없으면 여기서 접는다. 훅은 위에서 모두 지났다(지금축 주석).
   if (!소리로주고받나() || !지금축) return null;
   const 고른것 = 값[지금축.label] ?? [];
+  const 지금축label = 지금축.label;
   return (
-    /*
+    <>
+    {/*
+      되묻기 창. 카드 **밖에** 둔다.
+
+      안에 두면 data-소리중요 안이 되어, 창이 떠 있는 동안 읽을 것을 고를 때
+      카드와 창이 한 덩이로 묶인다. 창은 스스로 읽는다(그 안의 읽어주기).
+
+      absolute inset-0 은 이 스크롤 영역이 아니라 폰 틀을 덮는다 — 스크롤 영역은
+      position 을 안 주므로 이 창의 기준이 되지 못하고, 기준이 스크롤 밖에 있으면
+      overflow 도 자르지 않는다. 순살제안시트가 같은 방식이다.
+    */}
+    {되물을것 && 되물을것.length > 0 && (
+      <되묻기시트
+        축이름={지금축label}
+        값들={되물을것}
+        onPick={(v) => { 듣기취소(); 넣기(v, true); }}
+        /*
+         * 그만두면 값은 안 넣고 창만 닫는다. 듣기는 다시 연다 — 여기서 안 열면
+         * 이어 듣기가 이 칸에서 멎어서, 손을 안 쓰는 분이 갇힌다.
+         */
+        onCancel={() => { set되물을것(null); 이어서예약(); }}
+      />
+    )}
+    {/*
       소리로 읽을 때는 이 카드 안만 읽는다(speech.ts 의 화면글).
 
       화면을 통째로 읽으면 질문 사이마다 화면 제목, 순번, 아래 단추까지 되풀이된다.
       지금 답해야 하는 것은 이 안에 다 있다 — 무엇을 묻는지, 물음, 고를 보기.
-    */
+    */}
     <div data-소리중요 style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
       {/*
         순번은 읽지 않는다(data-소리조용).
@@ -732,23 +884,6 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
         ))}
       </div>
 
-      {/*
-       * 서버가 애매하다고 한 값들을 되묻는다(팀 #133).
-       *
-       * 우리가 고르지 않는다. 위 보기 줄은 그대로 두고 여기에 한 줄을 더해
-       * "이 둘 중 어느 쪽인지" 만 묻는다 — 짚는 것은 사람이다.
-       *
-       * 문장을 서버에서 받지 않고 여기서 조립하는 이유: 서버 문장에는 사용자가
-       * 말한 값이 박혀 있어 번역표의 열쇠가 될 수 없다. 값만 받아 화면에 실제로
-       * 떠 있는 보기 이름으로 만든다(i18n/en.ts 의 틀).
-       */}
-      {되물을것 && 되물을것.length > 0 && (
-        <p role="status" style={{ fontSize: 14, color: TEXT_1, marginTop: 12, lineHeight: 1.7 }}>
-          {tf("혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.", {
-            들은말: 되물을것.map((v) => t(v)).join(" / "),
-          })}
-        </p>
-      )}
 
       {/*
        * data-소리조용 — 이 안의 글은 '새로 붙은 줄' 읽기에서 빠진다(speech.ts).
@@ -813,6 +948,7 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
         </div>
       </div>
     </div>
+    </>
   );
 }
 
