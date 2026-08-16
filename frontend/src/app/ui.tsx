@@ -461,14 +461,24 @@ export function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onC
  * 고르는 자리가 아니라 확인하는 자리라 카드가 아니라 체크로 둔다.
  */
 
-export function CheckRow({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) {
+/**
+ * 체크 한 줄.
+ *
+ * `disabled` 는 이 표시를 더 바꾸면 안 되는 동안에 쓴다 — 이 체크가 승인의
+ * 조건인데 승인 요청이 이미 나가 있는 자리다. 그때 풀면 화면은 '안 짚었다' 인데
+ * 서버로는 짚은 것으로 갔다.
+ */
+export function CheckRow({ checked, onToggle, label, disabled = false }: {
+  checked: boolean; onToggle: () => void; label: string; disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
-      onClick={onToggle}
-      style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: "pointer", fontFamily: FONT, padding: 0, textAlign: "left" }}
+      onClick={disabled ? undefined : onToggle}
+      disabled={disabled}
+      style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1, fontFamily: FONT, padding: 0, textAlign: "left" }}
     >
       <div aria-hidden="true" style={{
         width: 22, height: 22, borderRadius: 6, flexShrink: 0,

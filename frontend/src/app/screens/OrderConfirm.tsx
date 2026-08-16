@@ -199,9 +199,17 @@ export function 뺀이유({ reasons }: { reasons?: RecommendationReason[] }) {
 }
 
 export function OptionCard({
-  name, price, selected, onClick, groupName, matched, 순위,
+  name, price, selected, onClick, groupName, matched, 순위, disabled = false,
 }: {
   name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
+  /**
+   * 더 고를 수 없는 동안인가.
+   *
+   * 승인을 보내 놓고 답을 기다리는 사이에 쓴다. 그때 다른 후보를 짚으면 화면에
+   * 검게 반전된 줄과 서버로 간 candidateId 가 어긋난다 — 무엇을 담고 있는지
+   * 화면이 거짓말을 한다.
+   */
+  disabled?: boolean;
   /**
    * 추천 순위. 1 부터. 없으면 아무것도 안 그린다.
    *
@@ -310,7 +318,8 @@ export function OptionCard({
    */
   const 겉모양 = {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-    padding: "18px 16px", borderRadius: selected ? RADIUS.card : 0, cursor: "pointer", fontFamily: FONT,
+    padding: "18px 16px", borderRadius: selected ? RADIUS.card : 0,
+    cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1, fontFamily: FONT,
     border: "none", width: "100%",
     // 고른 것은 검은 면. 초록은 '조건 일치' 한 곳에만 남긴다.
     backgroundColor: selected ? RULE : "transparent",
@@ -331,6 +340,7 @@ export function OptionCard({
         name={groupName}
         checked={selected}
         onChange={onClick}
+        disabled={disabled}
         onFocus={() => set포커스(true)}
         onBlur={() => set포커스(false)}
         /*
@@ -454,6 +464,7 @@ export function OrderClarification({
             // 서버가 준 차례가 곧 순위다 — 자세한 사연은 OptionCard 의 순위 주석에.
             순위={i + 1}
             onClick={() => setSelected(i)}
+            disabled={승인중}
           />
           {/*
             이유는 **1 순위 밑에만** 붙인다.
@@ -553,8 +564,10 @@ export function OrderChanged({
           type="button"
           role="checkbox"
           aria-checked={checked}
-          onClick={() => setChecked((v) => !v)}
-          style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: "pointer", fontFamily: FONT, padding: 0 }}
+          // 승인 요청이 나가 있는 동안에는 못 푼다 — 이 체크가 그 요청의 조건이다.
+          onClick={승인중 ? undefined : () => setChecked((v) => !v)}
+          disabled={승인중}
+          style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: 승인중 ? "default" : "pointer", opacity: 승인중 ? 0.6 : 1, fontFamily: FONT, padding: 0 }}
         >
           {/*
            * 안 찍힌 네모의 테두리를 WARN_BORDER 로 그리면 노란 바탕 위에서 1.29:1 이라
@@ -626,6 +639,7 @@ export function OrderLowConfidence({
         checked={selected}
         onToggle={() => setSelected((v) => !v)}
         label="위 내용이 제가 시키려던 것이 맞아요"
+        disabled={승인중}
       />
       <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
       {/* 차례를 가른 이유는 OrderClarification 의 같은 자리 주석에 있다. */}
