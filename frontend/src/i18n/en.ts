@@ -42,8 +42,10 @@ export const EN: Record<string, string> = {
    * 값이 박혀 있어서 이 표의 열쇠가 될 수 없다 — 사람마다 다른 말을 하므로
    * 열쇠가 무한해진다. 값만 받아 여기서 조립한다(api/spicy.ts 주석).
    */
-  "혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.":
-    "Did you mean {들은말}? Please pick it above.",
+  "{축} — 혹시 이 중에 있나요?": "{축} — did you mean one of these?",
+  "말씀하신 것과 가까운 것을 찾았어요. 맞는 것을 짚어 주세요.":
+    "We found close matches for what you said. Please pick the right one.",
+  "아니에요, 다시 말할게요": "No, let me say it again",
   "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
     "The microphone is not available. Please choose by hand above.",
   // 보기가 셋 이상일 때 '아니오' — 값은 안 넣고 넘어간다는 사실만 알린다.
