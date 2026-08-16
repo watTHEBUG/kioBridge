@@ -349,8 +349,10 @@ export function OptionCard({
 }
 
 export function OrderExact({
-  item, reasons, scoredAxes, 합계알림, onApprove, onCancel,
+  item, reasons, scoredAxes, 합계알림, 승인중, onApprove, onCancel,
 }: {
+  /** 승인 요청이 나가 있는 동안. 단추를 잠그고 그 사실을 글로 말한다. */
+  승인중?: boolean;
   item: MappedItem; reasons?: RecommendationReason[];
   /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
   scoredAxes?: string[];
@@ -381,15 +383,19 @@ export function OrderExact({
       )}
       <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
       <뺀이유 reasons={reasons} />
-      <PrimaryBtn onClick={onApprove}>승인하고 담기</PrimaryBtn>
+      <PrimaryBtn onClick={승인중 ? undefined : onApprove} disabled={승인중}>
+        {승인중 ? "담는 중이에요…" : "승인하고 담기"}
+      </PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
     </div>
   );
 }
 
 export function OrderClarification({
-  candidates, reason, reasons, scoredAxes, options, onApprove, onCancel,
+  candidates, reason, reasons, scoredAxes, options, 승인중, onApprove, onCancel,
 }: {
+  /** 뜻은 OrderExact 의 같은 이름 주석에 있다. */
+  승인중?: boolean;
   candidates: MappingCandidate[];
   reason?: string;
   reasons?: RecommendationReason[];
@@ -481,10 +487,10 @@ export function OrderClarification({
         <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>메뉴를 선택하면 승인할 수 있어요</p>
       )}
       <PrimaryBtn
-        onClick={selected !== null ? () => onApprove(candidates[selected].candidateId) : undefined}
-        disabled={selected === null}
+        onClick={selected !== null && !승인중 ? () => onApprove(candidates[selected].candidateId) : undefined}
+        disabled={selected === null || 승인중}
       >
-        승인하고 담기
+        {승인중 ? "담는 중이에요…" : "승인하고 담기"}
       </PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
     </div>
@@ -507,8 +513,10 @@ export function OrderNotFound({ message, onCancel }: { message?: string; onCance
 }
 
 export function OrderChanged({
-  item, diffNote, reasons, scoredAxes, 합계알림, onApprove, onCancel,
+  item, diffNote, reasons, scoredAxes, 합계알림, 승인중, onApprove, onCancel,
 }: {
+  /** 뜻은 OrderExact 의 같은 이름 주석에 있다. */
+  승인중?: boolean;
   item: MappedItem;
   diffNote?: string;
   /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
@@ -562,15 +570,19 @@ export function OrderChanged({
 
       <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
       <뺀이유 reasons={reasons} />
-      <PrimaryBtn onClick={checked ? onApprove : undefined} disabled={!checked}>변경 내용 확인하고 담기</PrimaryBtn>
+      <PrimaryBtn onClick={checked && !승인중 ? onApprove : undefined} disabled={!checked || 승인중}>
+        {승인중 ? "담는 중이에요…" : "변경 내용 확인하고 담기"}
+      </PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
     </div>
   );
 }
 
 export function OrderLowConfidence({
-  item, reasons, scoredAxes, 합계알림, onApprove, onCancel,
+  item, reasons, scoredAxes, 합계알림, 승인중, onApprove, onCancel,
 }: {
+  /** 뜻은 OrderExact 의 같은 이름 주석에 있다. */
+  승인중?: boolean;
   item: MappedItem; reasons?: RecommendationReason[];
   /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
   scoredAxes?: string[];
@@ -621,7 +633,9 @@ export function OrderLowConfidence({
       {!selected && (
         <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>메뉴를 선택하면 승인할 수 있어요</p>
       )}
-      <PrimaryBtn onClick={selected ? onApprove : undefined} disabled={!selected}>승인하고 담기</PrimaryBtn>
+      <PrimaryBtn onClick={selected && !승인중 ? onApprove : undefined} disabled={!selected || 승인중}>
+        {승인중 ? "담는 중이에요…" : "승인하고 담기"}
+      </PrimaryBtn>
       <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
     </div>
   );
@@ -692,7 +706,19 @@ export function OrderConfirmScreen({
       })
     : undefined;
   // 승인은 한 번만. 연타로 실행 계획이 두 번 만들어지면 안 된다.
+  /*
+   * 승인 중인가. **두 벌로 들고 있다.**
+   *
+   * ref 는 중복 호출을 막는다 — 상태만 두면 setState 가 다음 그림에 반영되므로,
+   * 빠르게 두 번 누르면 두 번 나간다.
+   *
+   * 상태는 화면을 바꾼다. 예전에는 ref 만 있어서, 서버가 답할 때까지 단추가
+   * 그대로 눌리는 채였고 아무 표시도 없었다. 중복은 막았지만 사용자는 눌린
+   * 것인지 알 수 없었다 — 이 앱을 쓰는 분들에게 반응 없는 단추가 가장 막히는
+   * 자리다.
+   */
   const approving = useRef(false);
+  const [승인중, set승인중] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -783,11 +809,13 @@ export function OrderConfirmScreen({
   const approve = (extra: Omit<ApproveInput, "pairingId" | "sheetId" | "mappingResult"> = {}) => {
     if (!mapping || approving.current) return;
     approving.current = true;
+    set승인중(true);
     setError(null);
     api.approve({ pairingId, sheetId: sheet.id, mappingResult: mapping.result, ...extra })
       .then((res) => onApproved(res.planId))
       .catch((e: KioBridgeError) => {
         approving.current = false;
+        set승인중(false);
         setError({ message: e.message, ...(e.details && e.details.length > 1 ? { details: e.details } : {}) });
       });
   };
@@ -853,10 +881,10 @@ export function OrderConfirmScreen({
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={이유들} scoredAxes={mapping.scoredAxes} 합계알림={합계알림} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact 승인중={승인중} item={mapping.item} reasons={이유들} scoredAxes={mapping.scoredAxes} 합계알림={합계알림} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
-          <OrderClarification
+          <OrderClarification 승인중={승인중}
             candidates={mapping.candidates ?? []}
             reason={mapping.reason}
             reasons={이유들}
@@ -868,7 +896,7 @@ export function OrderConfirmScreen({
         )}
         {mapping?.result === "not_found" && <OrderNotFound message={mapping.message} onCancel={거절하기} />}
         {mapping?.result === "changed" && mapping.item && (
-          <OrderChanged
+          <OrderChanged 승인중={승인중}
             item={mapping.item}
             diffNote={mapping.diffNote}
             reasons={이유들}
@@ -890,7 +918,7 @@ export function OrderConfirmScreen({
           </div>
         )}
         {mapping?.result === "low_confidence" && mapping.item && (
-          <OrderLowConfidence
+          <OrderLowConfidence 승인중={승인중}
             item={mapping.item}
             reasons={이유들}
             scoredAxes={mapping.scoredAxes}

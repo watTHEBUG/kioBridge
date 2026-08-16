@@ -46,6 +46,9 @@ export const EN: Record<string, string> = {
     "Did you mean {들은말}? Please pick it above.",
   "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
     "The microphone is not available. Please choose by hand above.",
+  // 보기가 셋 이상일 때 '아니오' — 값은 안 넣고 넘어간다는 사실만 알린다.
+  "그 칸은 비워 두고 다음으로 넘어갈게요. 나중에 위에서 고르셔도 돼요.":
+    "We'll leave that one empty and move on. You can choose it above later.",
   "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",
   "그만 듣기": "Stop listening",
   "건너뛰기": "Skip",
@@ -69,6 +72,8 @@ export const EN: Record<string, string> = {
   "저장할까요?": "Save this?",
   "지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때 이 기기에서 다시 꺼내 쓸 수 있어요.":
     "You do not need to save it to order right now. If you save it, you can use it again from this device next time.",
+  // 승인 요청이 나가 있는 동안 단추에 뜨는 글.
+  "담는 중이에요…": "Adding to the cart…",
   "이번만 쓰기": "Use just this once",
   "이 기기에 저장하기": "Save on this device",
 

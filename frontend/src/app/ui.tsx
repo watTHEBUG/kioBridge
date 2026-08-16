@@ -315,12 +315,35 @@ export function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }:
   onConfirm: () => void; onCancel: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const 이전포커스 = useRef<HTMLElement | null>(null);
+  /*
+   * 포커스를 열 때 저장했다가 닫을 때 되돌리는 일만 한다 — 마운트·언마운트
+   * 한 번씩이라 의존성 배열을 비워 둔다.
+   *
+   * 전에는 여기에 onCancel 을 의존성으로 넣고 Escape 도 같이 처리했다. 둘 다
+   * 문제였다.
+   *
+   *   ① Escape 가 두 번 처리됐다. 아래 포커스가두기 가 이미 onKeyDown 에서
+   *      처리하는데 여기서 window 에도 달아서, 포커스가 시트 안에 있으면 한 번
+   *      누른 Escape 로 onCancel 이 두 번 불렸다.
+   *
+   *   ② 포커스가 튀었다. onCancel 은 부모가 매 렌더마다 새로 만드는 인라인
+   *      함수라, 시트가 열려 있는 동안 부모가 리렌더되면 이 effect 가 정리됐다가
+   *      다시 걸렸고 그때마다 ref.current?.focus() 가 다시 돌았다.
+   *
+   * 닫은 뒤 포커스를 되돌리는 것도 빠져 있었다 — 시트가 사라지면 포커스가
+   * <body> 로 떨어져서, 키보드로 쓰는 사람은 처음부터 Tab 을 다시 눌러야 했다.
+   *
+   * 순살제안시트(screens/Sheet.tsx)가 같은 이유로 이미 이 모양이다.
+   */
   useEffect(() => {
+    이전포커스.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+    return () => {
+      if (이전포커스.current?.isConnected) 이전포커스.current.focus();
+    };
+  }, []);
   // aria-modal="true" 는 "뒤는 없는 셈 치라" 는 선언이다. 선언만 하고
   // Tab 이 뒤 화면으로 나가면 그 말이 사실이 아니게 된다.
   // 되돌릴 수 없는 동작을 지키는 자리라 더 그렇다.
