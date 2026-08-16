@@ -120,6 +120,15 @@ export interface 이어쓸것 {
    */
   allergies: string[];
   /**
+   * 그 물음에 답을 했는가('없음' 포함).
+   *
+   * 값이 비어 있는 것과 아직 답이 없는 것을 갈라 두는 표다 — 설정 화면이 이
+   * 값으로 '계속하기' 를 연다(api/allergy.ts 의 답함). 서버로는 안 나간다.
+   * 계정 프로필에 칸을 하나 더 만들면 팀 계약을 바꾸는 일이고, 이 값이 하는
+   * 일은 이 앱 화면을 넘길지 정하는 것뿐이다.
+   */
+  allergiesAnswered: boolean;
+  /**
    * 이번 이용의 가격 한도(원). 안 정했으면 null 이다.
    *
    * 오래 붙들 값이 아니라 "오늘은 얼마까지" 라서 이번 이용에만 둔다. 다만 새로고침
@@ -448,6 +457,8 @@ export const 이어쓰기 = {
       consent: o.consent === true,
       // 아는 여섯만 받는다. 모르는 값이 섞이면 서버가 UNKNOWN 으로 읽고 주문을 막는다.
       allergies: Array.isArray(o.allergies) ? o.allergies.filter(아는알레르기) : [],
+      // boolean 이 아니면 안 답한 것으로 본다. 손댄 값으로 답을 만들지 않는다.
+      allergiesAnswered: o.allergiesAnswered === true,
       // 계약이 minimum: 0 인 number 다. 양의 정수가 아니면 안 정한 것으로 본다 —
       // 손대서 음수를 넣어 두면 서버가 400 으로 되돌려서 주문 자체가 안 된다.
       budget: typeof o.budget === "number" && Number.isInteger(o.budget) && o.budget > 0
@@ -525,6 +536,7 @@ export const 이어쓰기 = {
         a11y: 값.a11y,
         consent: 값.consent,
         allergies: 값.allergies,
+        allergiesAnswered: 값.allergiesAnswered,
         budget: 값.budget,
         voiceUsed: 값.voiceUsed,
         planId: 값.planId,

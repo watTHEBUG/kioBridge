@@ -90,6 +90,7 @@ const 채운값 = (덮을것: Partial<이어쓸것> = {}): 이어쓸것 => ({
   a11y: { ...기본도움설정, largeText: true },
   consent: true,
   allergies: [],
+  allergiesAnswered: false,
   budget: null,
   voiceUsed: false,
   planId: null,
@@ -121,10 +122,10 @@ describe("남으면 안 되는 것", () => {
    * 남기는가' 를 바꾼 것이니, session.ts 의 설명과 개인정보 화면 문구를
    * 같이 고쳤는지 다시 보라는 뜻이다.
    */
-  it("이번 방문 자리에 적는 칸은 정해진 열 개뿐이다", () => {
+  it("이번 방문 자리에 적는 칸은 정해진 열한 개뿐이다", () => {
     이어쓰기.쓰기(채운값());
     expect(Object.keys(적힌것()).sort()).toEqual(
-      ["a11y", "account", "allergies", "budget", "consent", "name", "planId", "screen", "tab", "voiceUsed"],
+      ["a11y", "account", "allergies", "allergiesAnswered", "budget", "consent", "name", "planId", "screen", "tab", "voiceUsed"],
     );
   });
 
@@ -376,6 +377,16 @@ describe("손댄 값을 믿지 않는다", () => {
      */
     망가진것({ allergies: ["PEANUT", "메밀", "BUCKWHEAT", 1, null, "SHRIMP"] });
     expect(이어쓰기.읽기()!.allergies).toEqual(["PEANUT", "SHRIMP"]);
+  });
+
+  it("답했다는 표도 boolean 이 아니면 안 믿는다", () => {
+    // 이 표 하나로 설정 화면의 '계속하기' 가 열린다. 손댄 값으로 열지 않는다.
+    for (const v of ["true", 1, null, {}]) {
+      망가진것({ allergiesAnswered: v });
+      expect(이어쓰기.읽기()!.allergiesAnswered).toBe(false);
+    }
+    망가진것({ allergiesAnswered: true });
+    expect(이어쓰기.읽기()!.allergiesAnswered).toBe(true);
   });
 
   it("알레르기를 골라 두면 그대로 되살린다", () => {

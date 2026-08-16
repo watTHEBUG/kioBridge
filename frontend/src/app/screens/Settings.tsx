@@ -94,16 +94,41 @@ export const 쓸수있는것 = (항목들: 도움항목[]): 도움항목[] => �
  *
  * 여섯뿐인 이유는 킷 계약이 여섯만 알아서다. 표에 없는 것을 고르게 하면
  * UNKNOWN 으로 나가고 서버가 주문을 아예 막는다.
+ *
+ * ── '없음' 과, 답을 받고 넘어가는 것 ───────────────────────────────────────
+ *
+ * 예전에는 "없으시면 안 고르셔도 돼요" 였다. 그러면 답한 사람과 이 칸을 못 보고
+ * 지나간 사람이 앱에게 똑같아진다 — 둘 다 빈 배열이다. 그 상태로 넘어가면 앱은
+ * 그 사람의 알레르기를 모르는 채로 메뉴를 고르고, 사용자는 걸러진 줄 안다.
+ *
+ * '없음' 을 넣어 답을 받고, 답하기 전에는 넘어가지 않는다(SetupScreen).
+ * 서버가 막아 주기를 기다리지 않는다 — 킷은 빈 배열을 정상적인 답으로 보므로
+ * (absentMeans="NONE" → SKIPPED) 안 고른 것을 서버가 걸러 주지 않는다.
  */
 
-export function 알레르기고르기({ 고른것, on뒤집기 }: { 고른것: AllergenId[]; on뒤집기: (id: AllergenId) => void }) {
+export function 알레르기고르기({ 고른것, 답했나, on뒤집기, on없음 }: {
+  고른것: AllergenId[];
+  /** 이 물음에 답했는가('없음' 포함). 아직이면 왜 골라야 하는지 적는다. */
+  답했나: boolean;
+  on뒤집기: (id: AllergenId) => void;
+  on없음: () => void;
+}) {
   return (
     <div>
       <h2 style={{ ...TYPE.label, color: TEXT_2, marginBottom: 2 }}>못 드시는 것</h2>
       <p style={{ fontSize: 12, color: TEXT_2, marginBottom: 8, lineHeight: 1.6 }}>
-        고르시면 그게 들어간 메뉴는 추천에서 아예 빼요. 없으시면 안 고르셔도 돼요.
+        고르시면 그게 들어간 메뉴는 추천에서 아예 빼요. 없으시면 '없음' 을 골라 주세요.
       </p>
       <div className="flex flex-wrap" style={{ gap: 6 }} role="group" aria-label="못 드시는 것">
+        {/*
+          '없음' 을 맨 앞에 둔다. 해당하는 것이 없는 분이 대부분이라, 그분들이
+          여섯 개를 훑고 나서야 답할 곳을 찾게 두지 않는다.
+
+          다른 것과 함께 켜지지 않는다 — '없음' 과 '땅콩' 이 같이 켜져 있으면
+          어느 쪽이 답인지 화면이 말을 못 한다. 누르면 나머지가 꺼지고,
+          다른 것을 누르면 '없음' 이 꺼진다(고른것이 비었을 때만 켜짐).
+        */}
+        <Chip label="없음" selected={답했나 && 고른것.length === 0} onClick={on없음} />
         {알레르기목록.map(({ id, label }) => (
           <Chip
             key={id}
@@ -113,6 +138,15 @@ export function 알레르기고르기({ 고른것, on뒤집기 }: { 고른것: A
           />
         ))}
       </div>
+      {/*
+        아직 답 안 했으면 왜 답해야 하는지 적는다. 아래 '계속하기' 가 잠겨 있는데
+        이유가 화면에 없으면 사용자는 앱이 멎은 줄 안다.
+      */}
+      {!답했나 && (
+        <p role="status" style={{ fontSize: 12, color: TEXT_2, marginTop: 8, lineHeight: 1.6 }}>
+          하나는 골라 주셔야 계속할 수 있어요. 없으시면 '없음' 이에요.
+        </p>
+      )}
     </div>
   );
 }
@@ -591,11 +625,22 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
  * 화면이 하나 더 생긴다. 이 화면은 통째로 선택이라 그 말을 글로 적는다.
  */
 
-export function SetupScreen({ 설정, onChange, 알레르기, on알레르기, onNext, onBack, 진행표시 = true }: {
+export function SetupScreen({
+  설정, onChange, 알레르기, 알레르기답했나, on알레르기, on알레르기없음, onNext, onBack, 진행표시 = true,
+}: {
   설정: 도움설정;
   onChange: (한칸: Partial<도움설정>) => void;
   알레르기: AllergenId[];
+  /**
+   * 알레르기 물음에 답했는가('없음' 포함).
+   *
+   * 이 화면에서 **유일하게 답을 받아야 넘어가는** 값이다. 도움 설정 스위치는
+   * 안 켜도 그 사람이 손해 볼 일이 없지만 알레르기는 아니다 — 모르는 채로
+   * 넘어가면 앱이 그 사람의 절대 조건을 모른 채로 메뉴를 고른다.
+   */
+  알레르기답했나: boolean;
   on알레르기: (id: AllergenId) => void;
+  on알레르기없음: () => void;
   onNext: () => void;
   onBack: () => void;
   /**
@@ -657,7 +702,7 @@ export function SetupScreen({ 설정, onChange, 알레르기, on알레르기, on
              * 건너뛰었으면 안 넘긴다. 물음을 그만 듣겠다는 뜻이지 설정을 마쳤다는
              * 뜻이 아니다. 손으로 고르는 목록에 내려놓는다.
              */
-            onDone={(답했나) => { set음성모드(false); if (답했나) onNext(); }}
+            onDone={(답했나) => { set음성모드(false); if (답했나 && 알레르기답했나) onNext(); }}
             /*
              * 마이크가 막혔다. 손으로 고르는 목록으로 물러난다.
              *
@@ -693,12 +738,30 @@ export function SetupScreen({ 설정, onChange, 알레르기, on알레르기, on
           스위치 묶음에 섞으면 켜고 끄는 편의 항목처럼 읽힌다.
         */}
         <div style={{ marginTop: 28, paddingTop: 24, borderTop: `2px solid ${RULE}` }}>
-          <알레르기고르기 고른것={알레르기} on뒤집기={on알레르기} />
+          <알레르기고르기
+            고른것={알레르기}
+            답했나={알레르기답했나}
+            on뒤집기={on알레르기}
+            on없음={on알레르기없음}
+          />
         </div>
       </div>
 
       <div style={{ padding: `0 ${GAP.screenX}px 32px` }}>
-        <PrimaryBtn onClick={onNext}>계속하기</PrimaryBtn>
+        {/*
+          알레르기에 답하기 전에는 못 넘어간다. 이 화면에서 유일하게 잠그는 것이다.
+
+          왜 이것만 — 도움 설정은 안 켜도 그 사람이 손해 볼 일이 없지만, 알레르기는
+          모르고 넘어가면 앱이 그 사람의 절대 조건을 모른 채로 메뉴를 고른다.
+          '없음' 을 넣어 둔 것도 그래서다. 답이 '없다' 인 것과 아직 답이 없는 것을
+          가르지 못하면 이 문을 만들 수가 없다.
+
+          왜 안 눌리는지는 칩 아래에 적어 둔다(알레르기고르기) — 잠긴 단추만 두면
+          앱이 멎은 줄 안다.
+        */}
+        <PrimaryBtn onClick={알레르기답했나 ? onNext : undefined} disabled={!알레르기답했나}>
+          계속하기
+        </PrimaryBtn>
       </div>
     </div>
   );
