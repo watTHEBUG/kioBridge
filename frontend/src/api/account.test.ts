@@ -418,6 +418,32 @@ describe("팀 백엔드 — 보내는 모양", () => {
     expect(a).toEqual({ userId: 7, loginId: "할머니1" });
   });
 
+  /*
+   * 나가는 자리에도 개인정보 문이 있다.
+   *
+   * 화면과 목은 이미 막고 있었는데 팀 API 만 안 막고 있었다. 이 함수를 직접
+   * 부르면 전화번호가 그대로 서버에 저장된다 — 서버가 받은 뒤에 지우는 것은
+   * 지워지지 않는다. 요청 자체가 안 나가는 것을 본다.
+   */
+  it.each([
+    ["전화번호", "01012345678"],
+    ["주민등록번호", "900101-1234567"],
+  ])("가입 아이디에 %s 가 있으면 요청을 안 보낸다", async (_무엇, 아이디) => {
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: 아이디 }, 201)) as unknown as typeof fetch;
+
+    await expect(createTeamAccount().signup(아이디, "1234")).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+      recoverable: true,
+    });
+    expect(부른것()).toHaveLength(0);
+  });
+
+  it("로그인은 그 문을 안 지난다 — 이미 만든 계정이 잠기면 안 된다", async () => {
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: "01012345678" })) as unknown as typeof fetch;
+    await createTeamAccount().login("01012345678", "1234");
+    expect(부른것()).toHaveLength(1);
+  });
+
   it("로그인도 같은 자리로 간다", async () => {
     globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: "할머니1" })) as unknown as typeof fetch;
     await createTeamAccount().login("할머니1", "1234");

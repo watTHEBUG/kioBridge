@@ -138,14 +138,22 @@ export function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
   );
 }
 
-export function BackButton({ onClick }: { onClick: () => void }) {
+/**
+ * 뒤로 가기.
+ *
+ * `disabled` 는 되돌아가면 안 되는 짧은 동안에 쓴다 — 서버에 승인을 보내 놓고
+ * 답을 기다리는 사이 같은 자리다. 그때 나가면 요청은 이미 갔는데 화면만 없어져,
+ * 담긴 것을 사용자가 못 본다.
+ */
+export function BackButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       aria-label="뒤로 가기"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className="flex items-center justify-center"
-      style={{ width: 44, height: 44, marginLeft: -10, backgroundColor: "transparent", cursor: "pointer", border: "none" }}
+      style={{ width: 44, height: 44, marginLeft: -10, backgroundColor: "transparent", cursor: disabled ? "default" : "pointer", border: "none", opacity: disabled ? 0.4 : 1 }}
     >
       <span
         aria-hidden="true"

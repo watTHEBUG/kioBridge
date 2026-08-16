@@ -386,7 +386,7 @@ export function OrderExact({
       <PrimaryBtn onClick={승인중 ? undefined : onApprove} disabled={승인중}>
         {승인중 ? "담는 중이에요…" : "승인하고 담기"}
       </PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
@@ -492,7 +492,7 @@ export function OrderClarification({
       >
         {승인중 ? "담는 중이에요…" : "승인하고 담기"}
       </PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
@@ -573,7 +573,7 @@ export function OrderChanged({
       <PrimaryBtn onClick={checked && !승인중 ? onApprove : undefined} disabled={!checked || 승인중}>
         {승인중 ? "담는 중이에요…" : "변경 내용 확인하고 담기"}
       </PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
@@ -636,7 +636,7 @@ export function OrderLowConfidence({
       <PrimaryBtn onClick={selected && !승인중 ? onApprove : undefined} disabled={!selected || 승인중}>
         {승인중 ? "담는 중이에요…" : "승인하고 담기"}
       </PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
@@ -719,6 +719,18 @@ export function OrderConfirmScreen({
    */
   const approving = useRef(false);
   const [승인중, set승인중] = useState(false);
+  /*
+   * 이 화면을 이미 떠났나.
+   *
+   * 승인 요청은 서버를 한 번 오간다. 그 사이에 화면이 접히면(거절, 뒤로 가기,
+   * 부모가 연결을 끝냄) 늦게 도착한 답이 onApproved 를 불러 **떠난 화면이
+   * 실행 계획 화면을 다시 연다.** 사용자는 그만뒀는데 앱이 주문을 이어 간다.
+   *
+   * 그래서 나가는 길마다 여기 표를 남기고, 돌아온 답은 그 표를 먼저 본다.
+   * 요청 자체는 안 되돌린다 — 서버는 이미 받았고, 되돌리는 것은 거절의 몫이다.
+   */
+  const 떠났나 = useRef(false);
+  useEffect(() => () => { 떠났나.current = true; }, []);
 
   useEffect(() => {
     let alive = true;
@@ -741,6 +753,18 @@ export function OrderConfirmScreen({
    * 사용자가 감당할 일이 아니다.
    */
   const 거절하기 = () => {
+    /*
+     * 승인을 보내 놓고 기다리는 중이면 거절이 안 된다.
+     *
+     * 두 요청이 같은 pairing 을 두고 엇갈린다. 거절이 먼저 닿아 연결이 폐기되면
+     * 승인은 실패하고, 승인이 먼저 닿으면 이미 담긴 것을 거절로 지우는 셈이다.
+     * 어느 쪽이든 화면에 보이는 것과 서버에 남는 것이 갈린다.
+     *
+     * 단추도 함께 잠근다(승인중). 여기 검사는 그 그물을 빠져나온 길 —
+     * 키보드 연타나 스크린리더의 직접 활성화 — 을 위한 것이다.
+     */
+    if (approving.current) return;
+    떠났나.current = true;
     /*
      * 되돌아가는 것으로 끝내지 않고, 이 연결이 끝났다는 것까지 알린다.
      *
@@ -812,18 +836,27 @@ export function OrderConfirmScreen({
     set승인중(true);
     setError(null);
     api.approve({ pairingId, sheetId: sheet.id, mappingResult: mapping.result, ...extra })
-      .then((res) => onApproved(res.planId))
+      .then((res) => { if (!떠났나.current) onApproved(res.planId); })
       .catch((e: KioBridgeError) => {
+        if (떠났나.current) return;
         approving.current = false;
         set승인중(false);
         setError({ message: e.message, ...(e.details && e.details.length > 1 ? { details: e.details } : {}) });
       });
   };
 
+  // 거절하기 와 같은 이유로 승인 중에는 나가지 않는다. 여기는 거절 기록을
+  // 남기지 않는 길이라(그냥 되돌아가기) 표만 남기고 나간다.
+  const 뒤로가기 = () => {
+    if (approving.current) return;
+    떠났나.current = true;
+    onBack();
+  };
+
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
-        <BackButton onClick={onBack} />
+        <BackButton onClick={뒤로가기} disabled={승인중} />
         <div className="flex items-center gap-2" style={{ marginTop: 20, paddingBottom: 16 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: PAPER, backgroundColor: RULE, padding: "4px 11px", borderRadius: RADIUS.pill }}>내 주문표</span>
           <span data-원문 style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>

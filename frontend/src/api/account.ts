@@ -619,10 +619,25 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
      * Account 로 돌려주는 값에는 안 싣는다 — 그 객체는 session.ts 가 적어 두는
      * 값이라, 넣으면 토큰이 sessionStorage 로 따라 나간다(token.ts 주석).
      */
-    signup: async (loginId, password) => 계정만(
-      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
-        "POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
-    ),
+    /*
+     * 보내기 전에 아이디를 한 번 더 본다.
+     *
+     * 화면도 막고 목도 막는데 여기만 안 막고 있었다. 이 함수를 직접 부르면
+     * 전화번호가 그대로 서버에 저장된다 — 프론트가 실제 개인정보를 담아
+     * 보내지 않는다는 것이 이 앱의 약속이라, 나가는 자리에도 문을 둔다.
+     *
+     * 가입에만 건다. 로그인에 걸면 이미 만들어 둔 계정에 못 들어간다
+     * (아이디검사 주석).
+     */
+    signup: async (loginId, password) => {
+      const 아이디 = loginId.trim();
+      const 아이디문제 = 아이디검사(아이디);
+      if (아이디문제) throw new KioBridgeError("INVALID_REQUEST", 아이디문제, true);
+      return 계정만(
+        await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
+          "POST", "/api/v1/auth/signup", { loginId: 아이디, password }),
+      );
+    },
 
     login: async (loginId, password) => 계정만(
       await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
