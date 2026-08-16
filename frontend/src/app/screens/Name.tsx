@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pictogram } from "@/design/Pictogram";
-import { FONT, GAP, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
+import { BORDER, CANVAS, FONT, GAP, RADIUS, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
 import { BackButton, CenterHeadline, PrimaryBtn, ProgressBar } from "@/app/ui";
 
 export function NameScreen({ onNext, onBack }: { onNext: (name: string) => void; onBack: () => void }) {
@@ -48,8 +48,18 @@ export function NameScreen({ onNext, onBack }: { onNext: (name: string) => void;
           style={{
             width: "100%", marginTop: 36, textAlign: "center",
             fontSize: 22, fontWeight: 600, color: TEXT_1, fontFamily: FONT, letterSpacing: "-0.02em",
-            border: "none", outline: "none", backgroundColor: "transparent",
-            padding: "12px 0", boxSizing: "border-box",
+            /*
+              경계를 준다. 예전에는 테두리도 바탕도 없어서 어디가 적는 자리인지
+              placeholder 글자로만 알 수 있었고, 한 글자만 적으면 그마저 사라졌다.
+              심사 기준이 컨트롤 경계 대비 3:1 을 보는데, 경계가 없으면 잴 대상이
+              없다.
+
+              outline 도 지웠었다. 그러면 키보드로 이 칸에 왔을 때 어디에 와 있는지
+              표시가 사라진다 — 전역 :focus-visible 규칙에 맡긴다(FOCUS_STYLES).
+            */
+            border: `1.5px solid ${BORDER}`, borderRadius: RADIUS.input,
+            backgroundColor: CANVAS,
+            padding: "12px 14px", boxSizing: "border-box",
           }}
         />
       </div>

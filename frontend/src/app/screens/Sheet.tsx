@@ -196,7 +196,7 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
    * 제대로 받는다.
    */
   const [상태, set상태] = useState<"쉬는중" | "듣는중" | "처리중">("쉬는중");
-  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | "첫질문이에요" | null>(null);
+  const [못들음, set못들음] = useState<못들은이유 | "못골랐어요" | "첫질문이에요" | "비우고넘어감" | null>(null);
   /*
    * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되물을 값들(팀 #133).
    *
@@ -317,8 +317,19 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
     set되물을것(null);
   }, [place]);
 
-  if (!소리로주고받나() || 축들.length === 0) return null;
-  const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
+  /*
+   * 지금 묻고 있는 축. 축이 하나도 없으면 undefined 다.
+   *
+   * 예전에는 바로 위에서 `축들.length === 0` 이면 null 을 반환했다. 그런데 그
+   * 자리가 **훅 두 개 사이**였다 — 아래 예약 effect 를 건너뛰게 된다. 소리로
+   * 주고받기 스위치는 이 카드가 떠 있는 동안에도 꺼질 수 있고(App 이 접근성
+   * 설정을 구독한다), 그 순간 렌더마다 훅 개수가 달라져 React 가
+   * "Rendered fewer hooks than expected" 로 멈춘다.
+   *
+   * 그래서 반환을 그리기 직전으로 내리고, 여기서는 없을 수도 있는 값으로 둔다.
+   * 이 값을 쓰는 effect 는 각자 없으면 물러난다.
+   */
+  const 지금축 = 축들.length > 0 ? 축들[Math.min(칸, 축들.length - 1)] : undefined;
   const 마지막인가 = 칸 >= 축들.length - 1;
 
   const 다음으로 = () => {
@@ -380,6 +391,9 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
 
   // 고른 값을 넣고 다음 칸으로. 여러 개 고르는 칸은 이어 붙이고 그 자리에 머문다.
   const 넣기 = (고른것: string, 말로: boolean) => {
+    // 축이 없으면 넣을 곳도 없다. 화면은 이미 접혀 있고, 늦게 도착한 답이
+    // 여기로 올 수 있다(서버를 한 번 오가는 사이에 스위치가 꺼진 경우).
+    if (!지금축) return;
     // 값이 정해졌으면 되물을 것도 없다. 여러 개 고르는 칸은 다음으로() 를
     // 안 지나가므로 여기서도 지운다.
     set되물을것(null);
@@ -486,6 +500,7 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
      * 말이 끝나면 알아서 보내고 다음 질문으로 이어 간다 — 칸마다 두 번씩
      * 단추를 찾아 누르지 않아도 된다.
      */
+    if (!지금축) return;
     이어서.current = true;
     // 단추를 누른 바로 이 자리에서 듣기 시작한다 — 브라우저는 사람이 누른 자리가
     // 아니면 마이크를 안 열어 준다.
@@ -557,7 +572,26 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
        */
       const 답 = 예아니오(r.들은말, 언어 === "en-US");
       if (답 === true) { 넣기(이축.choices[0], true); return; }
-      if (답 === false) { 이축.choices.length === 2 ? 넣기(이축.choices[1], true) : 다음으로(); return; }
+      if (답 === false) {
+        if (이축.choices.length === 2) { 넣기(이축.choices[1], true); return; }
+        /*
+         * 보기가 셋 이상이면 '아니오' 로는 아무것도 안 고른다 — 아니라는 말만으로는
+         * 무엇을 고를지 알 수 없다. 값을 안 넣는 것은 그대로 두고, **넘어간다는
+         * 사실만 알린다.**
+         *
+         * 예전에는 말없이 다음 칸으로 갔다. 다음으로() 가 안내까지 지워서, 화면을
+         * 못 보는 분은 자기 답이 반영됐는지도 왜 다음 질문이 나왔는지도 몰랐다.
+         * 이 함수의 다른 실패 경로는 모두 이유를 말해 준다.
+         *
+         * 앞 질문으로 되돌아왔을 때는 앞서 고른 값이 남아 있다(앞칸으로 는 답을
+         * 지우지 않는다). 그대로 넘어가면 화면은 "비워 두고 넘어간다" 고 하는데
+         * 주문표에는 방금 아니라고 한 값이 그대로 있다. 말한 대로 비운다.
+         */
+        if ((값[이축.label] ?? []).length > 0) on고르기(이축.label, [], true);
+        다음으로();
+        set못들음("비우고넘어감");
+        return;
+      }
 
       /*
        * 셋째 길 — 보기에 없는 말이면 서버에 물어본다(팀 #133).
@@ -644,6 +678,8 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
     다음으로();
   };
 
+  // 그릴 것이 없으면 여기서 접는다. 훅은 위에서 모두 지났다(지금축 주석).
+  if (!소리로주고받나() || !지금축) return null;
   const 고른것 = 값[지금축.label] ?? [];
   return (
     /*
@@ -731,7 +767,9 @@ export function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: 
               : 못들음 === "첫질문이에요"
                 // 아무 일도 안 일어나면 못 들은 줄 안다. 들었고 갈 곳이 없다고 말해 준다.
                 ? "여기가 첫 질문이라 더 앞으로는 갈 수 없어요."
-                : 못들음 === "못골랐어요"
+                : 못들음 === "비우고넘어감"
+                  ? "그 칸은 비워 두고 다음으로 넘어갈게요. 나중에 위에서 고르셔도 돼요."
+                  : 못들음 === "못골랐어요"
                   ? "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요."
                   : "잘 안 들렸어요. 다시 말씀해 주세요."}
           </p>
@@ -878,15 +916,19 @@ export function VoiceSheetScreen({ 언어, onNext, onBack, 주문할수있나 = 
   }, [selections, menuName]);
   return (
     <div className="flex flex-col h-full kb-paper">
-      <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
-        <BackButton onClick={onBack} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>말로 만드는 주문표</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
-          한 칸씩 여쭤볼게요. 말씀하셔도 되고, 보기를 눌러 고르셔도 돼요
-        </p>
-      </div>
-
+      {/*
+        머리를 스크롤 영역 안에 둔다 — 이유는 Saved.tsx 의 같은 자리 주석에 있다.
+        큰 글씨에서 제목이 여러 줄이 되면 머리와 아래 단추만으로 틀보다 커져서,
+        가운데가 0 까지 줄어도 저장·시작 단추가 화면 밖으로 밀려 잘렸다.
+      */}
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        <div style={{ paddingTop: 12 }}>
+          <BackButton onClick={onBack} />
+          <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>말로 만드는 주문표</h1>
+          <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+            한 칸씩 여쭤볼게요. 말씀하셔도 되고, 보기를 눌러 고르셔도 돼요
+          </p>
+        </div>
         {소리로주고받나() ? (
           <한칸씩말하기
             place={place}
@@ -894,7 +936,17 @@ export function VoiceSheetScreen({ 언어, onNext, onBack, 주문할수있나 = 
             값={selections}
             on고르기={(축, 고른것, 말로) => {
               // 고른 값만 넣는다. 들은 말은 저장하지 않는다(한칸씩말하기 주석).
-              setSelections((prev) => ({ ...prev, [축]: 고른것 }));
+              //
+              // 빈 것이 오면 넣지 않고 지운다 — 그 축을 비우겠다는 뜻이다(되돌아와
+              // '아니오' 라고 한 경우). 빈 배열을 남겨 두면 고르지 않은 축이
+              // 주문표에 키로 남는다.
+              setSelections((prev) => {
+                if (고른것.length === 0) {
+                  const { [축]: _버릴것, ...나머지 } = prev;
+                  return 나머지;
+                }
+                return { ...prev, [축]: 고른것 };
+              });
               // 말로 고른 것만 음성 입력으로 적는다. 이 화면에서도 보기 칩을 눌러
               // 고를 수 있는데, 그것까지 적으면 손으로 고른 사람이 계약에
               // '음성으로 넣는 사람'(preferredInput: VOICE) 으로 나간다(#106 리뷰).
@@ -1174,13 +1226,20 @@ export function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산,
          * 가입 흐름은 가입(1) → 호칭(2) 둘로 끝난다.
          */}
         <BackButton onClick={onBack} />
-        <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>{고칠것 ? "주문표 고치기" : "메뉴 주문표"}</h1>
-        <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
-          {고칠것 ? "고치고 저장하면 이 주문표가 바뀌어요" : "자주 주문하는 메뉴를 저장해두세요"}
-        </p>
       </div>
 
+      {/*
+        머리를 스크롤 영역 안에 둔다 — 이유는 Saved.tsx 의 같은 자리 주석에 있다.
+        큰 글씨에서 제목이 여러 줄이 되면 머리와 아래 단추만으로 틀보다 커져서,
+        가운데가 0 까지 줄어도 저장·시작 단추가 화면 밖으로 밀려 잘렸다.
+      */}
       <div className="flex-1 overflow-y-auto pb-4" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        <div>
+          <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 28 }}>{고칠것 ? "주문표 고치기" : "메뉴 주문표"}</h1>
+          <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 8, marginBottom: 24 }}>
+            {고칠것 ? "고치고 저장하면 이 주문표가 바뀌어요" : "자주 주문하는 메뉴를 저장해두세요"}
+          </p>
+        </div>
         {/*
           음성 카드는 뺐다. 말로 만드는 길은 별도 화면(VoiceSheetScreen)으로 갈랐다 —
           터치로 만들 사람에게 음성 카드는 소음이었다. 들은 말을 저장하지 않는 규칙과
@@ -1293,41 +1352,39 @@ export function OrderSheetScreen({ onNext, onBack, 로그인함 = false, 예산,
             </p>
           )}
         </div>
+
+        {/*
+          왜 아직 저장할 수 없는지 알려 주는 줄들. **바닥이 아니라 여기 둔다.**
+
+          바닥에 두었더니 큰 글씨에서 이 문장들이 여러 줄로 늘어나 바닥만 864px 이
+          됐다 — 틀이 715px 인데. 그러면 저장·시작 단추가 화면 밖으로 밀려서, 다
+          채워 놓고도 저장할 방법이 없었다.
+
+          바닥에는 누를 것만 남긴다. 이 줄들은 읽는 것이라 본문과 함께 굴러가도
+          된다. 무엇을 더 골라야 하는지는 바로 위 칸들을 보면서 읽는 편이 낫다.
+        */}
+        <div style={{ marginTop: 20 }}>
+          {로그인함 && !place && (
+            <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+              <span style={{ fontWeight: 600, color: TEXT_1 }}>장소</span>를 정해 두시면 다음에 로그인해도 불러올 수 있어요
+            </p>
+          )}
+          {빠진축.length > 0 && !순살제안대상 && (
+            <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+              {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
+                빠진것: 빠진축.map(t).join(", "),
+              })}
+            </p>
+          )}
+          {!주문할수있나 && !(빠진축.length > 0 && !순살제안대상) && (
+            <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
+              QR을 찍으면 저장과 함께 바로 시작할 수 있어요
+            </p>
+          )}
+        </div>
       </div>
 
       <StickyFooter>
-        {/*
-          서버는 장소가 빈 주문표를 받지 않는다(place 가 @NotBlank). 올리고 나서 400 을
-          받아 "못 올렸어요" 를 띄우는 대신, 저장하기 전에 무엇을 하면 되는지 말한다.
-          막지는 않는다 — 장소는 선택 항목이고, 이 기기에는 그대로 저장된다.
-        */}
-        {로그인함 && !place && (
-          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            <span style={{ fontWeight: 600, color: TEXT_1 }}>장소</span>를 정해 두시면 다음에 로그인해도 불러올 수 있어요
-          </p>
-        )}
-        {/*
-          모든 축을 골라야 저장이 열린다(제품 결정 — catalog.tsx 의 못채운축).
-          예전에는 알려만 주고 막지 않았는데, 반쯤 채운 주문표를 저장해 두면
-          주문하는 순간에야 빈 칸을 만났다. '늘 하던 것' 을 저장하는 표라면
-          저장 시점에 다 채워져 있어야 한다. 무엇이 비었는지는 이름을 대고 말한다.
-        */}
-        {빠진축.length > 0 && !순살제안대상 && (
-          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            {tf("아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요", {
-              빠진것: 빠진축.map(t).join(", "),
-            })}
-          </p>
-        )}
-        {/*
-          붙은 키오스크가 없으면 '시작하기' 는 못 누른다. 왜 못 누르는지 말해 준다 —
-          회색이 된 단추만 두면 사용자는 자기가 무엇을 덜 채웠는지 찾아 헤맨다.
-        */}
-        {!주문할수있나 && !(빠진축.length > 0 && !순살제안대상) && (
-          <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2, marginBottom: 2 }}>
-            QR을 찍으면 저장과 함께 바로 시작할 수 있어요
-          </p>
-        )}
         {/*
           저장과 시작을 갈랐다.
           ─────────────────────────────────────────────────────────────────────

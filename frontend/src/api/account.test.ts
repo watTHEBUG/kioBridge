@@ -50,6 +50,36 @@ describe("아이디검사 — 서버가 막을 것을 먼저 막는다", () => {
   });
 });
 
+describe("아이디에도 개인정보 문을 건다", () => {
+  /*
+   * 이 칸은 자유 입력이고 서버에 그대로 저장된다. 가입 화면이 "실제 이름이나
+   * 전화번호는 적지 마세요" 라고 적어 두었지만 적어 두는 것은 막는 것이 아니다.
+   * 메모·메뉴 이름·말로 들어오는 길은 이미 같은 문을 지나는데 이 칸만 안 지났다 —
+   * 막아 둔 칸을 피해 여기 적으면 그대로 나갔다.
+   */
+  it("전화번호·주민번호·주소 모양은 아이디로 못 쓴다", () => {
+    for (const 값 of ["010-1234-5678", "901010-1234567", "행복로 12"]) {
+      expect(아이디검사(값), 값).not.toBeNull();
+    }
+  });
+
+  it("보통 아이디는 그대로 통과한다", () => {
+    // 문을 너무 좁게 걸면 멀쩡한 아이디가 막힌다. 그쪽도 같이 지킨다.
+    for (const 값 of ["yena07", "kio_bridge", "할머니폰", "user2026"]) {
+      expect(아이디검사(값), 값).toBeNull();
+    }
+  });
+
+  it("이름은 못 잡는다 — 잡은 척하지 않는다", () => {
+    /*
+     * 전화번호·주민번호·주소는 모양이 있어 걸리지만 사람 이름은 모양이 없다.
+     * 이 시험은 못 잡는다는 사실을 적어 두는 자리다. 언젠가 이름까지 잡게
+     * 되면 이 시험이 깨지고, 그때 문구와 함께 고치면 된다.
+     */
+    expect(아이디검사("김순자")).toBeNull();
+  });
+});
+
 describe("비밀번호검사 — 길이는 글자로, 상한은 바이트로", () => {
   it(`${PASSWORD_MIN}자 미만은 막는다`, () => {
     expect(비밀번호검사("abc")).not.toBeNull();
@@ -386,6 +416,32 @@ describe("팀 백엔드 — 보내는 모양", () => {
     // "  할머니1  " 로 가입한 사람이 "할머니1" 로 로그인하는 게 우연처럼 보인다.
     expect(JSON.parse(String(init.body))).toEqual({ loginId: "할머니1", password: "1234" });
     expect(a).toEqual({ userId: 7, loginId: "할머니1" });
+  });
+
+  /*
+   * 나가는 자리에도 개인정보 문이 있다.
+   *
+   * 화면과 목은 이미 막고 있었는데 팀 API 만 안 막고 있었다. 이 함수를 직접
+   * 부르면 전화번호가 그대로 서버에 저장된다 — 서버가 받은 뒤에 지우는 것은
+   * 지워지지 않는다. 요청 자체가 안 나가는 것을 본다.
+   */
+  it.each([
+    ["전화번호", "01012345678"],
+    ["주민등록번호", "900101-1234567"],
+  ])("가입 아이디에 %s 가 있으면 요청을 안 보낸다", async (_무엇, 아이디) => {
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: 아이디 }, 201)) as unknown as typeof fetch;
+
+    await expect(createTeamAccount().signup(아이디, "1234")).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+      recoverable: true,
+    });
+    expect(부른것()).toHaveLength(0);
+  });
+
+  it("로그인은 그 문을 안 지난다 — 이미 만든 계정이 잠기면 안 된다", async () => {
+    globalThis.fetch = vi.fn(async () => 응답({ userId: 7, loginId: "01012345678" })) as unknown as typeof fetch;
+    await createTeamAccount().login("01012345678", "1234");
+    expect(부른것()).toHaveLength(1);
   });
 
   it("로그인도 같은 자리로 간다", async () => {

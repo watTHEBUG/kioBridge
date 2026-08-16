@@ -39,11 +39,12 @@ export function 연동표시({ onOpenLog, onOpenSide }: { onOpenLog: () => void;
     >
       <button
         type="button"
+        aria-expanded={펼침}
         onClick={() => 펼치기((v) => !v)}
         style={{
           display: "flex", alignItems: "center", gap: 8, marginBottom: 펼침 ? 8 : 0,
           background: "none", border: "none", color: "inherit", font: "inherit",
-          padding: 0, cursor: "pointer", width: "100%", textAlign: "left",
+          padding: 0, minHeight: 44, cursor: "pointer", width: "100%", textAlign: "left",
         }}
       >
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#37d67a", flexShrink: 0 }} />
@@ -180,13 +181,16 @@ export function ScenarioPanel() {
                   aria-checked={active}
                   onClick={() => apply({ [key]: value } as Partial<Scenario>)}
                   style={{
+                    display: "inline-flex", alignItems: "center", minHeight: 44,
                     padding: "7px 12px", borderRadius: 100, cursor: "pointer",
-                    fontSize: 12, fontWeight: 600, fontFamily: FONT, border: "none",
+                    fontSize: 12, fontWeight: 600, fontFamily: FONT,
                     backgroundColor: active ? "white" : "rgba(255,255,255,0.10)",
                     color: active ? TEXT_1 : "rgba(255,255,255,0.7)",
+                    // 색만으로 고른 것을 알리지 않는다 — 안 고른 것에도 테두리를 둔다.
+                    border: active ? "none" : "1px solid rgba(255,255,255,0.45)",
                   }}
                 >
-                  {label}
+                  {label}{active ? " (선택됨)" : ""}
                 </button>
               );
             })}

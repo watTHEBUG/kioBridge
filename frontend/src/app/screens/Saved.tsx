@@ -320,17 +320,29 @@ export function SavedSheetsScreen({
 
   return (
     <div className="flex flex-col h-full kb-paper">
-      <div className="shrink-0" style={{ padding: `20px ${GAP.screenX}px 20px` }}>
-        <AppLogo size={26} />
-        <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 20, display: "block" }}>saved orders</span>
-        <div className="flex items-end justify-between" style={{ gap: 12 }}>
-          <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 2, flex: 1 }}>어떤 주문표로<br />주문할까요?</h1>
-          <span aria-hidden="true" style={{ flexShrink: 0, marginBottom: 4 }}><ReceiptSpot /></span>
-        </div>
-        <Rule style={{ marginTop: 18 }} />
-      </div>
+      {/*
+        머리를 **스크롤 영역 안에** 둔다.
 
+        예전에는 shrink-0 으로 위에 고정했다. 보통 글씨에서는 잘 맞았는데,
+        큰 글씨를 켜면 제목이 네 줄이 되어 머리만 400px 가까이 된다. 그러면
+        머리와 아래 단추만으로 틀보다 커지고, 가운데가 0 까지 줄어도 모자라
+        **아래 단추가 화면 밖으로 밀려 잘렸다** — '새 주문표 추가' 가 반쯤
+        보이고 그 아래는 아예 안 보였다.
+
+        큰 글씨는 글씨를 키워 달라는 뜻이지 단추를 감춰 달라는 뜻이 아니다.
+        머리를 같이 굴리면 제목은 위로 밀려 올라가고 단추는 늘 제자리에 남는다.
+      */}
       <div className="flex-1 overflow-y-auto pb-2" style={{ minHeight: 0, paddingLeft: GAP.screenX, paddingRight: GAP.screenX }}>
+        <div style={{ paddingTop: 20, paddingBottom: 20 }}>
+          <AppLogo size={26} />
+          <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 20, display: "block" }}>saved orders</span>
+          <div className="flex items-end justify-between" style={{ gap: 12 }}>
+            <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: 2, flex: 1 }}>어떤 주문표로<br />주문할까요?</h1>
+            <span aria-hidden="true" style={{ flexShrink: 0, marginBottom: 4 }}><ReceiptSpot /></span>
+          </div>
+          <Rule style={{ marginTop: 18 }} />
+        </div>
+
         {sheets.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Pictogram name="squaresFour" size={56} color={TEXT_3} />

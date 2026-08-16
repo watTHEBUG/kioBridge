@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BORDER, CANVAS, FAIL, FONT, GAP, KICKER, PAPER, RADIUS, RULE, SURFACE, TEXT_1, TEXT_2, TEXT_CHIP, TYPE } from "@/design/tokens";
+import { BORDER, FAIL, FONT, GAP, KICKER, PAPER, RADIUS, RULE, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
 import { type PreferredInputHint, type 도움설정, 언어목록, type 언어코드 } from "@/api/a11y";
 import { 그만읽기, 다읽을때까지, 소리를낼수있나 } from "@/api/speech";
 import { 들어보기, 들을수있나, type 못들은이유 } from "@/api/listen";
@@ -7,7 +7,7 @@ import { 예아니오 } from "@/api/voice";
 import { 알레르기목록 } from "@/api/allergy";
 import { AllergenId } from "@/api/canonical";
 import { t, tf } from "@/i18n/t";
-import { ToggleRow, PrivacyRows, BackButton, CenterHeadline, Chip, GlassesSpot, LockSpot, OutlineBtn, PrimaryBtn, ProgressBar, Rule, StickyFooter } from "@/app/ui";
+import { BackButton, CenterHeadline, Chip, GlassesSpot, LockSpot, OutlineBtn, PrimaryBtn, PrivacyRows, ProgressBar, RadioChip, Rule, StickyFooter, ToggleRow } from "@/app/ui";
 import { 소리로주고받나 } from "@/app/공용";
 
 /** 도움설정 에서 켜고 끄는(boolean) 칸의 이름만 고른다. */
@@ -28,9 +28,14 @@ export interface 도움항목 {
  * 접근성 화면(AccessibilityScreen). 각자 목록을 갖고 있으면 한쪽만 고치는 날이 오고,
  * 그러면 같은 스위치가 두 자리에서 다른 말을 하게 된다.
  *
- * 킷 계약이 요구하는 일곱 가지를 다 묻는다. 예전에는 '큰 글씨' 하나만 묻고 나머지
- * 여섯을 false 로 박아 서버에 보냈다 — 백엔드는 받을 준비가 돼 있었는데 화면이 안
- * 물어서 늘 "아무 도움도 필요 없음" 으로 나가고 있었다.
+ * 계약의 일곱 칸은 그대로 나가지만 **화면이 묻는 것은 다섯**이다. 그림 안내와
+ * 소리 대신 화면은 이번 키오스크가 둘 다 안 하고, 쉬운 단계는 하던 일(이유 화면
+ * 건너뛰기)이 없어졌다 — 켜도 아무 일이 없는 스위치를 화면에 두지 않는다.
+ * 안 묻는 칸은 false 로 나간다(session.ts 의 이제안묻는칸).
+ *
+ * 예전에는 '큰 글씨' 하나만 묻고 나머지 여섯을 false 로 박아 보냈다 — 백엔드는
+ * 받을 준비가 돼 있었는데 화면이 안 물어서 늘 "아무 도움도 필요 없음" 으로
+ * 나가고 있었다. 지금 안 묻는 셋은 그것과 다르다: 물어도 달라지는 것이 없다.
  */
 
 /** 켜면 이 앱이 실제로 무언가를 한다. 무엇을 하는지 sub 에 그대로 적는다. */
@@ -135,23 +140,14 @@ export function 언어고르기({ 고른것, on바꾸기 }: { 고른것: 언어�
       </span>
       <div className="flex flex-wrap" style={{ gap: 6 }} role="radiogroup" aria-label="안내 언어">
         {언어목록.map(({ code, label }) => (
-          <button
+          <RadioChip
             key={code}
-            type="button"
-            role="radio"
-            aria-checked={고른것 === code}
+            name="안내 언어"
+            label={label}
             lang={code}
-            onClick={() => on바꾸기(code)}
-            style={{
-              minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
-              fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
-              backgroundColor: 고른것 === code ? RULE : CANVAS,
-              color: 고른것 === code ? PAPER : TEXT_CHIP,
-              border: "none", cursor: "pointer", transition: "all 0.15s",
-            }}
-          >
-            {label}
-          </button>
+            골랐나={고른것 === code}
+            onPick={() => on바꾸기(code)}
+          />
         ))}
       </div>
     </div>
@@ -189,23 +185,14 @@ export function 입력도움고르기({ 고른것, on바꾸기 }: {
       </span>
       <div className="flex flex-wrap" style={{ gap: 6 }} role="radiogroup" aria-label="키오스크에서 어떻게 조작하시나요">
         {보기.map(({ value, label }) => (
-          <button
+          <RadioChip
             key={value}
-            type="button"
-            role="radio"
-            aria-checked={고른것 === value}
-            onClick={() => on바꾸기(value)}
-            style={{
-              minHeight: 44, padding: "10px 18px", borderRadius: RADIUS.pill,
-              fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
-              backgroundColor: 고른것 === value ? RULE : CANVAS,
-              color: 고른것 === value ? PAPER : TEXT_CHIP,
-              border: "none", cursor: "pointer", transition: "all 0.15s",
-            }}
-          >
-            {label}
-            {고른것 === value && <span style={{ marginLeft: 6 }}>(선택됨)</span>}
-          </button>
+            name="키오스크 조작 방식"
+            // 색만으로 알리지 않는다 — 고른 것에는 글자로도 표시한다.
+            label={고른것 === value ? `${label} (선택됨)` : label}
+            골랐나={고른것 === value}
+            onPick={() => on바꾸기(value)}
+          />
         ))}
       </div>
     </div>
@@ -294,6 +281,18 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
    * 번호는 부를 때마다 달라지므로 언제나 새 효과가 돈다.
    */
   const [예약번호, set예약번호] = useState(0);
+  /*
+   * 이 사람이 실제로 답한 칸들.
+   *
+   * 도움설정 의 boolean 은 초기값이 false 다. 그래서 아직 묻지도 않은 칸에서
+   * "끄기" 가 눌린 것처럼 그려졌고, 스크린리더는 "끄기, 선택됨" 이라고 읽었다.
+   * 답한 적 없는 값을 답한 것으로 보여 주는 것은 이 앱에서 가장 나쁜 결함이다 —
+   * 대신 눌러 주는 앱이라 더 그렇다.
+   *
+   * 값(설정)과 따로 둔다. 설정은 '지금 무엇으로 되어 있나' 이고 이것은 '이 사람이
+   * 이 자리에서 골랐나' 다. 둘은 다른 질문이다.
+   */
+  const [답한칸, set답한칸] = useState<Set<string>>(() => new Set());
   // 예약의 셈. 이유는 한칸씩말하기 의 같은 ref 주석에 있다.
   const 예약세대 = useRef(0);
 
@@ -334,8 +333,19 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
     // 들어올 때 한 번만. 칸마다 다시 여는 일은 이어서예약 이 한다.
   }, []);
 
-  if (!소리로주고받나() || 축들.length === 0) return null;
-  const 지금축 = 축들[Math.min(칸, 축들.length - 1)];
+  /*
+   * 지금 묻고 있는 축. 축이 하나도 없으면 undefined 다.
+   *
+   * 예전에는 바로 위에서 `축들.length === 0` 이면 null 을 반환했다. 그런데 그
+   * 자리가 **훅 두 개 사이**였다 — 아래 예약 effect 를 건너뛰게 된다. 소리로
+   * 주고받기 스위치는 이 카드가 떠 있는 동안에도 꺼질 수 있고(App 이 접근성
+   * 설정을 구독한다), 그 순간 렌더마다 훅 개수가 달라져 React 가
+   * "Rendered fewer hooks than expected" 로 멈춘다.
+   *
+   * 그래서 반환을 그리기 직전으로 내리고, 여기서는 없을 수도 있는 값으로 둔다.
+   * 이 값을 쓰는 effect 는 각자 없으면 물러난다.
+   */
+  const 지금축 = 축들.length > 0 ? 축들[Math.min(칸, 축들.length - 1)] : undefined;
   const 마지막인가 = 칸 >= 축들.length - 1;
 
   const 이어서예약 = () => {
@@ -369,7 +379,11 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
   };
 
   const 넣기 = (켬: boolean) => {
+    // 축이 없으면 넣을 곳도 없다. 화면은 이미 접혀 있고, 늦게 도착한 답이
+    // 여기로 올 수 있다(듣던 것이 끝나는 사이에 스위치가 꺼진 경우).
+    if (!지금축) return;
     onChange({ [지금축.key]: 켬 });
+    set답한칸((앞) => new Set(앞).add(지금축.key));
     다음으로(true);
   };
 
@@ -462,6 +476,8 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
     다음으로(false);
   };
 
+  // 그릴 것이 없으면 여기서 접는다. 훅은 위에서 모두 지났다(지금축 주석).
+  if (!소리로주고받나() || !지금축) return null;
   return (
     /*
       소리로 읽을 때는 이 카드 안만 읽는다(speech.ts 의 화면글).
@@ -494,22 +510,30 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
         그대로 보인다.
       */}
       <div data-소리조용 className="flex flex-wrap" style={{ gap: 8, marginTop: 14 }}>
-        {([{ label: "켜기", 값: true }, { label: "끄기", 값: false }] as const).map(({ label, 값 }) => (
+        {([{ label: "켜기", 값: true }, { label: "끄기", 값: false }] as const).map(({ label, 값 }) => {
+          /*
+           * 답한 칸에서만 고른 것으로 그린다. 안 그러면 초기값 false 때문에
+           * 묻지도 않은 질문에서 "끄기" 가 눌린 것처럼 보인다(답한칸 주석).
+           */
+          const 골랐나 = 답한칸.has(지금축.key) && 설정[지금축.key] === 값;
+          return (
           <button
             key={label}
             type="button"
-            aria-pressed={설정[지금축.key] === 값}
+            aria-pressed={골랐나}
             onClick={() => 손으로답하기(값)}
             style={{
-              minHeight: 44, padding: "10px 14px", borderRadius: 999, fontFamily: FONT, fontSize: 15,
-              cursor: "pointer", border: `1px solid ${설정[지금축.key] === 값 ? TEXT_1 : BORDER}`,
-              backgroundColor: 설정[지금축.key] === 값 ? TEXT_1 : "transparent",
-              color: 설정[지금축.key] === 값 ? PAPER : TEXT_1,
+              minHeight: 44, minWidth: 44, padding: "10px 14px", borderRadius: 999,
+              fontFamily: FONT, fontSize: 15, cursor: "pointer",
+              border: `1px solid ${골랐나 ? TEXT_1 : BORDER}`,
+              backgroundColor: 골랐나 ? TEXT_1 : "transparent",
+              color: 골랐나 ? PAPER : TEXT_1,
             }}
           >
             {label}
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* data-소리조용 — 한칸씩말하기 의 같은 자리와 같은 이유(위 주석 참고). */}

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Check } from "lucide-react";
 import { Pictogram } from "@/design/Pictogram";
 import { BORDER, BTN_H, CANVAS, FAIL, FONT, GAP, KICKER, ON_DARK, PAPER, RADIUS, RULE, SERIF, SURFACE, TEXT_1, TEXT_2, TEXT_BTN, TEXT_CHIP, TYPE, WARN, WARN_BG, TOGGLE_OFF } from "@/design/tokens";
@@ -138,14 +138,22 @@ export function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
   );
 }
 
-export function BackButton({ onClick }: { onClick: () => void }) {
+/**
+ * 뒤로 가기.
+ *
+ * `disabled` 는 되돌아가면 안 되는 짧은 동안에 쓴다 — 서버에 승인을 보내 놓고
+ * 답을 기다리는 사이 같은 자리다. 그때 나가면 요청은 이미 갔는데 화면만 없어져,
+ * 담긴 것을 사용자가 못 본다.
+ */
+export function BackButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       aria-label="뒤로 가기"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className="flex items-center justify-center"
-      style={{ width: 44, height: 44, marginLeft: -10, backgroundColor: "transparent", cursor: "pointer", border: "none" }}
+      style={{ width: 44, height: 44, marginLeft: -10, backgroundColor: "transparent", cursor: disabled ? "default" : "pointer", border: "none", opacity: disabled ? 0.4 : 1 }}
     >
       <span
         aria-hidden="true"
@@ -234,7 +242,21 @@ export function StickyFooter({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="shrink-0 flex flex-col gap-2"
-      style={{ backgroundColor: PAPER, padding: `12px ${GAP.screenX}px 24px` }}
+      style={{
+        backgroundColor: PAPER, padding: `12px ${GAP.screenX}px 24px`,
+        /*
+         * 바닥은 **틀보다 커질 수 없다.**
+         *
+         * shrink-0 이라 안 줄어드는데, 큰 글씨를 켜면 여기 든 안내문이 여러 줄로
+         * 늘어난다. 주문표 화면에서는 바닥만 864px 이 되어 틀(715)을 넘었고,
+         * 가운데가 19px 까지 눌린 채 저장·시작 단추가 화면 밖으로 밀려 나갔다 —
+         * 다 채워 놓고 저장할 방법이 없었다.
+         *
+         * 큰 글씨는 글씨를 키워 달라는 뜻이지 단추를 감춰 달라는 뜻이 아니다.
+         * 넘치면 이 안에서 굴러가게 해서, 안내문이 길어져도 단추에 늘 닿는다.
+         */
+        maxHeight: "70%", overflowY: "auto",
+      }}
     >
       {children}
     </div>
@@ -301,12 +323,35 @@ export function ConfirmSheet({ title, body, confirmLabel, onConfirm, onCancel }:
   onConfirm: () => void; onCancel: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const 이전포커스 = useRef<HTMLElement | null>(null);
+  /*
+   * 포커스를 열 때 저장했다가 닫을 때 되돌리는 일만 한다 — 마운트·언마운트
+   * 한 번씩이라 의존성 배열을 비워 둔다.
+   *
+   * 전에는 여기에 onCancel 을 의존성으로 넣고 Escape 도 같이 처리했다. 둘 다
+   * 문제였다.
+   *
+   *   ① Escape 가 두 번 처리됐다. 아래 포커스가두기 가 이미 onKeyDown 에서
+   *      처리하는데 여기서 window 에도 달아서, 포커스가 시트 안에 있으면 한 번
+   *      누른 Escape 로 onCancel 이 두 번 불렸다.
+   *
+   *   ② 포커스가 튀었다. onCancel 은 부모가 매 렌더마다 새로 만드는 인라인
+   *      함수라, 시트가 열려 있는 동안 부모가 리렌더되면 이 effect 가 정리됐다가
+   *      다시 걸렸고 그때마다 ref.current?.focus() 가 다시 돌았다.
+   *
+   * 닫은 뒤 포커스를 되돌리는 것도 빠져 있었다 — 시트가 사라지면 포커스가
+   * <body> 로 떨어져서, 키보드로 쓰는 사람은 처음부터 Tab 을 다시 눌러야 했다.
+   *
+   * 순살제안시트(screens/Sheet.tsx)가 같은 이유로 이미 이 모양이다.
+   */
   useEffect(() => {
+    이전포커스.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+    return () => {
+      if (이전포커스.current?.isConnected) 이전포커스.current.focus();
+    };
+  }, []);
   // aria-modal="true" 는 "뒤는 없는 셈 치라" 는 선언이다. 선언만 하고
   // Tab 이 뒤 화면으로 나가면 그 말이 사실이 아니게 된다.
   // 되돌릴 수 없는 동작을 지키는 자리라 더 그렇다.
@@ -416,14 +461,24 @@ export function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onC
  * 고르는 자리가 아니라 확인하는 자리라 카드가 아니라 체크로 둔다.
  */
 
-export function CheckRow({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) {
+/**
+ * 체크 한 줄.
+ *
+ * `disabled` 는 이 표시를 더 바꾸면 안 되는 동안에 쓴다 — 이 체크가 승인의
+ * 조건인데 승인 요청이 이미 나가 있는 자리다. 그때 풀면 화면은 '안 짚었다' 인데
+ * 서버로는 짚은 것으로 갔다.
+ */
+export function CheckRow({ checked, onToggle, label, disabled = false }: {
+  checked: boolean; onToggle: () => void; label: string; disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
-      onClick={onToggle}
-      style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: "pointer", fontFamily: FONT, padding: 0, textAlign: "left" }}
+      onClick={disabled ? undefined : onToggle}
+      disabled={disabled}
+      style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1, fontFamily: FONT, padding: 0, textAlign: "left" }}
     >
       <div aria-hidden="true" style={{
         width: 22, height: 22, borderRadius: 6, flexShrink: 0,
@@ -567,6 +622,62 @@ export function InfoBox({ children, variant = "warn" }: { children: React.ReactN
  * groupName 은 필수다. 기본값을 두면 화면에 라디오 그룹이 둘 이상일 때
  * 서로 다른 질문의 선택지가 조용히 한 그룹으로 묶인다.
  */
+
+/**
+ * 알약 모양으로 하나 고르는 칩. **진짜 라디오다.**
+ *
+ * 여러 자리에서 `<button role="radio">` 로 흉내 내고 있었다. 스크린리더는
+ * "라디오, 3개 중 1번째" 라고 읽어 주는데, 사용자가 화살표를 눌러도 아무 일이
+ * 없었다 — roving tabindex 도 키 핸들러도 없었기 때문이다. 읽어 주는 말과
+ * 실제로 되는 일이 달랐다.
+ *
+ * 흉내 내는 대신 `<input type="radio">` 를 숨겨 두고 라벨을 씌운다. 화살표
+ * 이동과 그룹 안 단일 포커스가 브라우저 기본으로 동작하고, 우리가 유지할
+ * 코드도 줄어든다. OptionCard 와 주문표 목록이 같은 이유로 이미 이렇게 되어
+ * 있고, 이 조각은 그 방식을 알약 칩에도 쓰려고 뽑아낸 것이다.
+ *
+ * 이름(name)은 필수다. 기본값을 두면 한 화면에 그룹이 둘 이상일 때 서로 다른
+ * 질문의 선택지가 조용히 한 그룹으로 묶인다.
+ */
+export function RadioChip({
+  name, label, 골랐나, onPick, lang,
+}: {
+  name: string;
+  label: string;
+  골랐나: boolean;
+  onPick: () => void;
+  /** 그 언어로 적힌 이름이면 함께 준다 — 읽어 주는 목소리가 언어를 따라간다. */
+  lang?: string;
+}) {
+  const [포커스, set포커스] = useState(false);
+  return (
+    <label
+      lang={lang}
+      style={{
+        minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
+        padding: "10px 18px", borderRadius: RADIUS.pill,
+        fontSize: 15, fontWeight: 700, fontFamily: FONT, letterSpacing: "-0.01em",
+        backgroundColor: 골랐나 ? RULE : CANVAS,
+        color: 골랐나 ? PAPER : TEXT_CHIP,
+        cursor: "pointer", transition: "background-color 0.15s",
+        // 포커스는 숨은 input 이 받지만 표시는 이 라벨이 한다.
+        outline: 포커스 ? `3px solid ${RULE}` : "none",
+        outlineOffset: 2,
+      }}
+    >
+      <input
+        type="radio"
+        name={name}
+        checked={골랐나}
+        onChange={onPick}
+        onFocus={() => set포커스(true)}
+        onBlur={() => set포커스(false)}
+        style={SR_ONLY}
+      />
+      {label}
+    </label>
+  );
+}
 
 /** 켜고 끄는 줄 하나. 라벨을 눌러도 바뀌도록 button 하나로 감싼다. */
 export function ToggleRow({

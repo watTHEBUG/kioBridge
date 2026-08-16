@@ -199,9 +199,17 @@ export function 뺀이유({ reasons }: { reasons?: RecommendationReason[] }) {
 }
 
 export function OptionCard({
-  name, price, selected, onClick, groupName, matched, 순위,
+  name, price, selected, onClick, groupName, matched, 순위, disabled = false,
 }: {
   name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
+  /**
+   * 더 고를 수 없는 동안인가.
+   *
+   * 승인을 보내 놓고 답을 기다리는 사이에 쓴다. 그때 다른 후보를 짚으면 화면에
+   * 검게 반전된 줄과 서버로 간 candidateId 가 어긋난다 — 무엇을 담고 있는지
+   * 화면이 거짓말을 한다.
+   */
+  disabled?: boolean;
   /**
    * 추천 순위. 1 부터. 없으면 아무것도 안 그린다.
    *
@@ -274,7 +282,13 @@ export function OptionCard({
             className="flex items-center"
             style={{ gap: 4, marginTop: 3, whiteSpace: "nowrap", fontSize: 12, fontWeight: 700, color: selected ? PAPER : P }}
           >
-            <span aria-hidden="true">🌿</span>조건 일치
+            {/*
+              이모지를 쓰지 않는다. 상태를 나타내는 자리라 심사 규칙이 선 아이콘을
+              요구한다 — 이 파일의 다른 상태 배지도 모두 Pictogram 이다.
+              이모지는 기기마다 모양이 다르고, aria-hidden 을 붙여도 자리 자체가
+              상태 표시다.
+            */}
+            <Pictogram name="checkCircle" size={13} color={selected ? PAPER : P} />조건 일치
           </span>
         )}
         </span>
@@ -304,7 +318,8 @@ export function OptionCard({
    */
   const 겉모양 = {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-    padding: "18px 16px", borderRadius: selected ? RADIUS.card : 0, cursor: "pointer", fontFamily: FONT,
+    padding: "18px 16px", borderRadius: selected ? RADIUS.card : 0,
+    cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1, fontFamily: FONT,
     border: "none", width: "100%",
     // 고른 것은 검은 면. 초록은 '조건 일치' 한 곳에만 남긴다.
     backgroundColor: selected ? RULE : "transparent",
@@ -325,6 +340,7 @@ export function OptionCard({
         name={groupName}
         checked={selected}
         onChange={onClick}
+        disabled={disabled}
         onFocus={() => set포커스(true)}
         onBlur={() => set포커스(false)}
         /*
@@ -343,8 +359,10 @@ export function OptionCard({
 }
 
 export function OrderExact({
-  item, reasons, scoredAxes, 합계알림, onApprove, onCancel,
+  item, reasons, scoredAxes, 합계알림, 승인중, onApprove, onCancel,
 }: {
+  /** 승인 요청이 나가 있는 동안. 단추를 잠그고 그 사실을 글로 말한다. */
+  승인중?: boolean;
   item: MappedItem; reasons?: RecommendationReason[];
   /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
   scoredAxes?: string[];
@@ -375,15 +393,19 @@ export function OrderExact({
       )}
       <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
       <뺀이유 reasons={reasons} />
-      <PrimaryBtn onClick={onApprove}>승인하고 담기</PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <PrimaryBtn onClick={승인중 ? undefined : onApprove} disabled={승인중}>
+        {승인중 ? "담는 중이에요…" : "승인하고 담기"}
+      </PrimaryBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
 
 export function OrderClarification({
-  candidates, reason, reasons, scoredAxes, options, onApprove, onCancel,
+  candidates, reason, reasons, scoredAxes, options, 승인중, onApprove, onCancel,
 }: {
+  /** 뜻은 OrderExact 의 같은 이름 주석에 있다. */
+  승인중?: boolean;
   candidates: MappingCandidate[];
   reason?: string;
   reasons?: RecommendationReason[];
@@ -442,6 +464,7 @@ export function OrderClarification({
             // 서버가 준 차례가 곧 순위다 — 자세한 사연은 OptionCard 의 순위 주석에.
             순위={i + 1}
             onClick={() => setSelected(i)}
+            disabled={승인중}
           />
           {/*
             이유는 **1 순위 밑에만** 붙인다.
@@ -475,12 +498,12 @@ export function OrderClarification({
         <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>메뉴를 선택하면 승인할 수 있어요</p>
       )}
       <PrimaryBtn
-        onClick={selected !== null ? () => onApprove(candidates[selected].candidateId) : undefined}
-        disabled={selected === null}
+        onClick={selected !== null && !승인중 ? () => onApprove(candidates[selected].candidateId) : undefined}
+        disabled={selected === null || 승인중}
       >
-        승인하고 담기
+        {승인중 ? "담는 중이에요…" : "승인하고 담기"}
       </PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
@@ -501,8 +524,10 @@ export function OrderNotFound({ message, onCancel }: { message?: string; onCance
 }
 
 export function OrderChanged({
-  item, diffNote, reasons, scoredAxes, 합계알림, onApprove, onCancel,
+  item, diffNote, reasons, scoredAxes, 합계알림, 승인중, onApprove, onCancel,
 }: {
+  /** 뜻은 OrderExact 의 같은 이름 주석에 있다. */
+  승인중?: boolean;
   item: MappedItem;
   diffNote?: string;
   /** 합계가 한 개 값 한도를 넘을 때의 한 줄. 승인 버튼이 있는 화면은 모두 받는다. */
@@ -539,8 +564,10 @@ export function OrderChanged({
           type="button"
           role="checkbox"
           aria-checked={checked}
-          onClick={() => setChecked((v) => !v)}
-          style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: "pointer", fontFamily: FONT, padding: 0 }}
+          // 승인 요청이 나가 있는 동안에는 못 푼다 — 이 체크가 그 요청의 조건이다.
+          onClick={승인중 ? undefined : () => setChecked((v) => !v)}
+          disabled={승인중}
+          style={{ display: "flex", alignItems: "center", gap: 11, minHeight: 44, border: "none", backgroundColor: "transparent", cursor: 승인중 ? "default" : "pointer", opacity: 승인중 ? 0.6 : 1, fontFamily: FONT, padding: 0 }}
         >
           {/*
            * 안 찍힌 네모의 테두리를 WARN_BORDER 로 그리면 노란 바탕 위에서 1.29:1 이라
@@ -556,15 +583,19 @@ export function OrderChanged({
 
       <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
       <뺀이유 reasons={reasons} />
-      <PrimaryBtn onClick={checked ? onApprove : undefined} disabled={!checked}>변경 내용 확인하고 담기</PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <PrimaryBtn onClick={checked && !승인중 ? onApprove : undefined} disabled={!checked || 승인중}>
+        {승인중 ? "담는 중이에요…" : "변경 내용 확인하고 담기"}
+      </PrimaryBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
 
 export function OrderLowConfidence({
-  item, reasons, scoredAxes, 합계알림, onApprove, onCancel,
+  item, reasons, scoredAxes, 합계알림, 승인중, onApprove, onCancel,
 }: {
+  /** 뜻은 OrderExact 의 같은 이름 주석에 있다. */
+  승인중?: boolean;
   item: MappedItem; reasons?: RecommendationReason[];
   /** 뜻은 고른이유 의 같은 이름 주석에 있다. */
   scoredAxes?: string[];
@@ -608,6 +639,7 @@ export function OrderLowConfidence({
         checked={selected}
         onToggle={() => setSelected((v) => !v)}
         label="위 내용이 제가 시키려던 것이 맞아요"
+        disabled={승인중}
       />
       <고른이유 reasons={reasons} scoredAxes={scoredAxes} />
       {/* 차례를 가른 이유는 OrderClarification 의 같은 자리 주석에 있다. */}
@@ -615,8 +647,10 @@ export function OrderLowConfidence({
       {!selected && (
         <p style={{ textAlign: "center", fontSize: 13, color: TEXT_2 }}>메뉴를 선택하면 승인할 수 있어요</p>
       )}
-      <PrimaryBtn onClick={selected ? onApprove : undefined} disabled={!selected}>승인하고 담기</PrimaryBtn>
-      <OutlineBtn onClick={onCancel}>취소</OutlineBtn>
+      <PrimaryBtn onClick={selected && !승인중 ? onApprove : undefined} disabled={!selected || 승인중}>
+        {승인중 ? "담는 중이에요…" : "승인하고 담기"}
+      </PrimaryBtn>
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
     </div>
   );
 }
@@ -686,7 +720,31 @@ export function OrderConfirmScreen({
       })
     : undefined;
   // 승인은 한 번만. 연타로 실행 계획이 두 번 만들어지면 안 된다.
+  /*
+   * 승인 중인가. **두 벌로 들고 있다.**
+   *
+   * ref 는 중복 호출을 막는다 — 상태만 두면 setState 가 다음 그림에 반영되므로,
+   * 빠르게 두 번 누르면 두 번 나간다.
+   *
+   * 상태는 화면을 바꾼다. 예전에는 ref 만 있어서, 서버가 답할 때까지 단추가
+   * 그대로 눌리는 채였고 아무 표시도 없었다. 중복은 막았지만 사용자는 눌린
+   * 것인지 알 수 없었다 — 이 앱을 쓰는 분들에게 반응 없는 단추가 가장 막히는
+   * 자리다.
+   */
   const approving = useRef(false);
+  const [승인중, set승인중] = useState(false);
+  /*
+   * 이 화면을 이미 떠났나.
+   *
+   * 승인 요청은 서버를 한 번 오간다. 그 사이에 화면이 접히면(거절, 뒤로 가기,
+   * 부모가 연결을 끝냄) 늦게 도착한 답이 onApproved 를 불러 **떠난 화면이
+   * 실행 계획 화면을 다시 연다.** 사용자는 그만뒀는데 앱이 주문을 이어 간다.
+   *
+   * 그래서 나가는 길마다 여기 표를 남기고, 돌아온 답은 그 표를 먼저 본다.
+   * 요청 자체는 안 되돌린다 — 서버는 이미 받았고, 되돌리는 것은 거절의 몫이다.
+   */
+  const 떠났나 = useRef(false);
+  useEffect(() => () => { 떠났나.current = true; }, []);
 
   useEffect(() => {
     let alive = true;
@@ -709,6 +767,18 @@ export function OrderConfirmScreen({
    * 사용자가 감당할 일이 아니다.
    */
   const 거절하기 = () => {
+    /*
+     * 승인을 보내 놓고 기다리는 중이면 거절이 안 된다.
+     *
+     * 두 요청이 같은 pairing 을 두고 엇갈린다. 거절이 먼저 닿아 연결이 폐기되면
+     * 승인은 실패하고, 승인이 먼저 닿으면 이미 담긴 것을 거절로 지우는 셈이다.
+     * 어느 쪽이든 화면에 보이는 것과 서버에 남는 것이 갈린다.
+     *
+     * 단추도 함께 잠근다(승인중). 여기 검사는 그 그물을 빠져나온 길 —
+     * 키보드 연타나 스크린리더의 직접 활성화 — 을 위한 것이다.
+     */
+    if (approving.current) return;
+    떠났나.current = true;
     /*
      * 되돌아가는 것으로 끝내지 않고, 이 연결이 끝났다는 것까지 알린다.
      *
@@ -777,19 +847,30 @@ export function OrderConfirmScreen({
   const approve = (extra: Omit<ApproveInput, "pairingId" | "sheetId" | "mappingResult"> = {}) => {
     if (!mapping || approving.current) return;
     approving.current = true;
+    set승인중(true);
     setError(null);
     api.approve({ pairingId, sheetId: sheet.id, mappingResult: mapping.result, ...extra })
-      .then((res) => onApproved(res.planId))
+      .then((res) => { if (!떠났나.current) onApproved(res.planId); })
       .catch((e: KioBridgeError) => {
+        if (떠났나.current) return;
         approving.current = false;
+        set승인중(false);
         setError({ message: e.message, ...(e.details && e.details.length > 1 ? { details: e.details } : {}) });
       });
+  };
+
+  // 거절하기 와 같은 이유로 승인 중에는 나가지 않는다. 여기는 거절 기록을
+  // 남기지 않는 길이라(그냥 되돌아가기) 표만 남기고 나간다.
+  const 뒤로가기 = () => {
+    if (approving.current) return;
+    떠났나.current = true;
+    onBack();
   };
 
   return (
     <div className="flex flex-col h-full kb-paper">
       <div className="shrink-0" style={{ padding: `12px ${GAP.screenX}px 0` }}>
-        <BackButton onClick={onBack} />
+        <BackButton onClick={뒤로가기} disabled={승인중} />
         <div className="flex items-center gap-2" style={{ marginTop: 20, paddingBottom: 16 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: PAPER, backgroundColor: RULE, padding: "4px 11px", borderRadius: RADIUS.pill }}>내 주문표</span>
           <span data-원문 style={{ ...TYPE.bodyBold, color: TEXT_1 }}>{sheet.menuName}</span>
@@ -847,10 +928,10 @@ export function OrderConfirmScreen({
          * 목은 이제 그 경우를 not_found 로 답하지만, 화면이 서버를 믿고 단정할 이유는 없다.
          */}
         {mapping?.result === "exact" && mapping.item && (
-          <OrderExact item={mapping.item} reasons={이유들} scoredAxes={mapping.scoredAxes} 합계알림={합계알림} onApprove={() => approve()} onCancel={거절하기} />
+          <OrderExact 승인중={승인중} item={mapping.item} reasons={이유들} scoredAxes={mapping.scoredAxes} 합계알림={합계알림} onApprove={() => approve()} onCancel={거절하기} />
         )}
         {mapping?.result === "clarification" && (
-          <OrderClarification
+          <OrderClarification 승인중={승인중}
             candidates={mapping.candidates ?? []}
             reason={mapping.reason}
             reasons={이유들}
@@ -862,7 +943,7 @@ export function OrderConfirmScreen({
         )}
         {mapping?.result === "not_found" && <OrderNotFound message={mapping.message} onCancel={거절하기} />}
         {mapping?.result === "changed" && mapping.item && (
-          <OrderChanged
+          <OrderChanged 승인중={승인중}
             item={mapping.item}
             diffNote={mapping.diffNote}
             reasons={이유들}
@@ -884,7 +965,7 @@ export function OrderConfirmScreen({
           </div>
         )}
         {mapping?.result === "low_confidence" && mapping.item && (
-          <OrderLowConfidence
+          <OrderLowConfidence 승인중={승인중}
             item={mapping.item}
             reasons={이유들}
             scoredAxes={mapping.scoredAxes}
