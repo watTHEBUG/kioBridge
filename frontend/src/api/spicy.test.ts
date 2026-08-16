@@ -157,17 +157,41 @@ describe("부정은 이제 서버가 읽는다", () => {
   });
 });
 
-describe("말한 내용은 기록에 안 남는다", () => {
+describe("개발 패널에 이 호출이 보인다", () => {
   /*
-   * 개발 패널(연동기록)은 배포본에서도 보이고(build:team) 브라우저 메모리에
-   * 60줄까지 남는다. 이 경로에 오는 말은 **보기와도 예/아니오와도 안 맞은
-   * 문장**이라 무엇이 들어올지 모른다 — 위에서 개인정보처럼 보이는 말을 아예
-   * 안 보내는 이유가 그것이고, 그 문을 만들어 놓고 기록에 남기면 뜻이 없다.
+   * 이 기록을 연동 자료로 쓴다. 경로와 상태만 있으면 "요청이 나갔다" 는 알아도
+   * "이 판정이 서버에서 왔다" 는 못 보이므로 본문까지 남긴다.
    *
-   * 남기기() 에 직접 넣어 보는 시험으로는 이걸 못 지킨다. 그러면 실제 경로가
-   * 무엇을 적든 통과한다 — 진짜로 불러 보고 확인한다.
+   * 대신 **사용자가 말한 문장이 화면에 뜬다.** 이 패널은 배포본에서도 보이므로
+   * (build:team) 시연 화면과 녹화에 그대로 찍힌다. 기록은 브라우저 메모리에
+   * 60줄까지만 있고 서버로 가지 않는다(devlog.ts). 개인정보처럼 보이는 말은
+   * 애초에 안 보내므로(위 describe) 여기에도 안 온다.
+   *
+   * 남기기() 에 직접 넣어 보는 시험으로는 이걸 못 지킨다 — 실제 경로가 무엇을
+   * 적든 통과한다. 진짜로 불러 보고 확인한다.
    */
-  it("맵기 매칭이 남긴 줄에 요청·응답 본문이 없다", async () => {
+  it("경로를 /api/bff 없이 남긴다 — 패널의 경로표가 그 모양으로 설명을 찾는다", async () => {
+    /*
+     * 여기가 "맵기 호출이 안 뜬다" 의 원인이었다. createTeamBackend 는 /api/bff 를
+     * 뗀 경로로 남기는데(backend.ts) 이 호출만 붙여서 남겼다. 개발 패널은
+     * 경로.startsWith(표의 경로) 로 설명을 찾으므로, 앞이 다르면 표에 안 걸려
+     * 이름도 설명도 없는 줄이 된다.
+     */
+    연동기록.비우기();
+    const f = 붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"] });
+    await 맵기물어보기("불닭맛");
+
+    const [한줄] = 연동기록.읽기();
+    expect(한줄.경로).toBe("/internal/spicy-level/match");
+    expect(한줄.경로.startsWith("/api/bff")).toBe(false);
+    /*
+     * 기록에 적는 경로와 **실제로 부르는 주소**는 다르다. 기록만 보면 앞을 뗀
+     * 주소로 부르는 회귀가 통과한다 — 그러면 BFF 를 안 지나 404 가 된다.
+     */
+    expect(f.mock.calls[0][0]).toBe("/api/bff/internal/spicy-level/match");
+  });
+
+  it("요청과 응답 본문을 남긴다", async () => {
     연동기록.비우기();
     붙이기({ confident: true, matchedLevel: "HOT", candidates: ["HOT"], heardText: "불닭맛" });
     await 맵기물어보기("불닭맛");
@@ -176,12 +200,9 @@ describe("말한 내용은 기록에 안 남는다", () => {
     // 한 줄은 반드시 남아야 한다. 안 남으면 이 시험이 아무것도 안 지킨다.
     expect(줄들.length).toBe(1);
     const [한줄] = 줄들;
-    expect(한줄.경로).toContain("spicy-level/match");
-    expect(한줄.요청).toBeUndefined();
-    expect(한줄.응답).toBeUndefined();
-    expect(한줄.가림).toBe(true);
-    // 말한 내용이 어느 칸에도 없어야 한다.
-    expect(JSON.stringify(한줄)).not.toContain("불닭맛");
+    expect(한줄.가림).toBeUndefined();
+    expect(JSON.parse(String(한줄.요청))).toEqual({ text: "불닭맛" });
+    expect(JSON.parse(String(한줄.응답)).matchedLevel).toBe("HOT");
   });
 });
 

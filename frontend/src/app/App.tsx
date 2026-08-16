@@ -1740,7 +1740,13 @@ function 한칸씩말하기({ place, 언어, 값, on고르기, onDone }: {
 
   const 고른것 = 값[지금축.label] ?? [];
   return (
-    <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
+    /*
+      소리로 읽을 때는 이 카드 안만 읽는다(speech.ts 의 화면글).
+
+      화면을 통째로 읽으면 질문 사이마다 화면 제목·순번·아래 단추까지 되풀이된다.
+      지금 답해야 하는 것은 이 안에 다 있다 — 무엇을 묻는지, 물음, 고를 보기.
+    */
+    <div data-소리중요 style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
       {/*
         순번은 읽지 않는다(data-소리조용).
 
@@ -4124,7 +4130,13 @@ function 도움설정말로채우기({ 언어, 설정, onChange, onDone, on마�
   };
 
   return (
-    <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
+    /*
+      소리로 읽을 때는 이 카드 안만 읽는다(speech.ts 의 화면글).
+
+      화면을 통째로 읽으면 질문 사이마다 화면 제목·순번·아래 단추까지 되풀이된다.
+      지금 답해야 하는 것은 이 안에 다 있다 — 무엇을 묻는지, 물음, 고를 보기.
+    */
+    <div data-소리중요 style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
       {/*
         순번은 읽지 않는다(data-소리조용).
 
@@ -6870,9 +6882,22 @@ export default function App() {
     // 이미 읽은 것으로 보고 건너뛴다.
     읽은줄.current = [];
     const 표 = setTimeout(() => {
-      const 줄 = 화면글(틀);
-      읽은줄.current = 줄;
-      읽어주기(줄.join(". "), { 언어: 접근성값.language });
+      /*
+       * 읽는 것과 **견주는 것**을 따로 잡는다.
+       *
+       * 읽을 때는 data-소리조용 안쪽까지 읽는다 — 순번("1번째 질문")과 단추
+       * 이름은 처음 왔을 때 한 번은 들어야 한다. 그 표의 뜻이 '읽지 마라' 가
+       * 아니라 '바뀔 때마다 다시 읽지 마라' 다.
+       *
+       * 그런데 아래 DOM 감시는 바뀌는것빼고 로 본다. 그래서 읽은 줄을 그대로
+       * 기억해 두면 견줄 때 기준이 어긋난다 — 처음엔 아홉 줄인데 다음 번엔 두
+       * 줄이라, 아무것도 안 바뀌어도 '대부분 사라졌다' 가 되어 읽던 것을 끊고
+       * 처음부터 다시 읽는다. 실제로 그랬다.
+       *
+       * 그래서 기억은 감시와 같은 눈으로 뜬 것만 남긴다.
+       */
+      읽어주기(화면글(틀).join(". "), { 언어: 접근성값.language });
+      읽은줄.current = 화면글(틀, { 바뀌는것빼고: true });
     }, 120);
     // 떠날 때도 멈춘다. 다음 화면이 읽기 시작하기 전에 조용해진다.
     return () => { clearTimeout(표); 그만읽기(); };
@@ -6893,8 +6918,31 @@ export default function App() {
         const 틀지금 = 읽을틀();
         if (!틀지금) return;
         const 지금 = 화면글(틀지금, { 바뀌는것빼고: true });
-        const 새것 = 새로붙은줄(읽은줄.current, 지금);
+        /*
+         * 화면이 **갈렸으면 읽던 것을 끊고 새로 읽는다.**
+         *
+         * 한 화면 안에서도 내용이 통째로 바뀌는 자리가 있다 — 한 칸씩 묻는
+         * 화면에서 다음 질문으로 넘어갈 때가 그렇다. screen 이 안 바뀌니 위의
+         * 전체 읽기 효과는 안 돌고, 여기만 돈다.
+         *
+         * 예전에는 여기서 늘 이어서 붙였다. 그러면 앞 질문을 읽던 것이 다 끝나야
+         * 다음 질문이 나온다 — 답하고 넘어갔는데 지난 질문을 계속 듣는다.
+         *
+         * '붙은 것' 과 '갈린 것' 은 앞에서 읽던 줄이 아직 화면에 있는지로 가른다.
+         * 못 들었어요 한 줄이 더 붙은 것이면 앞 줄들은 그대로 있고, 질문이 바뀐
+         * 것이면 대부분 사라진다. 절반을 문턱으로 둔다 — 딱 맞는 값이라기보다,
+         * 한 줄 붙은 경우와 통째로 바뀐 경우를 가르기에 넉넉한 자리다.
+         */
+        const 앞에읽던것 = 읽은줄.current;
         읽은줄.current = 지금;
+        const 남은줄 = 앞에읽던것.filter((줄) => 지금.includes(줄)).length;
+        const 갈렸나 = 앞에읽던것.length > 0 && 남은줄 * 2 < 앞에읽던것.length;
+        if (갈렸나) {
+          // 이어서 를 안 준다 — 읽어주기() 가 speechSynthesis 를 먼저 끊는다.
+          if (지금.length > 0) 읽어주기(지금.join(". "), { 언어: 접근성값.language });
+          return;
+        }
+        const 새것 = 새로붙은줄(앞에읽던것, 지금);
         if (새것.length > 0) 읽어주기(새것.join(". "), { 언어: 접근성값.language, 이어서: true });
       }, 350);
     });
