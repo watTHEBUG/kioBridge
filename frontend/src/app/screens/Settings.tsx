@@ -463,7 +463,13 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
   };
 
   return (
-    <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
+    /*
+      소리로 읽을 때는 이 카드 안만 읽는다(speech.ts 의 화면글).
+
+      화면을 통째로 읽으면 질문 사이마다 화면 제목, 순번, 아래 단추까지 되풀이된다.
+      지금 답해야 하는 것은 이 안에 다 있다 — 무엇을 묻는지, 물음, 고를 보기.
+    */
+    <div data-소리중요 style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: 20, marginBottom: 28 }}>
       {/*
         순번은 읽지 않는다(data-소리조용).
 

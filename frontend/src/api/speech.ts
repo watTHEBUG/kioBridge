@@ -164,6 +164,29 @@ export const 읽어주기 = (
  * 통째로 비교하면 글자 하나만 달라져도 화면 전체를 다시 읽는다.
  */
 export const 화면글 = (뿌리: HTMLElement, { 바뀌는것빼고 = false } = {}): string[] => {
+  /*
+   * `data-소리중요` 가 화면에 있으면 **그 안만 읽는다.**
+   *
+   * 한 칸씩 묻는 화면을 통째로 읽으면 열다섯 줄이 나온다 — 화면 제목, 들어올 때
+   * 안내, 순번, 보기 셋, 단추 둘, 아래 이름 칸, 아직 안 고른 것 안내, 저장·시작
+   * 단추. 그중 답하는 데 필요한 것은 다섯 줄이다(무엇을 묻는지 · 물음 · 보기).
+   *
+   * 나머지는 눈으로는 도움이 되지만 귀로는 질문 사이마다 되풀이된다. 답하려고
+   * 기다리는 사람에게 그 열 줄은 안내가 아니라 벽이다.
+   *
+   * 그래서 '지금 답해야 하는 것' 에만 표를 달고, 표가 있으면 거기만 읽는다.
+   * 표가 없는 화면은 예전처럼 통째로 읽는다 — 표를 안 단 화면이 조용해지는 것이
+   * 가장 나쁘다. 새 화면을 만들 때 표를 깜빡해도 소리가 사라지지 않는다.
+   */
+  const 중요한곳 = [...뿌리.querySelectorAll<HTMLElement>("[data-소리중요]")]
+    .filter((el) => el.getClientRects().length > 0);
+  if (중요한곳.length > 0) {
+    return 중요한곳.flatMap((el) => 화면글안쪽(el, 바뀌는것빼고));
+  }
+  return 화면글안쪽(뿌리, 바뀌는것빼고);
+};
+
+const 화면글안쪽 = (뿌리: HTMLElement, 바뀌는것빼고: boolean): string[] => {
   const 줄: string[] = [];
   const 훑기 = document.createTreeWalker(뿌리, NodeFilter.SHOW_TEXT);
   for (let n = 훑기.nextNode(); n; n = 훑기.nextNode()) {
@@ -242,3 +265,28 @@ export const 그만읽기 = (): void => {
     /* 읽고 있던 것이 없으면 할 일도 없다. */
   }
 };
+
+/*
+ * 페이지를 떠나면 읽던 것도 끊는다.
+ *
+ * speechSynthesis 의 대기열은 **페이지가 아니라 브라우저에** 붙어 있다. 그래서
+ * 탭을 닫거나 다른 곳으로 옮겨 가도, 넣어 둔 문장이 남아 있으면 계속 읽는다 —
+ * 화면은 이미 없는데 소리만 나는 상태가 된다. 실제로 그랬다.
+ *
+ * 언제 끊나:
+ *
+ *   pagehide         탭을 닫거나 다른 주소로 갈 때. beforeunload 대신 이걸 쓴다 —
+ *                    beforeunload 는 휴대폰에서 안 뜨는 일이 많고 bfcache 를 막는다.
+ *   visibilitychange 다른 탭·다른 앱으로 넘어갈 때. 화면이 안 보이는데 그 화면을
+ *                    읽고 있는 것은 안내가 아니라 소음이다.
+ *
+ * 돌아오면 다시 읽어 준다 — 화면이 새로 그려지면 App 의 감시가 새로 붙은 줄을
+ * 읽는다. 끊어 두는 편이 안전하다: 끊긴 것은 다시 들을 수 있지만, 안 끊으면
+ * 끄는 방법이 없다(그 탭이 이미 없다).
+ */
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("pagehide", 그만읽기);
+  globalThis.addEventListener("visibilitychange", () => {
+    if (globalThis.document?.visibilityState === "hidden") 그만읽기();
+  });
+}
