@@ -33,7 +33,7 @@ public class RecommendationEngineService {
     private static final LocalTime LUNCH_RUSH_START = LocalTime.of(11, 30);
     private static final LocalTime LUNCH_RUSH_END = LocalTime.of(13, 0);
     private static final LocalTime DINNER_RUSH_START = LocalTime.of(18, 0);
-    private static final LocalTime DINNER_RUSH_END = LocalTime.of(19, 0);
+    private static final LocalTime DINNER_RUSH_END = LocalTime.of(20, 0);
 
     private final Clock clock;
 
