@@ -93,7 +93,15 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
    */
   if (개인정보같은글(글)) return { 못함: true };
 
-  const 경로 = "/api/bff/internal/spicy-level/match";
+  /*
+   * 기록에 남기는 경로는 앞의 `/api/bff` 를 **뗀 모양**이다.
+   *
+   * createTeamBackend 가 그렇게 남기고(backend.ts 의 적기), 개발 패널의 경로표가
+   * startsWith 로 설명을 찾는다. 여기만 붙여서 남기면 그 표에 안 걸려 이름도
+   * 설명도 없는 줄로 뜬다 — 실제로 그랬고, 그래서 "맵기 호출이 안 뜬다" 로 보였다.
+   */
+  const 경로 = "/internal/spicy-level/match";
+  const 부를곳 = "/api/bff" + 경로;
   const 시작 = 팀백엔드모드 ? performance.now() : 0;
   const 보낼본문 = JSON.stringify({ text: 글 });
   /*
@@ -118,13 +126,13 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
    *
    * 무엇이 오갔는지는 경로와 상태로 충분하다.
    */
-  const 적기 = (상태: number | "실패") => {
+  const 적기 = (상태: number | "실패", 응답본문?: string) => {
     if (!팀백엔드모드) return;
     연동기록.남기기({
       방법: "POST", 경로, 상태,
       걸린시간: Math.round(performance.now() - 시작), 시각: Date.now(),
-      // 요청도 응답도 그 사람이 한 말이다. 안 남긴다 — 위 주석 참고.
-      가림: true,
+      요청: 보낼본문,
+      ...(응답본문 === undefined ? {} : { 응답: 응답본문 }),
     });
   };
 
@@ -132,7 +140,7 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
   const 타이머 = setTimeout(() => 시계.abort(), 기다릴시간);
   let res: Response;
   try {
-    res = await fetch(경로, {
+    res = await fetch(부를곳, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: 보낼본문,
@@ -154,7 +162,7 @@ export const 맵기물어보기 = async (들은말: string): Promise<맵기결�
    * 정작 필요한 것이 그 '이상한 응답' 이다.
    */
   const 받은글 = await res.text().catch(() => "");
-  적기(res.status);
+  적기(res.status, 받은글);
   if (!res.ok) return { 못함: true };
 
   let 본문: { confident?: boolean; matchedLevel?: string; candidates?: unknown } | null = null;
