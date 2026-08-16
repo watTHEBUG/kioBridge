@@ -142,7 +142,7 @@ export default function App() {
       가격한도.되살리기(v.budget);
       입력출처.되살리기(v.voiceUsed);
       개인정보동의.되살리기(v.consent);
-      알레르기설정.되살리기(v.allergies);
+      알레르기설정.되살리기(v.allergies, v.allergiesAnswered);
     }
     return v;
   });
@@ -237,7 +237,12 @@ export default function App() {
    * 연동 계층도 이 값을 읽어야 한다(주문표의 알레르기와 합쳐서 서버로 나간다).
    */
   const [알레르기, set알레르기] = useState<AllergenId[]>(() => 알레르기설정.읽기());
-  useEffect(() => 알레르기설정.구독(() => set알레르기([...알레르기설정.읽기()])), []);
+  // 답했는지도 같이 비춘다 — 설정 화면의 '계속하기' 가 이 값으로 열린다.
+  const [알레르기답함, set알레르기답함] = useState(() => 알레르기설정.답했나());
+  useEffect(() => 알레르기설정.구독(() => {
+    set알레르기([...알레르기설정.읽기()]);
+    set알레르기답함(알레르기설정.답했나());
+  }), []);
   useEffect(() => 가격한도.구독(() => set예산(가격한도.읽기())), []);
   /*
    * 로그인해 있으면 도움 설정·알레르기 변경을 계정에도 남긴다.
@@ -334,7 +339,8 @@ export default function App() {
     이어쓰기.쓰기({
       screen, tab, name, account: 계정, sheets,
       fromServer: [...서버에서온것.current],
-      a11y: 접근성값, consent: 동의, allergies: 알레르기, budget: 예산, voiceUsed: 말로채웠나, planId,
+      a11y: 접근성값, consent: 동의, allergies: 알레르기, allergiesAnswered: 알레르기답함,
+      budget: 예산, voiceUsed: 말로채웠나, planId,
     });
   }, [screen, tab, name, 계정, sheets, 접근성값, 동의, 알레르기, 예산, planId]);
 
@@ -1190,7 +1196,9 @@ export default function App() {
             <SetupScreen
               설정={접근성값}
               알레르기={알레르기}
+              알레르기답했나={알레르기답함}
               on알레르기={(id) => 알레르기설정.뒤집기(id)}
+              on알레르기없음={() => 알레르기설정.없음으로()}
               // 계정 화면의 접근성 설정과 같은 저장소에 쓴다. 여기서 켠 것이
               // 거기서도 켜져 있어야 한다 — 두 화면이 같은 스위치를 다루므로.
               onChange={(한칸) => 접근성설정.바꾸기(한칸)}
