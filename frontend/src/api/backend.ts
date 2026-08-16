@@ -285,6 +285,23 @@ export function createApi(
     },
 
     async requestMapping(pairingId, sheetId) {
+      /*
+       * 이미 다 쓴 연결이면 여기서 먼저 접는다(팀 #146).
+       *
+       * 승인이든 거절이든 서버는 끝난 pairing 을 폐기한다(OrchestratorController
+       * 의 finally 에서 close). 그래서 취소하고 나온 뒤 다른 주문표로 들어가면
+       * 죽은 값으로 bind 를 시도하게 되고, 서버가 돌려주는 PAIRING_NOT_FOUND 가
+       * **"연결 정보를 찾을 수 없습니다"** 라는 개발자 말로 화면에 그대로 떴다.
+       * 무엇이 잘못됐는지도, 무엇을 해야 하는지도 알 수 없는 안내다.
+       *
+       * 승인 경로(approve)에는 이 검사가 이미 있었는데 매핑 경로에는 없었다.
+       * 화면은 매핑부터 부르므로, 정작 사용자가 먼저 닿는 쪽이 안 막혀 있었다.
+       *
+       * 되돌릴 수 있는 오류로 던진다(true) — 화면이 QR 다시 찍기로 안내한다.
+       */
+      if (연결끝남.has(pairingId)) {
+        throw new KioBridgeError("CLAIM_EXPIRED", "이 연결은 이미 사용했어요. QR 을 다시 찍어 주세요", true);
+      }
       // 서버에 주문표 저장소가 없으면 내용을 함께 보내야 한다. 있으면 id 만으로 충분하다.
       const profile = getSheet?.(sheetId);
       const env = 환경.get(pairingId) ?? environmentId;

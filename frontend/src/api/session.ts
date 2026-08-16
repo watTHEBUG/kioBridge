@@ -1,5 +1,5 @@
 import type { MainTab, OrderSheet, PlaceType, Screen } from "@/domain/types";
-import { 기본도움설정, 아는언어인가, type 도움설정 } from "@/api/a11y";
+import { 기본도움설정, 아는언어인가, 아는선호입력값인가, type 도움설정 } from "@/api/a11y";
 import { 아는알레르기 } from "@/api/allergy";
 import type { Account } from "@/api/account";
 
@@ -271,17 +271,19 @@ const 계정읽기 = (v: unknown): Account | null => {
  * 제목만 남아 있었기 때문이다. 화면이 다시 묻기 시작하면 여기서도 빼야 한다 —
  * 안 빼면 되살린 값이 여기서 도로 false 가 된다.
  */
-const 이제안묻는칸 = ["visualGuidance", "hearingSupport"] as const;
+const 이제안묻는칸 = ["visualGuidance", "hearingSupport", "simpleSteps"] as const;
 
 const 접근성읽기 = (v: unknown): 도움설정 => {
   const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
   const 값 = { ...기본도움설정 };
   for (const 칸 of Object.keys(기본도움설정) as (keyof 도움설정)[]) {
-    if (칸 !== "language" && typeof o[칸] === "boolean") 값[칸] = o[칸];
+    if (칸 !== "language" && 칸 !== "preferredInputHint" && typeof o[칸] === "boolean") 값[칸] = o[칸];
   }
   // 언어만 boolean 이 아니다. 아는 값일 때만 받는다 — 손대서 아무 문자열이나
   // 넣어 두면 서버의 BCP 47 검사에 걸려 주문 자체가 안 된다.
   if (아는언어인가(o.language)) 값.language = o.language;
+  // preferredInputHint 도 boolean 이 아니다 — 같은 이유로 아는 값일 때만 받는다.
+  if (아는선호입력값인가(o.preferredInputHint)) 값.preferredInputHint = o.preferredInputHint;
   /*
    * 이제 안 묻는 칸은 되살리지 않는다.
    *
@@ -317,15 +319,20 @@ const 남길것이있나 = (v: 이어쓸것): boolean =>
 /**
  * 도움 설정을 하나라도 기본값에서 바꿨는가.
  *
- * Object.values(...).some(Boolean) 로 훑던 것을 칸별로 본다. language 가 들어오면서
- * 그 방식이 깨졌다 — 기본값 "ko-KR" 이 truthy 라, 아무것도 안 건드린 사람도
- * '남길 것이 있다' 가 되어 빈 이용이 전부 저장됐다.
+ * **기본값과 다른지만 본다.** 값이 true 인지로 보면 안 된다.
  *
- * 켠 것과 고른 것을 나눠 본다. 켜는 값은 true 인지, 고르는 값은 기본과 다른지.
+ * 이 자리는 두 번 깨졌고 원인이 같았다 — 기본값이 falsy 라는 가정이다.
+ * 처음에는 Object.values(...).some(Boolean) 이었는데 language 가 들어오면서
+ * 깨졌고("ko-KR" 이 truthy 라 아무것도 안 건드린 사람이 전부 저장됐다),
+ * 그것을 language 만 예외로 두어 막았다. 그 뒤 voiceGuide 를 잠깐 기본 켜짐으로
+ * 두었을 때 같은 일이 다시 일어났다(지금은 다시 꺼짐이다).
+ *
+ * 예외를 하나씩 더하는 대신 기준을 바꾼다. '건드렸다' 는 **기본과 다르다** 는
+ * 뜻이지 '켜져 있다' 는 뜻이 아니다 — 기본 켜짐인 것을 끈 사람도 건드린 것이고,
+ * 그 선택은 남겨 두어야 한다.
  */
 const 도움설정을건드렸나 = (a: 도움설정): boolean =>
-  (Object.keys(기본도움설정) as (keyof 도움설정)[]).some((칸) =>
-    칸 === "language" ? a.language !== 기본도움설정.language : a[칸] === true);
+  (Object.keys(기본도움설정) as (keyof 도움설정)[]).some((칸) => a[칸] !== 기본도움설정[칸]);
 
 export const 이어쓰기 = {
   /**

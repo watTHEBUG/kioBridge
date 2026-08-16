@@ -1,5 +1,5 @@
 import type { PlaceType, OrderSheet } from "@/domain/types";
-import { 기본도움설정, 아는언어인가, type 도움설정 } from "@/api/a11y";
+import { 기본도움설정, 아는언어인가, 아는선호입력값인가, type 도움설정 } from "@/api/a11y";
 import { 아는알레르기 } from "@/api/allergy";
 import type { AllergenId } from "@/api/canonical";
 // client.ts 의 KioBridgeError 를 그대로 쓴다. 화면은 이미 그 타입 하나로 오류를 다루고 있어서
@@ -122,11 +122,28 @@ const 바이트수 = (s: string) => new TextEncoder().encode(s).length;
  *
  * 공백만으로 된 아이디를 막는 이유 — 서버가 trim() 한 뒤 저장하므로 "  " 는 빈 문자열이
  * 되어 @NotBlank 에 걸린다. 여기서 먼저 말해 주지 않으면 400 만 돌아온다.
+ *
+ * ── 개인정보처럼 보이는 아이디도 막는다 ─────────────────────────────────────
+ *
+ * 이 칸은 자유 입력이고 서버에 그대로 저장된다. 가입 화면이 "실제 이름이나
+ * 전화번호는 적지 마세요" 라고 적어 두었지만, **적어 두는 것은 막는 것이 아니다.**
+ * 메모·메뉴 이름·말로 들어오는 길은 이미 같은 문(개인정보같은글)을 지나는데
+ * 이 칸만 안 지났다 — 막아 둔 칸을 피해 여기 적으면 그대로 서버로 간다.
+ *
+ * 가입할 때만 지난다. 로그인은 이 함수를 안 쓴다 — 이미 만들어진 계정을 여기서
+ * 막으면 그 사람이 자기 계정에 못 들어간다. 값이 **만들어지는 자리**에서 막는다.
+ *
+ * **이름은 못 잡는다.** 전화번호·주민번호·주소는 모양이 있어 걸리지만 "김순자"
+ * 는 모양이 없다. 잡히는 것만 잡고 나머지는 위 안내 문구가 진다 — 못 잡는 것을
+ * 잡은 척하지 않는다.
  */
 export const 아이디검사 = (v: string): string | null => {
   const 값 = v.trim();
   if (!값) return "아이디를 적어 주세요";
   if (값.length > LOGIN_ID_MAX) return `아이디는 ${LOGIN_ID_MAX}자까지 쓸 수 있어요`;
+  if (개인정보같은글(값)) {
+    return "아이디에 전화번호·주민등록번호·주소처럼 보이는 것이 있어요. 다른 아이디를 적어 주세요";
+  }
   return null;
 };
 
@@ -307,11 +324,13 @@ const 프로필읽기 = (v: unknown): AccountPreferences | null => {
     ? o.accessibility : {}) as Record<string, unknown>;
   const a11y = { ...기본도움설정 };
   for (const 칸 of Object.keys(기본도움설정) as (keyof 도움설정)[]) {
-    if (칸 !== "language" && typeof 받은[칸] === "boolean") a11y[칸] = 받은[칸] as boolean;
+    if (칸 !== "language" && 칸 !== "preferredInputHint" && typeof 받은[칸] === "boolean") a11y[칸] = 받은[칸] as boolean;
   }
   // 언어만 boolean 이 아니다. 아는 값일 때만 받는다 — 아무 문자열이나 들어오면
   // 서버의 BCP 47 검사에 걸려 주문 자체가 안 된다(session.ts 와 같은 이유).
   if (아는언어인가(받은.language)) a11y.language = 받은.language;
+  // preferredInputHint 도 boolean 이 아니다 — 같은 이유로 아는 값일 때만 받는다.
+  if (아는선호입력값인가(받은.preferredInputHint)) a11y.preferredInputHint = 받은.preferredInputHint;
   // 아는 여섯만 받는다. 모르는 값이 섞이면 서버가 UNKNOWN 으로 읽고 주문을 막는다.
   const allergies = Array.isArray(o.allergies) ? o.allergies.filter(아는알레르기) : [];
   return { a11y, allergies };
@@ -600,10 +619,25 @@ export function createTeamAccount(baseUrl = "/api/bff"): AccountApi {
      * Account 로 돌려주는 값에는 안 싣는다 — 그 객체는 session.ts 가 적어 두는
      * 값이라, 넣으면 토큰이 sessionStorage 로 따라 나간다(token.ts 주석).
      */
-    signup: async (loginId, password) => 계정만(
-      await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
-        "POST", "/api/v1/auth/signup", { loginId: loginId.trim(), password }),
-    ),
+    /*
+     * 보내기 전에 아이디를 한 번 더 본다.
+     *
+     * 화면도 막고 목도 막는데 여기만 안 막고 있었다. 이 함수를 직접 부르면
+     * 전화번호가 그대로 서버에 저장된다 — 프론트가 실제 개인정보를 담아
+     * 보내지 않는다는 것이 이 앱의 약속이라, 나가는 자리에도 문을 둔다.
+     *
+     * 가입에만 건다. 로그인에 걸면 이미 만들어 둔 계정에 못 들어간다
+     * (아이디검사 주석).
+     */
+    signup: async (loginId, password) => {
+      const 아이디 = loginId.trim();
+      const 아이디문제 = 아이디검사(아이디);
+      if (아이디문제) throw new KioBridgeError("INVALID_REQUEST", 아이디문제, true);
+      return 계정만(
+        await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(
+          "POST", "/api/v1/auth/signup", { loginId: 아이디, password }),
+      );
+    },
 
     login: async (loginId, password) => 계정만(
       await 부르기<Account & { accessToken?: unknown; expiresAt?: unknown }>(

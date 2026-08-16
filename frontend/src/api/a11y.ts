@@ -66,7 +66,34 @@ export interface 도움설정 extends 접근성 {
    * ko-KR · en-US · zh-CN · vi-VN 넷 다 확인했다 — 전부 status VALID.
    */
   language: 언어코드;
+  /**
+   * 스위치 보조기기나 다른 사람의 도움으로 조작하는지, 사용자가 직접 밝힌 값.
+   *
+   * VOICE/TOUCH 는 이번 이용에서 실제로 그렇게 채웠는지 감지해서 정한다
+   * (api/inputsource.ts). 그런데 이 앱은 스위치 입력도, 다른 사람이 대신
+   * 눌러 주는 것도 구분해서 감지할 방법이 없다 — 그래서 짐작하지 않고
+   * 접근성 화면에서 직접 물어본 값만 쓴다. 서버로는 interaction.preferredInput
+   * 이 "SWITCH"/"ASSISTED" 로 나간다(canonical.ts 의 계산 우선순위 참고).
+   *
+   * accessibility 일곱 칸에는 못 들어간다 — 계약에서 이 값의 제자리는
+   * interaction.preferredInput 이다(PreferredInput.java 에 SWITCH/ASSISTED 있음.
+   * 회의 결과 MULTIMODAL 은 이번엔 안 만든다).
+   */
+  preferredInputHint: PreferredInputHint;
 }
+
+/**
+ * `interaction.preferredInput` 중 사용자가 직접 밝힐 수 있는 값만 골라 둔다.
+ *
+ * "NONE" 은 아무 것도 안 밝힌 상태 — 이때는 VOICE/TOUCH 감지 결과가 그대로
+ * 나간다. TOUCH·VOICE·KEYBOARD·MULTIMODAL 은 여기 없다 — 회의 결과 이번엔
+ * SWITCH·ASSISTED 둘만 만들기로 했다.
+ */
+export type PreferredInputHint = "NONE" | "SWITCH" | "ASSISTED";
+
+/** language 와 같은 이유로 둔다(아는언어인가 주석) — 되살릴 때 아는 값만 받는다. */
+export const 아는선호입력값인가 = (v: unknown): v is PreferredInputHint =>
+  v === "NONE" || v === "SWITCH" || v === "ASSISTED";
 
 /**
  * 고를 수 있는 언어.
@@ -98,7 +125,26 @@ export const 기본접근성: 접근성 = {
   staffAssistancePreferred: false,
 };
 
-export const 기본도움설정: 도움설정 = { ...기본접근성, voiceGuide: false, language: "ko-KR" };
+/**
+ * 소리로 듣고 답하기는 **꺼진 채로 시작한다.**
+ *
+ * 이 스위치가 두 갈래의 갈림길이다. 켜면 뒤따르는 화면들이 말로 묻고 말로
+ * 받고(SetupScreen 의 음성모드), 끄면 지금까지처럼 손으로 고른다.
+ *
+ * 켜 둔 채로 시작하는 것도 생각해 봤다. 화면을 못 보는 분에게 가장 필요한
+ * 스위치인데 그걸 켜려면 화면을 봐야 한다는 것이 이상해서다. 그런데 그렇게
+ * 하면 **눈으로 보는 대부분의 사람이 열자마자 읽는 소리를 듣게 된다** —
+ * 고르지 않은 것을 우리가 켠 셈이다.
+ *
+ * 그래서 켜는 일은 사람이 한다. 대신 그 스위치를 첫 화면 맨 위, 동의 문구보다
+ * 위에 두었다(App.tsx 의 WelcomeScreen) — 켜러 가는 길을 최대한 짧게.
+ *
+ * **마이크는 이 스위치만으로 안 열린다.** 켜면 읽어 주기가 시작되고, 듣는
+ * 것은 말로 답하는 화면에 들어갔을 때다.
+ */
+export const 기본도움설정: 도움설정 = {
+  ...기본접근성, voiceGuide: false, language: "ko-KR", preferredInputHint: "NONE",
+};
 
 let 값: 도움설정 = { ...기본도움설정 };
 const 듣는이 = new Set<() => void>();

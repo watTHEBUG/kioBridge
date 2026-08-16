@@ -35,17 +35,45 @@ export const EN: Record<string, string> = {
     "{보기} — shall we go with this? You can say yes, or say another one.",
   "말씀은 들었는데 어느 쪽인지 못 골랐어요. 다시 말씀해 주시거나 위에서 골라 주세요.":
     "We heard you but could not tell which one. Please say it again, or choose above.",
+  /*
+   * 서버가 "이 둘 중 하나 같은데 확실치 않다" 고 할 때 되묻는 줄(팀 #133).
+   *
+   * 서버도 물음 문장을 만들어 주지만 쓰지 않는다. 그 문장에는 사용자가 말한
+   * 값이 박혀 있어서 이 표의 열쇠가 될 수 없다 — 사람마다 다른 말을 하므로
+   * 열쇠가 무한해진다. 값만 받아 여기서 조립한다(api/spicy.ts 주석).
+   */
+  "혹시 {들은말} 말씀이신가요? 위에서 짚어 주세요.":
+    "Did you mean {들은말}? Please pick it above.",
   "마이크를 쓸 수 없어요. 위에서 손으로 골라 주세요.":
     "The microphone is not available. Please choose by hand above.",
+  // 보기가 셋 이상일 때 '아니오' — 값은 안 넣고 넘어간다는 사실만 알린다.
+  "그 칸은 비워 두고 다음으로 넘어갈게요. 나중에 위에서 고르셔도 돼요.":
+    "We'll leave that one empty and move on. You can choose it above later.",
   "잘 안 들렸어요. 다시 말씀해 주세요.": "We could not hear that. Please say it again.",
   "그만 듣기": "Stop listening",
   "건너뛰기": "Skip",
   "끝내기": "Done",
+  // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
+  "앞 질문": "Previous question",
+  "가입 없이 바로 쓸 수 있고, 저장하지 않은 내용은 이번 한 번만 쓰고 지워집니다":
+    "No sign-up needed, and anything you don't save is used once, then erased",
+  /*
+   * 듣는 중 안내 두 줄. 화면에 그대로 박혀 있어서 영어 화면에도 우리말이
+   * 남아 있었다(#145 리뷰). 이어 듣기냐 아니냐로 문장이 갈린다.
+   */
+  "듣고 있어요. 말씀하신 뒤 \"그만 듣기\"를 눌러 주세요.":
+    "Listening. When you're done speaking, press \"Stop listening\".",
+  "듣고 있어요. 말씀이 끝나면 알아서 다음으로 넘어가요.":
+    "Listening. When you stop speaking, we'll move on by ourselves.",
+  "여기가 첫 질문이라 더 앞으로는 갈 수 없어요.":
+    "This is the first question, so there is nothing before it.",
 
   // 이 기기에 남길지 묻는 화면. 비로그인일 때만 지난다.
   "저장할까요?": "Save this?",
   "지금 바로 주문하는 데는 저장하지 않아도 됩니다. 저장해 두면 다음에 올 때 이 기기에서 다시 꺼내 쓸 수 있어요.":
     "You do not need to save it to order right now. If you save it, you can use it again from this device next time.",
+  // 승인 요청이 나가 있는 동안 단추에 뜨는 글.
+  "담는 중이에요…": "Adding to the cart…",
   "이번만 쓰기": "Use just this once",
   "이 기기에 저장하기": "Save on this device",
 
@@ -89,6 +117,17 @@ export const EN: Record<string, string> = {
     "Some of your info needs another look — confidence is low.",
   "지금 시간대가 붐벼서, 매장에서 기다리지 않고 바로 받으실 수 있는 포장 메뉴를 먼저 보여드립니다.":
     "It's a busy hour, so takeout menus you can grab without waiting come first.",
+  /*
+   * 여러 축이 맞았을 때 우리가 한 줄로 합친 문장(i18n/reason.ts 의 이유묶기).
+   * 서버가 주는 말이 아니라 우리가 만든 틀이라 자리표시자가 들어 있다.
+   *
+   * 조사 때문에 열쇠가 둘이다 — "포장하기, 매운맛과" 는 받침이 있어 '과',
+   * "매운맛, 포장하기와" 는 없어서 '와' 다. 영어는 조사가 없어 같은 말이 된다.
+   */
+  "선호하신 {것들}과 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
+  "선호하신 {것들}와 맞는 메뉴라 우선 추천드립니다.":
+    "Recommended first — it matches the {것들} you chose.",
   "선호하신 이용 방식과 다릅니다.": "Differs from the service type you chose.",
   "선호하신 맵기와 다릅니다.": "Differs from the spice level you chose.",
   "선호하신 뼈/순살과 다릅니다.": "Differs from the bone type you chose.",
@@ -165,12 +204,14 @@ export const EN: Record<string, string> = {
   "입력한 내용은 이번 한 번만 쓰고 지워집니다": "What you enter is used once, then erased",
   "로그인 (선택)": "Log in (optional)",
   "주문에 쓸 정보를 모으고 쓰는 데 동의합니다.": "I agree to the use of my order details.",
+  "서비스 이용 및 주문표 저장 안내를 확인했어요":
+    "I've read how this app works and how order cards are saved",
   "메뉴 조건과 도움 설정이에요. 이름·전화번호는 받지 않아요.":
     "Menu preferences and support settings. We never ask for your name or phone number.",
   "자세히": "Details",
-  "동의하셔야 시작할 수 있어요": "Please agree to continue",
-  "동의하셔야 로그인할 수 있어요": "Please agree to log in",
-  "동의하셔야 가입할 수 있어요": "Please agree to sign up",
+  "확인하셔야 시작할 수 있어요": "Please confirm to continue",
+  "확인하셔야 로그인할 수 있어요": "Please confirm to log in",
+  "확인하셔야 가입할 수 있어요": "Please confirm to sign up",
 
   // ─── 로그인 · 가입 ────────────────────────────────────────────────────────
   "로그인": "Log in",
@@ -237,10 +278,9 @@ export const EN: Record<string, string> = {
   "앱 전체의 글씨와 버튼을 크게 봐요": "Makes all text and buttons bigger",
   "고대비": "High contrast",
   "글씨와 배경의 차이를 더 뚜렷하게 해요": "Sharpens the difference between text and background",
-  "소리로 읽어 주기": "Read aloud",
+  "소리로 듣고 답하기": "Listen and answer by voice",
   "화면에 나온 안내를 소리로 읽어 드려요": "Reads what’s on screen out loud",
   "쉬운 단계": "Fewer steps",
-  "이유 화면을 건너뛰고 바로 확인 화면으로 가요": "Skips the reason screen and goes straight to review",
   "시간 여유": "More time",
   "연결 시간이 지나도 보던 화면을 멋대로 닫지 않아요":
     "Won’t close the screen you’re reading when the session times out",
@@ -328,7 +368,22 @@ export const EN: Record<string, string> = {
   "메모": "Note",
   "필수": "Required",
   "선택": "Optional",
-  "저장하고 시작하기": "Save and start",
+  /*
+   * 주문표 화면의 두 단추. 예전에는 "저장하고 시작하기" 한 단추였는데, 이름과
+   * 하는 일이 어긋나 있어서(눌러도 저장만 됐다) 이름대로 갈랐다.
+   *
+   * '시작하기' 는 붙어 있을 때만 열리고, 그 한 번에 저장까지 한다.
+   */
+  "저장하기": "Save",
+  "시작하기": "Start",
+  /*
+   * 후보 줄을 읽어 주는 이름. 순위가 맨 앞이라 셋을 훑을 때 먼저 들린다.
+   * 눈으로는 이름 왼쪽의 숫자 배지가 같은 일을 한다(App.tsx 의 OptionCard).
+   */
+  "추천 {순위}순위, {이름}, {값}": "Recommendation #{순위}, {이름}, {값}",
+  // 못 누르는 '시작하기' 옆에 왜 못 누르는지 적는 줄.
+  "QR을 찍으면 저장과 함께 바로 시작할 수 있어요":
+    "Scan the QR code to save and start right away",
   // 저장 화면의 잠금 안내. 모든 축을 골라야 저장이 열린다(catalog.tsx 의 못채운축).
   "아직 안 고른 것 — {빠진것}. 모두 골라야 저장할 수 있어요":
     "Not chosen yet — {빠진것}. Pick them all to save",
@@ -391,6 +446,13 @@ export const EN: Record<string, string> = {
   "1개": "1",
   "2개": "2",
   "3개": "3",
+
+  // 형태를 안 고르고 저장하려는데 접근성 신호가 있을 때 뜨는 순살 제안 시트.
+  "먹기 편한 순살로 하시겠어요?": "Would boneless be easier to eat?",
+  "형태를 아직 안 고르셨어요. 뼈를 발라 먹는 게 불편하실 수 있어 여쭤봐요.":
+    "You haven’t picked bone or boneless yet. Deboning chicken can be difficult, so we wanted to ask.",
+  "네, 순살로 할게요": "Yes, boneless please",
+  "상관없어요": "No preference",
 
   // ─── QR · 연결 ────────────────────────────────────────────────────────────
   "키오스크의 QR 코드를": "Point your camera at",
