@@ -1,0 +1,69 @@
+# 프런트엔드가 PR 에서 스스로를 검사한다.
+#
+# frontend/README.md 에 "테스트로 잠가 두었습니다 ✔" 로 적어 둔 것들이 있다 —
+# 결제 문자열 0건, 승인 전 실행계획 생성 0건, 선택 불가능 후보 추천 0건. 심사
+# 실격 조건이라 사람이 기억해서 돌리는 것에 맡길 수 없다. 자물쇠는 잠그는
+# 사람이 없으면 자물쇠가 아니다.
+#
+# 백엔드 워크플로와 나란히 둔다. 저쪽은 paths 가 backend/** 라 프런트 변경에는
+# 아무것도 돌지 않았다.
+
+name: Frontend CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-test:
+    name: frontend-test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # mock.test.ts 가 .git 을 찾아 저장소 루트를 정한다. 못 찾으면 앱
+          # 폴더까지만 훑어서, 그 바깥에 결제 문자열이 생겨도 통과한다.
+          fetch-depth: 1
+
+      # 20 LTS 또는 22 LTS. 24 이상은 시뮬레이션 킷 공식 지원 범위 밖이다
+      # (frontend/README.md).
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ci 다. install 은 lockfile 을 고쳐 쓰기도 해서, 검사한 것과 배포되는
+      # 것이 달라질 수 있다.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # 타입이 맞아도 빌드가 깨지는 자리가 있다 — vite.config.ts 의
+      # copy-attributions 는 빌드에서만 돌고, ATTRIBUTIONS.md 가 없으면
+      # 여기서 던진다. CC BY-SA 고지가 배포물에서 빠지는 것을 막는 검사다.
+      # 배포되는 모드로 빌드한다. vercel.json 의 buildCommand 가 build:team 이라,
+      # 여기서 기본(목) 모드만 빌드하면 배포되는 쪽은 아무도 안 세워 본 게 된다.
+      - name: Build
+        run: npm run build:team

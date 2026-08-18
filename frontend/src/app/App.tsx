@@ -31,6 +31,54 @@ import { ConfirmSheet } from "@/app/ui";
 const FRAME_W = 390;
 const FRAME_H = 844;
 const LARGE_TEXT_SCALE = 1.18;
+/** 무대(폰 틀 바깥)의 여백. 틀 높이를 잴 때 이만큼을 빼야 화면에 들어간다. */
+const STAGE_PAD = 24;
+/** 이 너비 아래로는 목업이 아니라 진짜 기기다. 틀 장식을 걷고 화면에 꽉 채운다. */
+const 기기폭 = 480;
+
+/*
+ * 폰 틀의 크기.
+ *
+ * ── 왜 CSS 로 빼는가 ───────────────────────────────────────────────────────
+ *
+ * 가로는 이미 반응형이었다(width:100% · maxWidth). 그런데 **세로만 844 로
+ * 못박혀 있었다.** 그래서 세로가 844 보다 짧은 기기에서는 틀 아래쪽이 화면
+ * 밖으로 나갔다 — 375x667 에서 재 보면 틀 바닥이 868px, 첫 화면의
+ * '로그인 (선택)' 단추가 703px 라 접힘 아래였다.
+ *
+ * 나쁜 것은 잘린다는 사실 자체보다 **잘린 줄 모른다는 것**이다. 둥근 모서리와
+ * 그림자가 "여기까지가 전부" 라고 말하는 카드처럼 보여서, 아래에 무언가 더
+ * 있다고 생각할 이유가 없다. 가로 스크롤을 고쳤던 것과 같은 실수가 세로축에
+ * 남아 있었던 셈이다.
+ *
+ * 이제 가로와 같은 방식으로 잰다 — 있는 만큼 쓰되 844 를 넘지 않는다.
+ *
+ * ── 좁은 기기에서는 틀을 걷는다 ────────────────────────────────────────────
+ *
+ * 폰 틀(여백·둥근 모서리·그림자)은 데스크톱에서 이 앱이 휴대폰용임을 보여 주는
+ * 장치다. 정작 휴대폰에서는 쓸 수 있는 화면을 48px 깎아 먹고, 사용자에게는
+ * 자기 화면 안에 또 하나의 화면이 있는 것으로 보인다. 기기 폭에서는 없앤다.
+ *
+ * dvh 를 쓴다. vh 는 iOS 에서 주소창이 접힌 상태의 높이라, 주소창이 펼쳐져
+ * 있으면 그만큼 아래가 잘린다. 못 읽는 브라우저를 위해 vh 를 먼저 적어 둔다.
+ */
+const FRAME_STYLES = `
+  .kb-stage { min-height: 100vh; min-height: 100dvh; padding: ${STAGE_PAD}px; gap: 32px; }
+  .kb-frame-size {
+    width: 100%;
+    max-width: ${FRAME_W}px;
+    height: min(${FRAME_H}px, calc(100vh - ${STAGE_PAD * 2}px));
+    height: min(${FRAME_H}px, calc(100dvh - ${STAGE_PAD * 2}px));
+  }
+  .kb-frame { border-radius: 54px; box-shadow: 0 24px 80px rgba(0,0,0,0.16); }
+
+  @media (max-width: ${기기폭}px) {
+    .kb-stage { padding: 0; gap: 0; }
+    .kb-frame-size { max-width: none; height: 100vh; height: 100dvh; }
+    /* 화면에 꽉 찼으면 모서리를 둥글릴 자리가 없다. 그리면 네 귀퉁이가 잘린다. */
+    .kb-frame { border-radius: 0; box-shadow: none; }
+  }
+`
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -807,6 +855,21 @@ export default function App() {
    */
   useLayoutEffect(() => {
     /*
+     * <html lang> 도 같이 바꾼다. **글자만 바꾸고 여기를 두면 반쪽이다.**
+     *
+     * index.html 에 적어 둔 이유가 그대로 뒤집힌 채로 적용된다 — 스크린리더는
+     * 이 속성을 보고 발음 엔진을 고르므로, lang 이 ko 인 채로 영어 문장을 주면
+     * 한국어 엔진이 영어를 읽는다. 눈으로 읽는 사람에게는 멀쩡한 화면이고
+     * 귀로 듣는 사람에게만 알아들을 수 없는 소리가 된다(WCAG 3.1.1 · 3.1.2).
+     *
+     * 앱 자체 읽어주기는 speech.ts 가 u.lang 을 직접 세우므로 이것과 무관하게
+     * 이미 맞다. 여기서 고치는 것은 **기기의 스크린리더** 쪽이다.
+     *
+     * 되돌아가는 길에서도 세운다 — 아래 조기 반환보다 위에 두는 이유다.
+     * 한국어로 돌아왔는데 lang 만 en 으로 남으면 같은 문제가 반대로 생긴다.
+     */
+    document.documentElement.lang = 접근성값.language === "en-US" ? "en" : "ko";
+    /*
      * 한국어로 돌아오면 우리가 바꾼 자리를 우리 손으로 되돌린다.
      *
      * 여기서 그냥 나가면 화면은 영어로 남는다. React 는 자기가 그린 한국어가
@@ -1056,10 +1119,10 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center gap-8 p-6"
+      className="kb-stage flex items-center justify-center"
       style={{ backgroundColor: BACKDROP, fontFamily: FONT }}
     >
-      <style>{PALETTE_STYLES}{FOCUS_STYLES}</style>
+      <style>{PALETTE_STYLES}{FOCUS_STYLES}{FRAME_STYLES}</style>
       {시연패널보임 && <ScenarioPanel />}
       {/* 나란히 보는 중에는 구석 패널을 감춘다. 같은 것을 두 번 띄울 이유가 없다. */}
       {팀백엔드모드 && 로그모드 !== "나란히" && (
@@ -1086,8 +1149,12 @@ export default function App() {
         큰 글씨를 켜면 가로 스크롤이 생겼다.** 375px 휴대폰이 그렇고, 200% 로 확대해
         폭이 절반이 되면 문서가 창의 두 배가 넘었다 — 글씨를 키워야 하는 사람이
         가로로도 밀어 가며 읽어야 했다.
+
+        같은 실수가 **세로축에 그대로 남아 있었다.** 그쪽은 위의 FRAME_STYLES 에
+        적어 두었다. 바깥 크기는 이제 kb-frame-size 가 정하고, 안쪽은 그것을
+        배율로 나눈다 — 가로든 세로든 한 가지 방식이다.
       */}
-      <div style={{ width: "100%", maxWidth: FRAME_W, height: FRAME_H }}>
+      <div className="kb-frame-size">
         <div
           data-frame
 
@@ -1100,17 +1167,25 @@ export default function App() {
            * 흰색에 가까운 값이 전부 순백으로 뭉개져서 카드 경계가 사라졌다.
            */
           data-contrast={접근성값.highContrast ? "high" : undefined}
-          className="kb-paper overflow-hidden flex flex-col"
+          className="kb-paper kb-frame overflow-hidden flex flex-col"
           style={{
             zoom: largeText ? LARGE_TEXT_SCALE : 1,
+            /*
+             * 가로와 세로를 같은 식으로 잰다. **어긋나 있던 것이 문제였다** —
+             * 가로만 부모를 따라가고 세로는 844 로 박혀 있어서, 부모가 그보다
+             * 짧아도 틀은 줄지 않았다.
+             *
+             * 둘 다 부모(kb-frame-size)가 실제로 차지한 만큼을 배율로 나눈다.
+             * zoom 이 다시 곱하므로 최종 렌더 크기는 부모와 정확히 같아진다.
+             */
             width: largeText ? `${100 / LARGE_TEXT_SCALE}%` : "100%",
-            height: largeText ? `${100 / LARGE_TEXT_SCALE}%` : FRAME_H,
+            height: largeText ? `${100 / LARGE_TEXT_SCALE}%` : "100%",
 
             // absolute 로 띄우는 것들(확인 시트·QR 스캐너)이 이 안에 갇히려면
             // 여기가 컨테이닝 블록이어야 한다. overflow-hidden 만으로는
             // 자기가 기준이 아니면 클리핑도 못 해서 화면 전체를 덮어 버린다.
             position: "relative",
-            borderRadius: 54, boxShadow: "0 24px 80px rgba(0,0,0,0.16)",
+            // 둥근 모서리·그림자는 kb-frame 이 정한다. 기기 폭에서 걷어야 해서다.
           }}
         >
         {/*
