@@ -15,6 +15,7 @@ import java.time.ZoneOffset;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PairingRegistryTest {
 
@@ -47,17 +48,130 @@ class PairingRegistryTest {
     }
 
     @Test
-    void 다른_프로필이나_주문조건으로_바꿀_수_없다() {
+    void 다른_사용자_프로필로는_재바인딩할_수_없다() {
         String pairingId = newPairing();
+
+        CanonicalProfile firstProfile = mock(CanonicalProfile.class);
+        CanonicalProfile anotherProfile = mock(CanonicalProfile.class);
+
+        when(firstProfile.profileId()).thenReturn("user-1");
+        when(anotherProfile.profileId()).thenReturn("user-2");
+
+        registry.bindInput(pairingId, firstProfile, context);
+
+        assertThatThrownBy(
+                () -> registry.bindInput(pairingId, anotherProfile, context)
+        )
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        e -> assertThat(e.code())
+                                .isEqualTo("PAIRING_PROFILE_CHANGED")
+                );
+    }
+
+    @Test
+    void 같은_사용자는_실행_전까지_주문조건을_변경할_수_있다() {
+        String pairingId = newPairing();
+
+        CanonicalProfile firstProfile = mock(CanonicalProfile.class);
+        CanonicalProfile reboundProfile = mock(CanonicalProfile.class);
+
+        when(firstProfile.profileId()).thenReturn("user-1");
+        when(reboundProfile.profileId()).thenReturn("user-1");
+
+        ChickenStoreSessionContext firstContext =
+                mock(ChickenStoreSessionContext.class);
+        ChickenStoreSessionContext changedContext =
+                mock(ChickenStoreSessionContext.class);
+
+        registry.bindInput(
+                pairingId,
+                firstProfile,
+                firstContext
+        );
+
+        registry.bindInput(
+                pairingId,
+                reboundProfile,
+                changedContext
+        );
+
+
+        var reservation = registry.reserveForExecution(
+                pairingId,
+                reboundProfile,
+                changedContext
+        );
+
+        assertThat(reservation.rc5SessionId())
+                .isEqualTo("SIM-001");
+    }
+
+    @Test
+    void 승인에는_마지막으로_바인딩한_주문조건을_사용해야_한다() {
+        String pairingId = newPairing();
+
+        CanonicalProfile firstProfile = mock(CanonicalProfile.class);
+        CanonicalProfile latestProfile = mock(CanonicalProfile.class);
+
+        when(firstProfile.profileId()).thenReturn("user-1");
+        when(latestProfile.profileId()).thenReturn("user-1");
+
+        ChickenStoreSessionContext oldContext =
+                mock(ChickenStoreSessionContext.class);
+        ChickenStoreSessionContext latestContext =
+                mock(ChickenStoreSessionContext.class);
+
+        registry.bindInput(
+                pairingId,
+                firstProfile,
+                oldContext
+        );
+
+        registry.bindInput(
+                pairingId,
+                latestProfile,
+                latestContext
+        );
+
+        assertThatThrownBy(
+                () -> registry.reserveForExecution(
+                        pairingId,
+                        latestProfile,
+                        oldContext
+                )
+        )
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        e -> assertThat(e.code())
+                                .isEqualTo("PAIRING_CONTEXT_MISMATCH")
+                );
+    }
+
+    @Test
+    void 실행이_시작되면_입력을_다시_바인딩할_수_없다() {
+        String pairingId = newPairing();
+
+        when(profile.profileId()).thenReturn("user-1");
+
+        ChickenStoreSessionContext changedContext =
+                mock(ChickenStoreSessionContext.class);
+
         registry.bindInput(pairingId, profile, context);
+        registry.reserveForExecution(pairingId, profile, context);
 
-        assertThatThrownBy(() -> registry.bindInput(pairingId, mock(CanonicalProfile.class), context))
-            .isInstanceOfSatisfying(ApiException.class,
-                e -> assertThat(e.code()).isEqualTo("PAIRING_PROFILE_CHANGED"));
-
-        assertThatThrownBy(() -> registry.bindInput(pairingId, profile, mock(ChickenStoreSessionContext.class)))
-            .isInstanceOfSatisfying(ApiException.class,
-                e -> assertThat(e.code()).isEqualTo("PAIRING_CONTEXT_CHANGED"));
+        assertThatThrownBy(
+                () -> registry.bindInput(
+                        pairingId,
+                        profile,
+                        changedContext
+                )
+        )
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        e -> assertThat(e.code())
+                                .isEqualTo("PAIRING_ALREADY_EXECUTING")
+                );
     }
 
     @Test
