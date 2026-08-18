@@ -11,6 +11,7 @@ import { 가격한도 } from "@/api/budget";
 import { 접근토큰 } from "@/api/token";
 import { 개인정보동의 } from "@/api/consent";
 import { 알레르기설정 } from "@/api/allergy";
+import { 사람식별자 } from "@/api/person";
 import { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것 } from "@/i18n/apply";
@@ -143,6 +144,9 @@ export default function App() {
       입력출처.되살리기(v.voiceUsed);
       개인정보동의.되살리기(v.consent);
       알레르기설정.되살리기(v.allergies, v.allergiesAnswered);
+      // 계정이 있으면 사람 식별자도 그 계정으로 되돌린다 — 새로고침 뒤에
+      // 게스트 값으로 돌아가면 같은 사람이 두 사람으로 세어진다(person.ts).
+      if (v.account) 사람식별자.계정으로(v.account.userId);
     }
     return v;
   });
@@ -596,6 +600,8 @@ export default function App() {
     계정세대.current += 1;
     const 내세대 = 계정세대.current;
     set계정(a);
+    // 이제 이 사람은 계정으로 식별된다(person.ts).
+    사람식별자.계정으로(a.userId);
     setScreen(다음화면);
     if (다음화면 === "saved") setTab("menu");
 
@@ -718,6 +724,11 @@ export default function App() {
      * 어느 쪽이 나쁜지는 분명하다.
      */
     알레르기설정.비우기();
+    /*
+     * 사람 식별자도 비운다. 계정 값을 그대로 두면 이 기기를 넘겨받은 다음
+     * 사람이 앞사람의 식별자로 주문한다 — 위와 같은 이유다(person.ts).
+     */
+    사람식별자.비우기();
     /*
      * 가격 한도도 같은 이유로 비운다(#96 리뷰).
      *
@@ -1404,6 +1415,8 @@ export default function App() {
                   // 알레르기도 지운다. 남겨 두면 다음 사람이 앞사람의 알레르기로
                   // 걸러진 목록을 보게 되고, 정작 자기 것은 안 걸러진다.
                   알레르기설정.비우기();
+                  // 사람 식별자도 지운다. "모두 지워요" 에 이 값만 빠질 이유가 없다.
+                  사람식별자.비우기();
                   /*
                    * 계정 프로필은 여기서 따로 안 비운다.
                    *

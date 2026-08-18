@@ -10,6 +10,18 @@ const 주문표 = (selections: Record<string, string[]>): OrderSheet => ({
   id: "p1", menuName: "닭강정", place: "음식점", selections, memo: "",
 });
 
+/*
+ * 사람 식별자를 못 박아 두고 부른다.
+ *
+ * 이 값은 주문표가 아니라 사람에게서 온다(api/person.ts). 시험은 사람이 누군지
+ * 모르므로 하나를 정해 두고 쓴다 — 여기서 주문표 id 를 넣으면 이 파일이
+ * 지키려는 것(둘이 다른 값이다)을 시험이 스스로 어긴다.
+ */
+const 사람 = "u_7";
+const 프로필 = (
+  opts: Omit<Parameters<typeof toCanonicalProfile>[0], "사람"> = {},
+) => toCanonicalProfile({ 사람, ...opts });
+
 describe("선택지를 enum 으로 옮긴다", () => {
   it("닭강정집 다섯 축이 모두 맞는다", () => {
     const c = toChickenStoreContext(주문표({
@@ -100,16 +112,20 @@ describe("선택지를 enum 으로 옮긴다", () => {
 describe("주문표에 실제 개인정보를 담지 않는다", () => {
   it("dataClassification 은 SYNTHETIC_PROFILE 이다", () => {
     // 심사 요건이다. 다른 값이면 실격 대상이 된다.
-    expect(toCanonicalProfile(주문표({})).dataClassification).toBe("SYNTHETIC_PROFILE");
+    expect(프로필().dataClassification).toBe("SYNTHETIC_PROFILE");
   });
 
   it("이름·전화번호가 들어갈 자리를 만들지 않는다", () => {
-    const c = toCanonicalProfile({ ...주문표({}), memo: "김할머니 010-1234-5678" });
-    const s = JSON.stringify(c);
-    expect(s).not.toContain("displayName");
-    expect(s).not.toContain("김할머니");
-    // 메모는 사용자가 자유롭게 적는 칸이라 그대로 보내지 않는다.
-    expect(s).not.toContain("010-");
+    /*
+     * 이제 이 함수는 주문표를 아예 안 받는다 — 메모 같은 자유 입력이 프로필로
+     * 흘러들 길이 없다. 그래도 시험을 남긴다: 계약의 displayName 이 선택 필드라
+     * 나중에 누가 "이름도 보내면 좋겠다" 며 채울 수 있는 자리다.
+     */
+    const c = 프로필();
+    expect(JSON.stringify(c)).not.toContain("displayName");
+    expect(Object.keys(c).sort()).toEqual([
+      "accessibility", "consent", "dataClassification", "interaction", "profileId", "source",
+    ]);
   });
 
   it("동의를 받은 것만 personalization: true 로 나간다", () => {
@@ -120,9 +136,9 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * 기본값도 false 다. 안 넘기면 못 받은 것이므로, 못 받은 동의를 받은 것처럼
      * 보내지 않는다.
      */
-    expect(toCanonicalProfile(주문표({}), { personalization: true }).consent.personalization).toBe(true);
-    expect(toCanonicalProfile(주문표({}), { personalization: false }).consent.personalization).toBe(false);
-    expect(toCanonicalProfile(주문표({})).consent.personalization).toBe(false);
+    expect(프로필({ personalization: true }).consent.personalization).toBe(true);
+    expect(프로필({ personalization: false }).consent.personalization).toBe(false);
+    expect(프로필().consent.personalization).toBe(false);
   });
 
   it("보관 정책이 화면의 실제 동작과 같다", () => {
@@ -135,11 +151,11 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * 어느 한 값이 아니라 **저장소와 계약이 같은 말을 하는가** 다 — 저장소를
      * 되돌리면 여기도 같이 되돌아와야 한다.
      */
-    expect(toCanonicalProfile(주문표({})).consent.retentionPolicy).toBe("UNTIL_USER_DELETES");
+    expect(프로필().consent.retentionPolicy).toBe("UNTIL_USER_DELETES");
   });
 
   it("안 켠 접근성 항목을 true 로 보내지 않는다", () => {
-    const a = toCanonicalProfile(주문표({})).accessibility;
+    const a = 프로필().accessibility;
     expect(Object.values(a).every((v) => v === false)).toBe(true);
   });
 
@@ -149,7 +165,7 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * 두었다. 백엔드는 일곱을 다 받을 준비가 돼 있었는데 화면이 안 물어서
      * 늘 "아무 도움도 필요 없음" 으로 나갔다.
      */
-    const a = toCanonicalProfile(주문표({}), {
+    const a = 프로필({
       접근성: { largeText: true, highContrast: true, hearingSupport: true },
     }).accessibility;
     expect(a.largeText).toBe(true);
@@ -161,7 +177,7 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
   });
 
   it("일곱 가지를 다 실어 보낸다 — 킷 계약 그대로", () => {
-    const a = toCanonicalProfile(주문표({})).accessibility;
+    const a = 프로필().accessibility;
     expect(Object.keys(a).sort()).toEqual([
       "hearingSupport", "highContrast", "largeText", "mobilitySupport",
       "simpleSteps", "staffAssistancePreferred", "visualGuidance",
@@ -176,7 +192,7 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * 화면 쪽 설정(도움설정)에는 소리 안내가 있어서, 예전처럼 통째로 펼쳐
      * 넘기면 그대로 딸려 나간다. 칸 이름을 적어 고르는 것이 그걸 막는다.
      */
-    const c = toCanonicalProfile(주문표({}), { 접근성: { largeText: true, voiceGuide: true } });
+    const c = 프로필({ 접근성: { largeText: true, voiceGuide: true } });
     expect(Object.keys(c.accessibility).sort()).toEqual([
       "hearingSupport", "highContrast", "largeText", "mobilitySupport",
       "simpleSteps", "staffAssistancePreferred", "visualGuidance",
@@ -191,7 +207,7 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * MULTIMODAL). 여태 "TOUCH" 로 박아 보내고 있었다. 로컬 백엔드로 확인했다 -
      * status VALID, contractValidation.valid true.
      */
-    expect(toCanonicalProfile(주문표({}), { 말로채웠나: true }).interaction.preferredInput).toBe("VOICE");
+    expect(프로필({ 말로채웠나: true }).interaction.preferredInput).toBe("VOICE");
   });
 
   it("읽어 주기를 켠 것만으로는 VOICE 가 아니다", () => {
@@ -200,17 +216,17 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * 한동안 앞엣것에서 뒤엣것을 끌어 썼는데 둘은 자주 어긋난다 — 손으로 고르고
      * 읽어 주기만 켠 사람이 "말로 넣는 사람" 으로 키오스크에 전해졌다(#99 리뷰).
      */
-    expect(toCanonicalProfile(주문표({}), { 접근성: { voiceGuide: true } }).interaction.preferredInput).toBe("TOUCH");
+    expect(프로필({ 접근성: { voiceGuide: true } }).interaction.preferredInput).toBe("TOUCH");
   });
 
   it("말로 채운 뒤 손으로 고쳐도 VOICE 그대로다", () => {
     // 몇 칸 고쳤다고 "말로 넣는 사람" 이 아니게 되지는 않는다.
-    expect(toCanonicalProfile(주문표({ "맵기": ["매운맛"] }), { 말로채웠나: true }).interaction.preferredInput).toBe("VOICE");
+    expect(프로필({ 말로채웠나: true }).interaction.preferredInput).toBe("VOICE");
   });
 
   it("안 켜면 그대로 TOUCH 다", () => {
-    expect(toCanonicalProfile(주문표({})).interaction.preferredInput).toBe("TOUCH");
-    expect(toCanonicalProfile(주문표({}), { 접근성: { largeText: true } }).interaction.preferredInput).toBe("TOUCH");
+    expect(프로필().interaction.preferredInput).toBe("TOUCH");
+    expect(프로필({ 접근성: { largeText: true } }).interaction.preferredInput).toBe("TOUCH");
   });
 
   it("고른 언어가 interaction.language 로 나간다", () => {
@@ -220,17 +236,17 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
      * 화면이 안 물어서 여태 "ko-KR" 로만 나가고 있었다.
      */
     for (const code of ["ko-KR", "en-US"] as const) {
-      expect(toCanonicalProfile(주문표({}), { 접근성: { language: code } }).interaction.language).toBe(code);
+      expect(프로필({ 접근성: { language: code } }).interaction.language).toBe(code);
     }
   });
 
   it("안 고르면 한국어다", () => {
-    expect(toCanonicalProfile(주문표({})).interaction.language).toBe("ko-KR");
+    expect(프로필().interaction.language).toBe("ko-KR");
   });
 
   it("언어도 accessibility 에 섞이지 않는다", () => {
     // voiceGuide 와 같은 이유다. 일곱 칸은 additionalProperties: false 다.
-    const c = toCanonicalProfile(주문표({}), { 접근성: { language: "en-US", voiceGuide: true } });
+    const c = 프로필({ 접근성: { language: "en-US", voiceGuide: true } });
     expect(Object.keys(c.accessibility).sort()).toEqual([
       "hearingSupport", "highContrast", "largeText", "mobilitySupport",
       "simpleSteps", "staffAssistancePreferred", "visualGuidance",
@@ -240,7 +256,7 @@ describe("주문표에 실제 개인정보를 담지 않는다", () => {
 
   it("수집 시각을 넘기면 그걸 쓴다 — 시계에 기대지 않는다", () => {
     const t = "2026-08-01T05:30:00.000Z";
-    expect(toCanonicalProfile(주문표({}), { collectedAt: t }).source.collectedAt).toBe(t);
+    expect(프로필({ collectedAt: t }).source.collectedAt).toBe(t);
   });
 });
 

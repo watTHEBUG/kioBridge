@@ -99,16 +99,37 @@ export const 수량숫자 = (v: string | undefined): number | null => {
  * 아예 보내지 않는다 — 화면이 수집하지 않는 값을 계약에 채워 넣을 이유가 없다.
  * dataClassification 은 SYNTHETIC_PROFILE 고정이다(심사 요건).
  */
+/*
+ * 주문표를 안 받는다.
+ *
+ * 예전에는 첫 인자가 주문표였다. 그 안에서 쓰던 것은 `p.id` 하나였고, 그것마저
+ * 사람 식별자 자리에 잘못 들어가 있던 값이다(아래 사람). 그걸 걷어내고 나니
+ * **프로필에는 주문표에서 오는 값이 하나도 없다** — 접근성·입력 방식·동의는
+ * 전부 사람과 기기의 값이다.
+ *
+ * 안 쓰는 인자를 남겨 두면 언젠가 누가 다시 쓴다. 그 자리가 방금 고친 자리다.
+ */
 export function toCanonicalProfile(
-  p: OrderSheet,
   opts: {
+    /**
+     * 이 사람의 가명 식별자(api/person.ts). **주문표 id 가 아니다.**
+     *
+     * 여기 주문표 id 를 넣던 때가 있었다. 이름이 같아서 자연스러워 보였지만
+     * 계약이 요구하는 것은 사람 단위로 유지되는 값이다 — 주문표 id 를 넣으면
+     * 주문표를 하나 더 만들 때마다 킷이 보기에 사람이 하나 더 늘고, 한 연결
+     * 안에서 주문표를 바꾸면 서버가 다른 사람으로 읽는다.
+     *
+     * 기본값을 두지 않는다. 이 함수는 누가 쓰는지 알 수 없고, 모르는 채로
+     * 지어내면 그 값이 조용히 계약으로 나간다.
+     */
+    사람: string;
     providerId?: string; collectedAt?: string; 접근성?: Partial<도움설정>; personalization?: boolean;
     /** 이번 이용에서 말로 채운 적이 있나. voiceGuide 와 다른 값이다 — inputsource.ts 를 보라. */
     말로채웠나?: boolean;
-  } = {},
+  },
 ): CanonicalProfile {
   return {
-    profileId: p.id,
+    profileId: opts.사람,
     dataClassification: "SYNTHETIC_PROFILE",
     source: {
       collectionChannel: "WEB_FORM",
@@ -320,13 +341,15 @@ export interface ContextNormalizationInput {
   collectionMetadata: { source: "WEB_FORM"; confidence: number; confirmedByUser: boolean; capturedAt?: string };
 }
 
+// 여기도 주문표를 안 받는다 — 이유는 toCanonicalProfile 의 같은 자리 주석에 있다.
 export function toProfileNormalizationInput(
-  p: OrderSheet,
   opts: {
+    /** 뜻은 toCanonicalProfile 의 같은 이름 주석에 있다. */
+    사람: string;
     collectedAt?: string; 접근성?: Partial<도움설정>; personalization?: boolean; 말로채웠나?: boolean;
-  } = {},
+  },
 ): ProfileNormalizationInput {
-  const c = toCanonicalProfile(p, opts);
+  const c = toCanonicalProfile(opts);
   // providerId 와 dataClassification 은 서버가 채운다. 보내지 않는다.
   return {
     profileId: c.profileId,
