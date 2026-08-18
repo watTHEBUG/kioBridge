@@ -311,6 +311,17 @@ export default function App() {
    * 아니다 — 시간은 아직 남아 있었고, 다 쓴 것이다(팀 #146).
    */
   const [qr끝난이유, setQr끝난이유] = useState<"만료" | "다썼음">("만료");
+  /*
+   * 이 연결로 이미 담기 시작한 주문표.
+   *
+   * 한 연결로는 한 주문표만 담을 수 있다. 서버가 최초 확인 조건을 고정해 두고
+   * 승인 때 대조하기 때문이다(PairingRegistry.bindInput) — 다른 주문표를 고르면
+   * PAIRING_CONTEXT_CHANGED 로 막히는데, 그때 뜨는 것은 서버 문장이고 되돌아갈
+   * 길도 안 준다. 화면에서 **누르기 전에** 말한다(SavedSheetsScreen 의 묶인주문표).
+   *
+   * 연결이 끝날 때 같이 비운다 — 새 QR 을 찍으면 아무 주문표나 다시 고를 수 있다.
+   */
+  const [묶인주문표, set묶인주문표] = useState<string | null>(null);
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
   /**
    * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
@@ -545,6 +556,8 @@ export default function App() {
      */
     if (이어서주문할까) {
       setOrderSheet(p);
+      // 이 연결은 이제 이 주문표에 묶인다(묶인주문표 주석).
+      if (pairingId) set묶인주문표(p.id);
       setScreen("order-confirm");
     } else {
       setScreen("saved");
@@ -779,6 +792,7 @@ export default function App() {
     const 되돌리기 = () => {
       setQr끝난이유("만료");
       setPairingId(null);
+      set묶인주문표(null);
       setPairingExpiresAt(null);
       setPairingKiosk(null);
       setOrderSheet(null);
@@ -1303,8 +1317,15 @@ export default function App() {
               onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
-              onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}
+              onOrder={(p) => {
+                registerSheet(p);
+                setOrderSheet(p);
+                // 이 연결은 이제 이 주문표에 묶인다(묶인주문표 주석).
+                if (pairingId) set묶인주문표(p.id);
+                setScreen("order-confirm");
+              }}
               showOrder={fromQr}
+              묶인주문표={묶인주문표}
             />
           )}
           {screen === "order-confirm" && pairingId && orderSheet && (
@@ -1321,6 +1342,7 @@ export default function App() {
               on연결끝남={() => {
                 setQr끝난이유("다썼음");
                 setPairingId(null);
+                set묶인주문표(null);
                 setPairingExpiresAt(null);
                 setPairingKiosk(null);
                 setOrderSheet(null);
