@@ -3,6 +3,7 @@ import { createApi, createTeamBackend, type Backend, type EvidenceSummary, type 
 import { KioBridgeError, getSheet, registerSheet } from "./client";
 import type { OrderSheet } from "@/domain/types";
 import { 알레르기설정 } from "@/api/allergy";
+import { 사람식별자 } from "@/api/person";
 
 // 백엔드가 아직 없으므로, 명세서대로 응답하는 가짜를 만들어 조립이 맞는지 본다.
 // 이 테스트가 통과한다는 건 "백엔드가 명세대로 주면 화면이 돈다" 는 뜻이다.
@@ -650,6 +651,9 @@ afterEach(() => {
    * 앞으로 생길 시험까지 덮는다.
    */
   알레르기설정.비우기();
+  // 사람 식별자도 같은 이유로 되돌린다. 앞 시험이 로그인해 두면 다음 시험의
+  // 요청에 그 계정이 실린다.
+  사람식별자.비우기();
 });
 
 const 응답 = (body: unknown, status = 200) =>
@@ -1543,6 +1547,50 @@ describe("팀 백엔드의 새 경로를 실제 모양대로 부른다", () => {
     });
     // 사용자가 화면에서 직접 골랐다. 추론한 게 아니므로 확신도를 낮춰 적지 않는다.
     expect(정규화요청[0].collectionMetadata).toMatchObject({ source: "WEB_FORM", confidence: 1, confirmedByUser: true });
+  });
+
+  /*
+   * profileId 는 **사람**이지 주문표가 아니다.
+   *
+   * 여태 주문표 id 를 그대로 실어 보냈다. 그러면 둘이 어긋난다 —
+   *   ① 킷이 이 값으로 사람을 세면 주문표 개수만큼 사람이 있는 것으로 센다.
+   *   ② 한 연결 안에서 주문표를 바꾸면 서버가 다른 사람으로 읽고
+   *      PAIRING_PROFILE_CHANGED 로 막는다(PairingRegistry.bindInput).
+   */
+  const 정규화요청받기 = () => {
+    const 담을곳: Record<string, unknown>[] = [];
+    const 답 = 경로별응답();
+    globalThis.fetch = vi.fn(async (u: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (String(u).includes("profile-normalizations")) 담을곳.push(body);
+      return 응답(답(String(u), body));
+    }) as unknown as typeof fetch;
+    return 담을곳;
+  };
+  const 보낸사람 = (요청: Record<string, unknown>) =>
+    (요청.profileInput as { profileId: string }).profileId;
+
+  it("profileId 로 주문표 id 를 보내지 않는다", async () => {
+    사람식별자.계정으로(7);
+    const 요청 = 정규화요청받기();
+    const b = createTeamBackend("/api/bff");
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+
+    expect(보낸사람(요청[0])).toBe("u_7");
+    expect(보낸사람(요청[0])).not.toBe(목주문표.id);
+  });
+
+  it("주문표를 바꿔도 profileId 는 그대로다", async () => {
+    // 같은 사람이 다른 주문표를 고른 것뿐이다. 사람이 바뀐 게 아니다.
+    사람식별자.계정으로(7);
+    const 요청 = 정규화요청받기();
+    const b = createTeamBackend("/api/bff");
+    const 다른주문표 = { ...목주문표, id: "p2", selections: { "맵기": ["순한맛"] } };
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p1", profile: 목주문표 });
+    await b.filterCandidates({ environmentId: "chicken-store", profileId: "p2", profile: 다른주문표 });
+
+    expect(요청).toHaveLength(2);
+    expect(보낸사람(요청[0])).toBe(보낸사람(요청[1]));
   });
 
   it("정규화가 만든 표준형을 그대로 다음 호출에 쓴다", async () => {
