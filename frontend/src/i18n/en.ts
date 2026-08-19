@@ -57,8 +57,6 @@ export const EN: Record<string, string> = {
   "끝내기": "Done",
   // 앞 질문으로 되돌아가는 단추. 말로도 갈 수 있다("back"·"previous").
   "앞 질문": "Previous question",
-  "가입 없이 바로 쓸 수 있고, 저장하지 않은 내용은 이번 한 번만 쓰고 지워집니다":
-    "No sign-up needed, and anything you don't save is used once, then erased",
   /*
    * 듣는 중 안내 두 줄. 화면에 그대로 박혀 있어서 영어 화면에도 우리말이
    * 남아 있었다(#145 리뷰). 이어 듣기냐 아니냐로 문장이 갈린다.
