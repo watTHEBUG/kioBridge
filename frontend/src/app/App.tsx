@@ -256,14 +256,25 @@ export default function App() {
   /*
    * 겹을 연 단추. 닫을 때 여기로 포커스를 돌려보낸다.
    *
-   * 여는 순간의 document.activeElement 를 잡는다. 겹이 뜬 **뒤**에 잡으면 늦다 —
-   * 그때는 아래 칸에 inert 가 걸려 브라우저가 이미 포커스를 body 로 옮겨 놓는다.
+   * **누른 그 단추(currentTarget)를 먼저 본다.** 처음에는 document.activeElement
+   * 하나만 봤는데, 그건 '지금 포커스된 것' 이지 '이 겹을 연 것' 이 아니다. 크롬은
+   * 단추를 클릭하면 포커스도 주므로 우연히 같았지만, 사파리는 클릭으로 단추에
+   * 포커스를 주지 않는다 — 거기서는 activeElement 가 body 라 복원이 조용히 빠진다.
+   * 이벤트가 들고 오는 값이 정답이고, 그게 없을 때만(호출 쪽이 이벤트를 안 넘기는
+   * 자리) activeElement 로 물러난다.
+   *
+   * 여는 **순간**에 잡는다. 겹이 뜬 뒤에 잡으면 늦다 — 그때는 아래 칸에 inert 가
+   * 걸려 브라우저가 이미 포커스를 body 로 옮겨 놓는다.
    */
   const 겹열기전포커스 = useRef<HTMLElement | null>(null);
   const 앞겹떠있었나 = useRef(false);
-  const 겹열기 = (열기: () => void): void => {
+  const 겹열기 = (열기: () => void) => (e?: { currentTarget?: unknown }): void => {
+    const 누른것 = e?.currentTarget;
     const 지금 = document.activeElement;
-    겹열기전포커스.current = 지금 instanceof HTMLElement && 지금 !== document.body ? 지금 : null;
+    겹열기전포커스.current =
+      누른것 instanceof HTMLElement ? 누른것
+      : 지금 instanceof HTMLElement && 지금 !== document.body ? 지금
+      : null;
     열기();
   };
   useEffect(() => 개인정보동의.구독(() => set동의(개인정보동의.읽기())), []);
@@ -1198,7 +1209,25 @@ export default function App() {
       style={{ backgroundColor: BACKDROP, fontFamily: FONT }}
     >
       <style>{PALETTE_STYLES}{FOCUS_STYLES}</style>
-      {시연패널보임 && <ScenarioPanel />}
+      {/*
+        시연 패널도 겹 뒤에서는 잠근다.
+
+        틀 **밖**에 있어서 틀 안의 inert 가 안 닿는다. 넓은 화면에서 ?demo=1 로
+        열면 이 패널에 단추가 열 개 있고, 겹을 띄운 채 Tab 을 돌리면 열 번째에
+        여기로 빠져나갔다(1440px 에서 재서 확인). 좁은 화면에서는 hidden 이라
+        안 보이지만, 시연·심사는 넓은 화면에서 한다.
+
+        감싸는 칸은 display: contents 다. 그냥 div 로 감싸면 **그 div 가** 바깥
+        가로 정렬의 자식이 되어, 패널이 들고 있던 hidden lg:flex 와 self-start 가
+        플렉스 자식 자리에서 빠진다 — 좁은 화면에서도 자리를 차지하고 세로 정렬도
+        어긋난다. contents 는 상자를 안 만들어 패널이 그대로 자식이 되고, inert 는
+        상자와 무관하게 아래로 이어진다.
+      */}
+      {시연패널보임 && (
+        <div style={{ display: "contents" }} {...(겹떠있나 ? { inert: "" } : {})}>
+          <ScenarioPanel />
+        </div>
+      )}
       {/*
         앱을 덮는 겹으로 띄운다. 다른 주소로 옮기면 페이지가 새로 뜨고 기록은
         메모리에만 있어서 그때 다 사라진다 — 주문을 마치고 보러 가면 늘 0건이 된다.
@@ -1276,8 +1305,8 @@ export default function App() {
               소리켜짐={접근성값.voiceGuide}
               on소리={() => 접근성설정.바꾸기({ voiceGuide: !접근성값.voiceGuide })}
               on동의={(v) => 개인정보동의.바꾸기(v)}
-              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
-              on도움={() => 겹열기(() => set도움겹(true))}
+              onPrivacy={겹열기(() => set개인정보겹(true))}
+              on도움={겹열기(() => set도움겹(true))}
               // 익명 시작: 계정 화면을 거치지 않고 바로 본 화면으로 간다.
               /*
                * 곧장 주문표 만들기로 보낸다.
@@ -1308,7 +1337,7 @@ export default function App() {
             <LoginScreen
               동의함={동의}
               on동의={(v) => 개인정보동의.바꾸기(v)}
-              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
+              onPrivacy={겹열기(() => set개인정보겹(true))}
               // 이미 계정이 있는 사람이다. 호칭은 서버가 갖고 있지 않지만 다시 묻지 않는다 —
               // 로그인할 때마다 호칭을 적게 하면 로그인이 가입보다 번거로워진다.
               // 계정 화면은 호칭이 없으면 아이디를 부른다.
@@ -1321,7 +1350,7 @@ export default function App() {
             <SignupScreen
               동의함={동의}
               on동의={(v) => 개인정보동의.바꾸기(v)}
-              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
+              onPrivacy={겹열기(() => set개인정보겹(true))}
               // 가입 직후에는 서버에 주문표가 없다. 그래도 같은 경로를 탄다 —
               // 갈래를 둘로 두면 한쪽만 고치는 날이 온다. 빈 목록이면 아무 일도 안 한다.
               onDone={(a) => 계정으로들어가기(a, "name")}
@@ -1618,7 +1647,7 @@ export default function App() {
               // 끊으면 QR 을 다시 찍는 것 말고 되돌릴 방법이 없다.
               onSheets={() => { setTab("menu"); if (!pairingId) setFromQr(false); }}
               onA11y={() => setScreen("a11y")}
-              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
+              onPrivacy={겹열기(() => set개인정보겹(true))}
             />
           )}
           {screen === "a11y" && (
