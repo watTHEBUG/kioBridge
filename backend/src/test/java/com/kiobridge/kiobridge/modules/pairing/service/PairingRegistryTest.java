@@ -175,7 +175,7 @@ class PairingRegistryTest {
     }
 
     @Test
-    void 승인_입력도_최초_스냅샷과_같아야_한다() {
+    void 승인_입력도_마지막으로_바인딩한_스냅샷과_같아야_한다() {
         String pairingId = newPairing();
         registry.bindInput(pairingId, profile, context);
 

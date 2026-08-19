@@ -18,12 +18,15 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * 브라우저에 RC5 sessionId를 노출하지 않고 단명 pairingId로 감싼다.
  *
- * pairingId는 이번 연결의 bearer capability다.
- * 사용자 profileId는 pairing 동안 변경할 수 없고,
- * 실행 전까지 최신 정규화 profile/sessionContext를 갱신할 수 있다.
+ * pairingId는 이번 연결의 bearer capability다. 사용자 profileId는 pairing 동안
+ * 변경할 수 없고, 실행 전까지 같은 사용자의 최신 정규화 profile/sessionContext로
+ * 다시 바인딩할 수 있다. 주문표를 다시 고르는 것은 사람이 바뀐 것이 아니기 때문이다.
  *
  * 승인 시에는 마지막으로 바인딩한 입력과 승인 입력이 정확히 같은지 검증하고,
  * 한 요청만 EXECUTING 상태로 전환한다.
+ *
+ * SIMULATION_ONLY 단일 인스턴스용 구현이다. 실제품/다중 인스턴스에서는 같은 원자적
+ * 상태 전이를 Redis 또는 DB로 옮기고 실제 Agent claim 검증을 앞단에 추가해야 한다.
  */
 @Service
 public class PairingRegistry {
@@ -72,8 +75,8 @@ public class PairingRegistry {
     }
 
     /**
-     * 사용자 프로필 identity를 pairing에 묶고,
-     * 실행 전까지 최신 정규화 입력으로 갱신한다.
+     * 사용자 identity(profileId)를 pairing에 묶고, 실행 전까지 같은 사용자의
+     * 최신 정규화 입력으로 갱신한다.
      */
     public void bindInput(
             String pairingId,
@@ -99,8 +102,8 @@ public class PairingRegistry {
                 return binding.withInput(profile, sessionContext);
             }
 
-            // pairing에 연결된 사용자는 바꿀 수 없다.
-            // collectedAt 같은 정규화 메타데이터가 아니라 안정적인 profileId로 identity를 비교한다.
+            // pairing에 연결된 사람은 바꿀 수 없다. 주문표와 함께 달라지는 전체
+            // profile 값이 아니라 사람 단위로 안정적인 profileId로 identity를 비교한다.
             if (!Objects.equals(
                     binding.profileSnapshot().profileId(),
                     profile.profileId()
@@ -112,8 +115,8 @@ public class PairingRegistry {
             }
 
             /*
-             * 같은 사용자라면 실행 전까지
-             * 최신 정규화 profile + sessionContext로 갱신한다.
+             * 같은 사용자라면 실행 전까지 최신 정규화 profile + sessionContext로
+             * 갱신한다. 뒤로 가서 다른 주문표를 고른 경우도 이 경로를 탄다.
              *
              * profile도 같이 갱신하는 이유:
              * collectedAt 같은 정규화 메타데이터가 새로 만들어질 수 있기 때문.
