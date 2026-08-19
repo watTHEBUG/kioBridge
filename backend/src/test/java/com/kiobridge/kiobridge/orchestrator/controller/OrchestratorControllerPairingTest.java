@@ -41,6 +41,7 @@ class OrchestratorControllerPairingTest {
         ChickenStoreSessionContext context = mock(ChickenStoreSessionContext.class);
         Recommendation recommendation = mock(Recommendation.class);
         UserDecision decision = mock(UserDecision.class);
+        when(profile.profileId()).thenReturn("user-1");
         String pairingId = registry.register(
             "SIM-SECRET-001", "chicken-store", "SERVICE_TYPE"
         ).pairingId();
@@ -97,6 +98,7 @@ class OrchestratorControllerPairingTest {
         ChickenStoreSessionContext context = mock(ChickenStoreSessionContext.class);
         Recommendation recommendation = mock(Recommendation.class);
         UserDecision decision = mock(UserDecision.class);
+        when(profile.profileId()).thenReturn("user-1");
         String pairingId = registry.register(
             "SIM-SECRET-001", "chicken-store", "SERVICE_TYPE"
         ).pairingId();
@@ -131,6 +133,8 @@ class OrchestratorControllerPairingTest {
         ChickenStoreSessionContext context = mock(ChickenStoreSessionContext.class);
         Recommendation recommendation = mock(Recommendation.class);
         UserDecision decision = mock(UserDecision.class);
+        when(boundProfile.profileId()).thenReturn("user-1");
+        when(changedProfile.profileId()).thenReturn("user-2");
         String pairingId = registry.register(
             "SIM-SECRET-001", "chicken-store", "SERVICE_TYPE"
         ).pairingId();

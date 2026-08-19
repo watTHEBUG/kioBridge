@@ -654,14 +654,6 @@ export const EN: Record<string, string> = {
   "메뉴를 먼저 찾아야 해요": "We need to find the menu first",
   "주문표를 찾을 수 없어요": "We can’t find that order card",
   "연결이 만료됐어요. QR을 다시 찍어 주세요": "The session expired. Please scan the QR code again",
-  /*
-   * 한 연결로는 한 주문표만 담을 수 있다(PairingRegistry.bindInput). 누르기 전에
-   * 말해 주는 줄이라, 여기 빠지면 영어를 쓰는 분은 왜 단추가 잠겼는지 못 읽는다.
-   */
-  "지금 연결로는 '{이름}' 만 담을 수 있어요. 다른 주문표로 하시려면 QR 을 다시 찍어 주세요.":
-    "This session can only add '{이름}'. To use a different order card, please scan the QR code again.",
-  "지금 연결로는 먼저 고르신 주문표만 담을 수 있어요. 다른 주문표로 하시려면 QR 을 다시 찍어 주세요.":
-    "This session can only add the order card you picked first. To use a different one, please scan the QR code again.",
   "저장하신 조건을 서버가 읽지 못했어요": "The server couldn’t read your saved preferences",
   "저장하신 조건을 다시 확인해 주세요": "Please check your saved preferences again",
   "저장하신 알레르기 중에 저희가 확인하지 못한 것이 있어요. 주문표에서 다시 골라 주시거나 직원에게 도움을 청해 주세요.":
