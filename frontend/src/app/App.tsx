@@ -11,6 +11,7 @@ import { 가격한도 } from "@/api/budget";
 import { 접근토큰 } from "@/api/token";
 import { 개인정보동의 } from "@/api/consent";
 import { 알레르기설정 } from "@/api/allergy";
+import { 사람식별자 } from "@/api/person";
 import { AllergenId } from "@/api/canonical";
 import { 이어쓰기 } from "@/api/session";
 import { 영어로바꾸기, 되돌리기, 안바뀐것 } from "@/i18n/apply";
@@ -292,6 +293,27 @@ export default function App() {
   // 되돌릴 수 없는 동작은 물어보고 실행한다. null 이면 물어볼 게 없다는 뜻이다.
   const [확인대기, set확인대기] = useState<{ title: string; body: string; confirmLabel: string; run: () => void } | null>(null);
   const [pairingId, setPairingId] = useState<string | null>(null);
+  /*
+   * 사람 식별자를 계정과 맞춘다 — **연결이 없을 때만.**
+   *
+   * 로그인하면 이 사람은 계정으로 식별된다(person.ts). 그런데 QR 로 붙어 있는
+   * 동안 바꾸면, 서버가 처음 고정해 둔 프로필과 달라져 다음 요청이
+   * PAIRING_PROFILE_CHANGED 로 거절당한다(PairingRegistry.bindInput).
+   *
+   * 그래서 붙어 있는 동안은 그대로 둔다. 게스트로 시작한 주문은 게스트 값으로
+   * 끝난다 — 계약이 요구하는 것은 **한 흐름 안에서 안 바뀌는 것**이고, 그 흐름은
+   * 이 연결이다(person.ts 의 게스트 항목).
+   *
+   * 연결을 끊는 쪽도 생각했는데, 사용자가 로그인했다는 이유로 붙여 둔 연결을
+   * 잃는다. 잃을 이유가 없다 — 사람이 바뀐 것이 아니라 그 사람이 누구인지
+   * 알게 된 것뿐이다.
+   *
+   * 연결이 끝나면 이 효과가 다시 돌아 계정 값으로 맞춰진다. 새로고침해서
+   * 계정을 되살릴 때도 여기로 온다(연결은 안 되살아난다 — P0-2).
+   */
+  useEffect(() => {
+    if (계정 && !pairingId) 사람식별자.계정으로(계정.userId);
+  }, [계정, pairingId]);
   // 만료 시각을 루트가 들고 있어야 한다. 예전에는 QrScreen 안에만 있어서
   // 주문표를 고르는 순간 그 화면이 사라지고 감시도 같이 사라졌다.
   // 그러면 이미 끝난 연결로 승인까지 진행되고, 화면은 아무 말도 하지 않는다.
@@ -307,6 +329,17 @@ export default function App() {
    * 아니다 — 시간은 아직 남아 있었고, 다 쓴 것이다(팀 #146).
    */
   const [qr끝난이유, setQr끝난이유] = useState<"만료" | "다썼음">("만료");
+  /*
+   * 이 연결로 이미 담기 시작한 주문표.
+   *
+   * 한 연결로는 한 주문표만 담을 수 있다. 서버가 최초 확인 조건을 고정해 두고
+   * 승인 때 대조하기 때문이다(PairingRegistry.bindInput) — 다른 주문표를 고르면
+   * PAIRING_CONTEXT_CHANGED 로 막히는데, 그때 뜨는 것은 서버 문장이고 되돌아갈
+   * 길도 안 준다. 화면에서 **누르기 전에** 말한다(SavedSheetsScreen 의 묶인주문표).
+   *
+   * 연결이 끝날 때 같이 비운다 — 새 QR 을 찍으면 아무 주문표나 다시 고를 수 있다.
+   */
+  const [묶인주문표, set묶인주문표] = useState<string | null>(null);
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
   /**
    * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
@@ -540,8 +573,25 @@ export default function App() {
      * 보인다.
      */
     if (이어서주문할까) {
-      setOrderSheet(p);
-      setScreen("order-confirm");
+      /*
+       * 이미 다른 주문표에 묶인 연결이면 확인 화면으로 안 보낸다.
+       *
+       * 여기는 목록을 안 지나는 길이라(저장하고 바로 시작) 목록의 가드를 그냥
+       * 지나쳤다. 그대로 두면 묶인 값을 덮어쓰고 확인 화면까지 갔다가 서버가
+       * 거기서 막는다 — 되돌릴 수 없는 자리에서 처음 알게 된다.
+       *
+       * 목록으로 내려놓으면 왜 안 되는지 그 자리에 적혀 있다(SavedSheetsScreen
+       * 의 묶인주문표). 주문표는 이미 저장됐으니 잃는 것도 없다.
+       */
+      if (묶인주문표 !== null && 묶인주문표 !== p.id) {
+        setScreen("saved");
+        setTab("menu");
+      } else {
+        setOrderSheet(p);
+        // 이 연결은 이제 이 주문표에 묶인다(묶인주문표 주석).
+        if (pairingId) set묶인주문표(p.id);
+        setScreen("order-confirm");
+      }
     } else {
       setScreen("saved");
       setTab("menu");
@@ -579,7 +629,17 @@ export default function App() {
      * 고치는 순간 이 기기(session.ts)와 서버(주문표올리기)에 남는다. 사용자는
      * 다시 저장하겠다고 고른 적이 없다.
      */
-    주문표넣기(있던것?.임시 === true ? { ...p, 임시: true } : p);
+    /*
+     * 이어서 주문할 뜻을 그대로 넘긴다.
+     *
+     * 여기서 빠뜨리고 있었다. 기본값이 false 라, **게스트가 새 주문표를 만드는
+     * 길 말고는** '시작하기' 가 목록으로 떨어졌다 — 로그인한 사람이 새로 만들
+     * 때도, 누구든 기존 주문표를 고쳐서 시작할 때도 그랬다.
+     *
+     * 저장과 시작을 한 단추로 묶은 것이 이 기능인데(주문표넣기 주석) 그 절반이
+     * 조용히 안 되고 있었다.
+     */
+    주문표넣기(있던것?.임시 === true ? { ...p, 임시: true } : p, 이어서주문할까);
   };
 
   /**
@@ -689,6 +749,22 @@ export default function App() {
     set계정(null);
     setName("");
     setFromQr(false);
+    /*
+     * 연결도 끊는다.
+     *
+     * 여태 fromQr 만 껐다. 그러면 연결 자체는 살아 있어서, QR 탭이 앞사람의
+     * 연결을 '연결됨' 으로 보여 주고 거기서 주문까지 이어갈 수 있었다 —
+     * **다음 사람이 앞사람의 키오스크 세션으로 주문한다.** pairingId 는
+     * 키오스크를 움직일 수 있는 권한이다(P0-2).
+     *
+     * 아래 알레르기·가격 한도·동의를 비우는 것과 같은 판단이다. 로그아웃은
+     * 계정을 나가는 것이면서 이 기기를 다음 사람에게 넘기는 자리이기도 하다.
+     */
+    setPairingId(null);
+    setPairingExpiresAt(null);
+    setPairingKiosk(null);
+    setOrderSheet(null);
+    set묶인주문표(null);
     setTab("menu");
     setScreen("welcome");
     /*
@@ -718,6 +794,11 @@ export default function App() {
      * 어느 쪽이 나쁜지는 분명하다.
      */
     알레르기설정.비우기();
+    /*
+     * 사람 식별자도 비운다. 계정 값을 그대로 두면 이 기기를 넘겨받은 다음
+     * 사람이 앞사람의 식별자로 주문한다 — 위와 같은 이유다(person.ts).
+     */
+    사람식별자.비우기();
     /*
      * 가격 한도도 같은 이유로 비운다(#96 리뷰).
      *
@@ -768,6 +849,7 @@ export default function App() {
     const 되돌리기 = () => {
       setQr끝난이유("만료");
       setPairingId(null);
+      set묶인주문표(null);
       setPairingExpiresAt(null);
       setPairingKiosk(null);
       setOrderSheet(null);
@@ -1292,8 +1374,15 @@ export default function App() {
               onEditSheet={(p) => { set고칠주문표(p); setScreen("sheet"); }}
               // 매핑을 요청하기 전에 이 주문표를 서버가 찾을 수 있게 등록한다.
               // 실서비스에서는 주문표 저장 시점에 서버로 올라가고 이 줄은 사라진다.
-              onOrder={(p) => { registerSheet(p); setOrderSheet(p); setScreen("order-confirm"); }}
+              onOrder={(p) => {
+                registerSheet(p);
+                setOrderSheet(p);
+                // 이 연결은 이제 이 주문표에 묶인다(묶인주문표 주석).
+                if (pairingId) set묶인주문표(p.id);
+                setScreen("order-confirm");
+              }}
               showOrder={fromQr}
+              묶인주문표={묶인주문표}
             />
           )}
           {screen === "order-confirm" && pairingId && orderSheet && (
@@ -1310,6 +1399,7 @@ export default function App() {
               on연결끝남={() => {
                 setQr끝난이유("다썼음");
                 setPairingId(null);
+                set묶인주문표(null);
                 setPairingExpiresAt(null);
                 setPairingKiosk(null);
                 setOrderSheet(null);
@@ -1328,6 +1418,9 @@ export default function App() {
               onHome={() => {
                 setScreen("saved"); setFromQr(false);
                 setPlanId(null); setOrderSheet(null); setPairingId(null); setPairingExpiresAt(null); setPairingKiosk(null);
+                // 묶인 주문표도 같이 비운다. 안 비우면 다음 QR 연결에서 옛 주문표에
+                // 묶인 것으로 남아 다른 주문표가 계속 잠긴다(묶인주문표 주석).
+                set묶인주문표(null);
               }}
             />
           )}
@@ -1404,6 +1497,8 @@ export default function App() {
                   // 알레르기도 지운다. 남겨 두면 다음 사람이 앞사람의 알레르기로
                   // 걸러진 목록을 보게 되고, 정작 자기 것은 안 걸러진다.
                   알레르기설정.비우기();
+                  // 사람 식별자도 지운다. "모두 지워요" 에 이 값만 빠질 이유가 없다.
+                  사람식별자.비우기();
                   /*
                    * 계정 프로필은 여기서 따로 안 비운다.
                    *
@@ -1443,6 +1538,9 @@ export default function App() {
                   // 터지면서 QR 만료 화면으로 튕겨 나간다. 방금 다 지웠는데 왜 그러는지
                   // 사용자는 알 수 없다.
                   setPairingId(null); setPairingExpiresAt(null); setPairingKiosk(null); setFromQr(false);
+                  // 묶인 주문표도 같이 비운다 — "모두 지워요" 에 이 값만 빠질 이유가 없고,
+                  // 남기면 다음 QR 연결에서 다른 주문표가 잠긴다.
+                  set묶인주문표(null);
                   // 새로고침 너머로 넘기려고 적어 둔 것까지 지운다. 이걸 빼면
                   // "모두 지워요" 라고 말한 뒤 새로고침 한 번에 전부 되돌아온다.
                   이어쓰기.비우기();

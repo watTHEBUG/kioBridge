@@ -15,6 +15,7 @@ import { 가격한도 } from "@/api/budget";
 import { 개인정보동의 } from "@/api/consent";
 import { 입력출처 } from "@/api/inputsource";
 import { 알레르기설정 } from "@/api/allergy";
+import { 사람식별자 } from "@/api/person";
 
 /**
  * 팀 API 명세서의 경로와 1:1 로 맞춘 계층.
@@ -1538,7 +1539,14 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
      * 프로필 쪽도 같은 규칙이다. 지금은 두 자리 사이에 await 이 없어서 갈라질
      * 일이 없지만, 나중에 하나라도 끼면 캐시키와 보내는 값이 어긋난다(#96 리뷰).
      */
-    const 프로필입력 = toProfileNormalizationInput(p, {
+    const 프로필입력 = toProfileNormalizationInput({
+      /*
+       * 사람 식별자는 주문표가 아니라 사람에게서 온다(api/person.ts).
+       *
+       * 여기 주문표 id 를 넣던 때가 있었다. 그러면 한 연결 안에서 주문표를 바꿀
+       * 때 서버가 다른 사람으로 읽고 PAIRING_PROFILE_CHANGED 로 막았다.
+       */
+      사람: 사람식별자.읽기(),
       접근성: 접근성설정.읽기(),
       personalization: 개인정보동의.읽기(),
       말로채웠나: 입력출처.말로채운적있나(),
