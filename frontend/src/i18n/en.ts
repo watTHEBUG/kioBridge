@@ -212,6 +212,8 @@ export const EN: Record<string, string> = {
   "키오스크 앞에서 헤매지 않도록,": "So you never feel lost at a kiosk,",
   "저장해 둔 주문을 대신 담아드려요": "we add your saved order for you",
   "바로 시작하기": "Start now",
+  // 첫 화면에서 도움 설정을 여는 링크. 큰 글씨·고대비가 이 뒤에 있다.
+  "글씨와 색 바꾸기": "Change text size and colors",
   "가입 없이 바로 쓸 수 있어요.": "No sign-up needed.",
   "입력한 내용은 이번 한 번만 쓰고 지워집니다": "What you enter is used once, then erased",
   "로그인 (선택)": "Log in (optional)",

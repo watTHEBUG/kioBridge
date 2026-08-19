@@ -232,6 +232,27 @@ export default function App() {
    * 하단 탭으로 오가는 자리라 겹으로 띄우면 오히려 어색하다.
    */
   const [개인정보겹, set개인정보겹] = useState(false);
+  /*
+   * 첫 화면에서 여는 도움 설정. 같은 이유로 겹이다.
+   *
+   * **큰 글씨와 고대비가 문 뒤에 있었다.** 두 스위치는 도움 설정 화면에만 있고,
+   * 그 화면은 동의를 마쳐야 닿는다. 그런데 첫 화면이 앱에서 글씨가 가장 작은
+   * 화면이라, 글씨를 키워야 읽을 수 있는 분이 키우러 가려면 먼저 그 화면을
+   * 읽어야 했다.
+   *
+   * 이 팀은 이미 같은 논증을 한 번 했다 — 소리 스위치를 첫 화면으로 올린 것이
+   * 그것이다("읽어 줘야 읽을 수 있는 사람은 켜러 갈 수가 없었다", Welcome.tsx).
+   * 스위치 셋 중 하나에만 적용돼 있었다.
+   *
+   * 스위치를 두 개 더 얹지 않고 겹으로 여는 이유 — 첫 화면의 컨트롤이 이미
+   * 일곱이다. 여기서 둘을 더하면 한눈에 담기는 수(넷)를 크게 넘고, 세로도 모자란다.
+   */
+  const [도움겹, set도움겹] = useState(false);
+  /*
+   * 겹이 하나라도 떠 있나. inert·자동 포커스·소리 안내가 모두 이 값을 본다.
+   * 따로 두면 새 겹을 넣을 때 네 곳 중 한 곳을 빠뜨린다 — 실제로 그런 자리다.
+   */
+  const 겹떠있나 = 개인정보겹 || 도움겹;
   useEffect(() => 개인정보동의.구독(() => set동의(개인정보동의.읽기())), []);
   /*
    * 늘 피해야 하는 것. 저장소는 api/allergy.ts 에 있고 화면은 그걸 비춘다 —
@@ -926,7 +947,7 @@ export default function App() {
   useEffect(() => {
     // 겹이 떠 있으면 겹 안에서 찾는다. 아래 화면이 DOM 앞쪽이라 그냥 찾으면
     // 덮인 화면의 제목으로 포커스가 가고, 읽는 사람은 겹이 열린 줄도 모른다.
-    const 뿌리 = (개인정보겹 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]")) || 화면영역.current;
+    const 뿌리 = (겹떠있나 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]")) || 화면영역.current;
     if (!뿌리) return;
     // data-autofocus 로 표시한다. React 는 autoFocus prop 을 DOM 속성으로 남기지 않고
     // 커밋 때 focus() 를 직접 부르므로, [autofocus] 로는 찾을 수 없다.
@@ -942,7 +963,7 @@ export default function App() {
     대상.focus({ preventScroll: true });
 
     // 소리는 아래 '화면을 읽어 준다' 효과가 맡는다. 여기는 포커스만 옮긴다.
-  }, [screen, tab, 개인정보겹]);
+  }, [screen, tab, 겹떠있나]);
 
   /*
    * ── 화면을 읽어 준다 ─────────────────────────────────────────────────────
@@ -972,7 +993,7 @@ export default function App() {
    * 안내문 앞에 덮인 화면이 통째로 읽힌다(#36 리뷰).
    */
   const 읽을틀 = () =>
-    (개인정보겹 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]"))
+    (겹떠있나 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]"))
     || 화면영역.current?.closest<HTMLElement>("[data-frame]")
     || null;
 
@@ -1036,7 +1057,7 @@ export default function App() {
     }, 120);
     // 떠날 때도 멈춘다. 다음 화면이 읽기 시작하기 전에 조용해진다.
     return () => { clearTimeout(표); 그만읽기(); };
-  }, [screen, tab, 개인정보겹, 접근성값.voiceGuide, 접근성값.language]);
+  }, [screen, tab, 겹떠있나, 접근성값.voiceGuide, 접근성값.language]);
 
   useEffect(() => {
     if (!접근성값.voiceGuide) return;
@@ -1092,7 +1113,7 @@ export default function App() {
      *
      * 정리에서 타이머와 지켜보기를 둘 다 끊으므로, 새로 걸면 앞의 것이 안 남는다.
      */
-  }, [screen, tab, 개인정보겹, 접근성값.voiceGuide, 접근성값.language]);
+  }, [screen, tab, 겹떠있나, 접근성값.voiceGuide, 접근성값.language]);
 
   /*
    * 스위치를 끄거나 화면을 떠나면 읽던 것을 멈춘다.
@@ -1199,7 +1220,7 @@ export default function App() {
         <div
           className="flex-1 flex flex-col"
           style={{ minHeight: 0 }}
-          {...(개인정보겹 ? { inert: "" } : {})}
+          {...(겹떠있나 ? { inert: "" } : {})}
         >
         {/*
           화면이 들어오는 칸을 main 으로 둔다.
@@ -1221,6 +1242,7 @@ export default function App() {
               on소리={() => 접근성설정.바꾸기({ voiceGuide: !접근성값.voiceGuide })}
               on동의={(v) => 개인정보동의.바꾸기(v)}
               onPrivacy={() => set개인정보겹(true)}
+              on도움={() => set도움겹(true)}
               // 익명 시작: 계정 화면을 거치지 않고 바로 본 화면으로 간다.
               /*
                * 곧장 주문표 만들기로 보낸다.
@@ -1606,6 +1628,22 @@ export default function App() {
         {개인정보겹 && (
           <div className="absolute inset-0" style={{ zIndex: 20 }} data-겹>
             <PrivacyScreen guest={guest} onBack={() => set개인정보겹(false)} />
+          </div>
+        )}
+
+        {/*
+          첫 화면에서 연 도움 설정. 개인정보 겹과 같은 자리, 같은 규칙이다.
+
+          여기서 켠 것은 곧바로 앱 전체에 걸린다 — 접근성설정 이 한 저장소라,
+          닫고 나면 첫 화면 글씨부터 커져 있다. 동의 전에도 열린다. 그게 요점이다.
+        */}
+        {도움겹 && (
+          <div className="absolute inset-0" style={{ zIndex: 20 }} data-겹>
+            <AccessibilityScreen
+              설정={접근성값}
+              onChange={(한칸) => 접근성설정.바꾸기(한칸)}
+              onBack={() => set도움겹(false)}
+            />
           </div>
         )}
 

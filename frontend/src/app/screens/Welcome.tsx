@@ -13,13 +13,15 @@ import { AppLogo, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/u
  * onStart  익명으로 바로 시작 — 저장은 이번 한 번만, 기기에 남기지 않는다
  * onLogin  선택적 로그인 — 다음에도 불러오고 싶은 사람만 고른다
  */
-export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리, 언어, on언어 }: {
+export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, on도움, 소리켜짐, on소리, 언어, on언어 }: {
   onStart: () => void;
   onLogin: () => void;
   /** 동의 전에는 어느 길로도 못 들어간다 — 게스트로 시작하는 것도 정보를 쓰는 일이다. */
   동의함: boolean;
   on동의: (v: boolean) => void;
   onPrivacy: () => void;
+  /** 도움 설정을 겹으로 연다. 동의 전에도 열린다 — 이 화면을 읽으려고 여는 것이다. */
+  on도움: () => void;
   소리켜짐: boolean;
   on소리: () => void;
   /** 안내 언어. 이 화면 글도 이 값을 따라 바뀐다. */
@@ -40,25 +42,24 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
       {/*
-        flex: "1 1 auto" 다. 남으면 늘어나고(1) 모자라면 줄어들며(1), 바탕 크기는
-        글의 실제 높이(auto)다.
+        flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
+        실제 높이(auto)다.
 
-        예전에는 줄이는 쪽이 0 이었다. 바로 아래 주석이 "자리가 모자라면 사진이
-        양보한다" 고 적어 두었는데, shrink: 0 은 **절대 안 양보한다**는 뜻이라
-        적힌 것과 코드가 반대였다. 844px 틀 안에서는 티가 안 났지만, 틀보다 짧은
-        화면이나 개발 표시줄이 자리를 가져갈 때는 아래 칸이 밀려 나갔다.
+        **줄이는 쪽을 켜면 안 된다.** 한 번 1 1 auto + minHeight: 0 으로 바꿔
+        봤는데, 큰 글씨를 켜자 이 칸이 17px 로 짜부라지고 그 안의 195px 짜리
+        내용이 통째로 밖으로 넘쳐 아래 칸을 덮었다(로고가 잘리고 소개글이 스위치
+        위에 얹혔다). flex 칸은 줄어들 때 안의 글을 줄여 주지 않는다 — 상자만
+        줄고 글은 그대로 흘러넘친다. 자리가 모자랄 때 필요한 것은 이 칸이
+        양보하는 것이 아니라 **화면이 스크롤되는 것**이고, 그건 바깥 칸의
+        overflowY: auto 가 이미 한다.
 
-        minHeight: 0 이 함께 있어야 실제로 줄어든다 — flex 칸의 기본 최소 크기는
-        내용 크기라, 이것이 없으면 shrink 를 켜도 안 줄어든다.
-
-        **maxHeight 로 위를 막는다.** 안 막으면 이 칸이 남는 자리를 전부 가져간다.
-        실제로 그림·이름·소개 다 합쳐 141px 인 내용이 341px 을 쓰고 있었고, 그
-        바람에 아래 칸이 틀 밖으로 48px 밀려 났다. 260 은 141px 내용에 위아래
-        숨 쉴 자리를 남기는 값이다. 남는 자리는 아래 칸이 다 쓴 뒤 바닥에 남는다.
+        아래의 빈 칸(자리나눔)과 짝이다. 둘 다 늘어나므로 남는 자리를 나눠 갖고,
+        그래서 이 칸이 남는 자리를 **전부** 가져가지 않는다. 예전에는 다 가져가서
+        그림·이름·소개 다 합쳐 142px 인 내용이 240px 을 쓰고 있었다.
       */}
       <div
         className="flex flex-col items-center justify-center"
-        style={{ flex: "1 1 auto", minHeight: 0, maxHeight: 260, padding: `0 ${GAP.screenX}px 14px` }}
+        style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px` }}
       >
         <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
@@ -106,6 +107,34 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
             onToggle={on소리}
           />
         )}
+
+        {/*
+          글씨·색을 여기서 바꾼다. 소리 스위치와 같은 이유다.
+
+          큰 글씨와 고대비는 도움 설정 화면에만 있었고, 그 화면은 동의를 마쳐야
+          닿는다. 그런데 **이 화면이 앱에서 글씨가 가장 작다.** 글씨를 키워야
+          읽을 수 있는 분이 키우러 가려면 먼저 이 화면을 읽어야 했다. 소리
+          스위치를 여기 올린 논증이 그대로 적용되는데 셋 중 하나에만 적용돼 있었다.
+
+          스위치를 두 개 더 얹지 않고 링크로 여는 이유 — 이 칸의 컨트롤이 이미
+          많다. 둘을 더하면 한눈에 담기는 수를 넘고, 세로도 모자란다. 겹으로 열면
+          도움 설정 화면을 그대로 쓰므로 새로 만들 화면도 없다.
+
+          단추 크기는 44px 을 채운다. 손이 떨리는 분도 누를 수 있어야 하고,
+          이걸 누르러 오는 분이 바로 그런 분이다.
+        */}
+        <button
+          type="button"
+          onClick={on도움}
+          style={{
+            minHeight: 44, alignSelf: "center", padding: "0 8px",
+            background: "none", border: "none", cursor: "pointer",
+            ...TYPE.caption, color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3,
+          }}
+        >
+          글씨와 색 바꾸기
+        </button>
+
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
 
         {/*
@@ -227,6 +256,19 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
           ))}
         </div>
       </div>
+
+      {/*
+        자리나눔. 보이는 것은 없고 하는 일만 있다.
+
+        위 히어로 칸과 똑같이 늘어난다. 그래서 남는 자리를 둘이 반씩 나눠 갖고,
+        히어로가 혼자 다 가져가던 것이 절반으로 준다 — 아래 것들이 그만큼 올라온다.
+        자리가 모자라면 둘 다 안 늘어나고 화면이 스크롤된다.
+
+        maxHeight 로 히어로를 막는 방법도 있었는데 그건 위험하다. 글이 그 값보다
+        커지는 순간(큰 글씨·영어) 상자 밖으로 넘쳐 아래를 덮는다. 이쪽은 넘칠
+        상자가 없다.
+      */}
+      <div aria-hidden="true" style={{ flex: "1 0 auto" }} />
     </div>
   );
 }
