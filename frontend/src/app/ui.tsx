@@ -126,8 +126,15 @@ export function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
       <button
         type="button"
         onClick={onDetail}
+        /*
+         * minWidth 도 44 다. 높이만 잡아 두었더니 실제 폭이 43.9px 이었다 —
+         * 13px 글자 셋에 좌우 4px 여백이라 0.1px 이 모자랐다(재서 확인).
+         * 이 화면에서 기준에 걸치는 유일한 타깃이었고, 손이 떨리는 분에게
+         * 0.1px 은 없는 차이지만 규칙을 지키는 데 드는 값도 0 이다.
+         */
         style={{
-          flexShrink: 0, minHeight: 44, padding: "0 4px", background: "transparent", border: "none",
+          flexShrink: 0, minHeight: 44, minWidth: 44, padding: "0 6px",
+          background: "transparent", border: "none",
           color: TEXT_2, fontSize: 13, fontWeight: 700, textDecoration: "underline",
           fontFamily: FONT, cursor: "pointer",
         }}
