@@ -329,17 +329,6 @@ export default function App() {
    * 아니다 — 시간은 아직 남아 있었고, 다 쓴 것이다(팀 #146).
    */
   const [qr끝난이유, setQr끝난이유] = useState<"만료" | "다썼음">("만료");
-  /*
-   * 이 연결로 이미 담기 시작한 주문표.
-   *
-   * 한 연결로는 한 주문표만 담을 수 있다. 서버가 최초 확인 조건을 고정해 두고
-   * 승인 때 대조하기 때문이다(PairingRegistry.bindInput) — 다른 주문표를 고르면
-   * PAIRING_CONTEXT_CHANGED 로 막히는데, 그때 뜨는 것은 서버 문장이고 되돌아갈
-   * 길도 안 준다. 화면에서 **누르기 전에** 말한다(SavedSheetsScreen 의 묶인주문표).
-   *
-   * 연결이 끝날 때 같이 비운다 — 새 QR 을 찍으면 아무 주문표나 다시 고를 수 있다.
-   */
-  const [묶인주문표, set묶인주문표] = useState<string | null>(null);
   const [orderSheet, setOrderSheet] = useState<OrderSheet | null>(null);
   /**
    * 지금 고치고 있는 주문표. null 이면 새로 만드는 중이다.
@@ -573,25 +562,8 @@ export default function App() {
      * 보인다.
      */
     if (이어서주문할까) {
-      /*
-       * 이미 다른 주문표에 묶인 연결이면 확인 화면으로 안 보낸다.
-       *
-       * 여기는 목록을 안 지나는 길이라(저장하고 바로 시작) 목록의 가드를 그냥
-       * 지나쳤다. 그대로 두면 묶인 값을 덮어쓰고 확인 화면까지 갔다가 서버가
-       * 거기서 막는다 — 되돌릴 수 없는 자리에서 처음 알게 된다.
-       *
-       * 목록으로 내려놓으면 왜 안 되는지 그 자리에 적혀 있다(SavedSheetsScreen
-       * 의 묶인주문표). 주문표는 이미 저장됐으니 잃는 것도 없다.
-       */
-      if (묶인주문표 !== null && 묶인주문표 !== p.id) {
-        setScreen("saved");
-        setTab("menu");
-      } else {
-        setOrderSheet(p);
-        // 이 연결은 이제 이 주문표에 묶인다(묶인주문표 주석).
-        if (pairingId) set묶인주문표(p.id);
-        setScreen("order-confirm");
-      }
+      setOrderSheet(p);
+      setScreen("order-confirm");
     } else {
       setScreen("saved");
       setTab("menu");
@@ -764,7 +736,6 @@ export default function App() {
     setPairingExpiresAt(null);
     setPairingKiosk(null);
     setOrderSheet(null);
-    set묶인주문표(null);
     setTab("menu");
     setScreen("welcome");
     /*
@@ -849,7 +820,6 @@ export default function App() {
     const 되돌리기 = () => {
       setQr끝난이유("만료");
       setPairingId(null);
-      set묶인주문표(null);
       setPairingExpiresAt(null);
       setPairingKiosk(null);
       setOrderSheet(null);
@@ -1377,12 +1347,9 @@ export default function App() {
               onOrder={(p) => {
                 registerSheet(p);
                 setOrderSheet(p);
-                // 이 연결은 이제 이 주문표에 묶인다(묶인주문표 주석).
-                if (pairingId) set묶인주문표(p.id);
                 setScreen("order-confirm");
               }}
               showOrder={fromQr}
-              묶인주문표={묶인주문표}
             />
           )}
           {screen === "order-confirm" && pairingId && orderSheet && (
@@ -1399,7 +1366,6 @@ export default function App() {
               on연결끝남={() => {
                 setQr끝난이유("다썼음");
                 setPairingId(null);
-                set묶인주문표(null);
                 setPairingExpiresAt(null);
                 setPairingKiosk(null);
                 setOrderSheet(null);
@@ -1418,9 +1384,6 @@ export default function App() {
               onHome={() => {
                 setScreen("saved"); setFromQr(false);
                 setPlanId(null); setOrderSheet(null); setPairingId(null); setPairingExpiresAt(null); setPairingKiosk(null);
-                // 묶인 주문표도 같이 비운다. 안 비우면 다음 QR 연결에서 옛 주문표에
-                // 묶인 것으로 남아 다른 주문표가 계속 잠긴다(묶인주문표 주석).
-                set묶인주문표(null);
               }}
             />
           )}
@@ -1538,9 +1501,6 @@ export default function App() {
                   // 터지면서 QR 만료 화면으로 튕겨 나간다. 방금 다 지웠는데 왜 그러는지
                   // 사용자는 알 수 없다.
                   setPairingId(null); setPairingExpiresAt(null); setPairingKiosk(null); setFromQr(false);
-                  // 묶인 주문표도 같이 비운다 — "모두 지워요" 에 이 값만 빠질 이유가 없고,
-                  // 남기면 다음 QR 연결에서 다른 주문표가 잠긴다.
-                  set묶인주문표(null);
                   // 새로고침 너머로 넘기려고 적어 둔 것까지 지운다. 이걸 빼면
                   // "모두 지워요" 라고 말한 뒤 새로고침 한 번에 전부 되돌아온다.
                   이어쓰기.비우기();

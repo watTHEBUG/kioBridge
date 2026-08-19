@@ -18,9 +18,12 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * 브라우저에 RC5 sessionId를 노출하지 않고 단명 pairingId로 감싼다.
  *
- * pairingId는 이번 연결의 bearer capability다. 프런트는 메모리에만 보관하고,
- * 서버는 최초 매핑에 사용한 정규화 입력 전체를 고정한다. 승인 시 입력이 달라졌거나
- * 이미 실행 중인 연결이면 RC5를 호출하지 않는다.
+ * pairingId는 이번 연결의 bearer capability다. 사용자 profileId는 pairing 동안
+ * 변경할 수 없고, 실행 전까지 같은 사용자의 최신 정규화 profile/sessionContext로
+ * 다시 바인딩할 수 있다. 주문표를 다시 고르는 것은 사람이 바뀐 것이 아니기 때문이다.
+ *
+ * 승인 시에는 마지막으로 바인딩한 입력과 승인 입력이 정확히 같은지 검증하고,
+ * 한 요청만 EXECUTING 상태로 전환한다.
  *
  * SIMULATION_ONLY 단일 인스턴스용 구현이다. 실제품/다중 인스턴스에서는 같은 원자적
  * 상태 전이를 Redis 또는 DB로 옮기고 실제 Agent claim 검증을 앞단에 추가해야 한다.
@@ -71,31 +74,55 @@ public class PairingRegistry {
         );
     }
 
-    /** 최초 매핑 입력을 고정한다. 같은 입력의 재시도만 멱등하게 허용한다. */
+    /**
+     * 사용자 identity(profileId)를 pairing에 묶고, 실행 전까지 같은 사용자의
+     * 최신 정규화 입력으로 갱신한다.
+     */
     public void bindInput(
-        String pairingId,
-        CanonicalProfile profile,
-        ChickenStoreSessionContext sessionContext
+            String pairingId,
+            CanonicalProfile profile,
+            ChickenStoreSessionContext sessionContext
     ) {
         requireText(pairingId, "pairingId");
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(sessionContext, "sessionContext");
+        requireText(profile.profileId(), "profile.profileId");
 
-        pairings.compute(pairingId, (ignoredPairingId, current) -> { // current는 현재 저장된 연결 상태
-            Binding binding = requireUsable(current); // 존재 및 만료 검사를 통과한 연결
+        pairings.compute(pairingId, (ignoredPairingId, current) -> {
+            Binding binding = requireUsable(current);
+
             if (binding.status() == Status.EXECUTING) {
-                throw conflict("PAIRING_ALREADY_EXECUTING", "이미 처리 중인 연결입니다.");
+                throw conflict(
+                        "PAIRING_ALREADY_EXECUTING",
+                        "이미 처리 중인 연결입니다."
+                );
             }
+
+            // 첫 입력
             if (binding.profileSnapshot() == null) {
                 return binding.withInput(profile, sessionContext);
             }
-            if (!binding.profileSnapshot().equals(profile)) {
-                throw conflict("PAIRING_PROFILE_CHANGED", "연결 이후 프로필 정보가 변경되었습니다.");
+
+            // pairing에 연결된 사람은 바꿀 수 없다. 주문표와 함께 달라지는 전체
+            // profile 값이 아니라 사람 단위로 안정적인 profileId로 identity를 비교한다.
+            if (!Objects.equals(
+                    binding.profileSnapshot().profileId(),
+                    profile.profileId()
+            )) {
+                throw conflict(
+                        "PAIRING_PROFILE_CHANGED",
+                        "연결 이후 사용자 프로필이 변경되었습니다."
+                );
             }
-            if (!binding.contextSnapshot().equals(sessionContext)) {
-                throw conflict("PAIRING_CONTEXT_CHANGED", "연결 이후 주문 조건이 변경되었습니다.");
-            }
-            return binding;
+
+            /*
+             * 같은 사용자라면 실행 전까지 최신 정규화 profile + sessionContext로
+             * 갱신한다. 뒤로 가서 다른 주문표를 고른 경우도 이 경로를 탄다.
+             *
+             * profile도 같이 갱신하는 이유:
+             * collectedAt 같은 정규화 메타데이터가 새로 만들어질 수 있기 때문.
+             */
+            return binding.withInput(profile, sessionContext);
         });
     }
 
@@ -116,10 +143,10 @@ public class PairingRegistry {
                 throw conflict("PAIRING_INPUT_NOT_BOUND", "연결에 사용할 주문표가 아직 지정되지 않았습니다.");
             }
             if (!binding.profileSnapshot().equals(profile)) {
-                throw forbidden("PAIRING_PROFILE_MISMATCH", "최초 연결 프로필과 승인 프로필이 다릅니다.");
+                throw forbidden("PAIRING_PROFILE_MISMATCH", "마지막으로 바인딩한 프로필과 승인 프로필이 다릅니다.");
             }
             if (!binding.contextSnapshot().equals(sessionContext)) {
-                throw forbidden("PAIRING_CONTEXT_MISMATCH", "최초 확인 조건과 승인 조건이 다릅니다.");
+                throw forbidden("PAIRING_CONTEXT_MISMATCH", "마지막으로 바인딩한 주문 조건과 승인 조건이 다릅니다.");
             }
             if (binding.status() == Status.EXECUTING) {
                 throw conflict("PAIRING_ALREADY_EXECUTING", "이미 처리 중인 연결입니다.");
@@ -183,8 +210,8 @@ public class PairingRegistry {
         String rc5SessionId,                         // 서버 내부에서만 사용하는 실제 RC5 세션 ID
         String environmentId,                        // RC5 세션이 속한 시뮬레이션 환경 ID
         String initialState,                         // RC5 환경의 시작 상태
-        CanonicalProfile profileSnapshot,            // 최초 bind 시 고정한 사용자 프로필
-        ChickenStoreSessionContext contextSnapshot,  // 최초 bind 시 고정한 주문 조건
+        CanonicalProfile profileSnapshot,            // 실행 전에 마지막으로 바인딩한 사용자 프로필
+        ChickenStoreSessionContext contextSnapshot,  // 실행 전에 마지막으로 바인딩한 주문 조건
         Instant expiresAt,                           // 이 연결을 사용할 수 있는 마지막 시각
         Status status                                // 입력 대기·활성·실행 중 상태
     ) {

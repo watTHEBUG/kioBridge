@@ -282,7 +282,6 @@ export const 숫자만읽기 = (글: string): number | null => {
 
 export function SavedSheetsScreen({
   sheets, onAddSheet, onAddVoiceSheet, onDeleteSheet, onEditSheet, onOrder, showOrder = false,
-  묶인주문표 = null,
 }: {
   sheets: OrderSheet[];
   onAddSheet: () => void;
@@ -292,18 +291,6 @@ export function SavedSheetsScreen({
   onEditSheet: (sheet: OrderSheet) => void;
   onOrder: (sheet: OrderSheet) => void;
   showOrder?: boolean;
-  /**
-   * 이 연결로 이미 담기 시작한 주문표. null 이면 아직 안 골랐다.
-   *
-   * 한 연결로는 한 주문표만 담을 수 있다 — 서버가 최초 확인 조건을 고정해 두고
-   * 승인 때 대조한다(PairingRegistry.bindInput). 다른 것을 고르면 그 자리에서
-   * 막히는데, 그때 뜨는 것은 서버 문장("연결 이후 주문 조건이 변경되었습니다")
-   * 이고 되돌아갈 길도 안 준다.
-   *
-   * 그래서 여기서 **누르기 전에** 말한다. 위의 '아직 안 고르신 것이 있어요' 와
-   * 같은 자리·같은 방식이다 — 막을 때는 무엇을 하면 되는지 같이 말한다.
-   */
-  묶인주문표?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(sheets[0]?.id ?? null);
 
@@ -329,15 +316,7 @@ export function SavedSheetsScreen({
    * 장소 안내와 같은 판단이다 — 막을 때 무엇을 하면 되는지 같이 말한다.
    */
   const 빠진필수 = 고른것 ? 못채운필수축(고른것.place, 고른것.selections) : [];
-  /*
-   * 이 연결은 다른 주문표에 묶여 있다(묶인주문표 주석).
-   *
-   * 묶인 그 주문표는 그대로 담을 수 있다 — 같은 조건이라 서버가 안 막는다.
-   * 막는 것은 **다른 것을 고른 경우**뿐이다.
-   */
-  const 다른것에묶임 = 묶인주문표 != null && 고른것 !== null && 고른것.id !== 묶인주문표;
-  const 묶인이름 = 다른것에묶임 ? sheets.find((p) => p.id === 묶인주문표)?.menuName : undefined;
-  const 주문가능 = 고른것 !== null && 백엔드가아는장소(고른것) && 빠진필수.length === 0 && !다른것에묶임;
+  const 주문가능 = 고른것 !== null && 백엔드가아는장소(고른것) && 빠진필수.length === 0;
 
   return (
     <div className="flex flex-col h-full kb-paper">
@@ -446,21 +425,6 @@ export function SavedSheetsScreen({
               {tf("아직 안 고르신 것이 있어요 — {빠진것}. 주문표를 열어 고르시면 주문할 수 있어요.", {
                 빠진것: 빠진필수.map(t).join(", "),
               })}
-            </InfoBox>
-          </div>
-        )}
-        {/*
-          다른 주문표에 묶인 연결이다. 무엇을 하면 되는지 같이 말한다 —
-          "안 됩니다" 만 적으면 사용자는 앱이 고장 난 줄 안다.
-
-          이름을 못 찾으면(목록에서 지운 경우) 이름 없이 말한다. 지어내지 않는다.
-        */}
-        {showOrder && 다른것에묶임 && (
-          <div style={{ marginBottom: 4 }} role="status">
-            <InfoBox>
-              {묶인이름
-                ? tf("지금 연결로는 '{이름}' 만 담을 수 있어요. 다른 주문표로 하시려면 QR 을 다시 찍어 주세요.", { 이름: 묶인이름 })
-                : t("지금 연결로는 먼저 고르신 주문표만 담을 수 있어요. 다른 주문표로 하시려면 QR 을 다시 찍어 주세요.")}
             </InfoBox>
           </div>
         )}
