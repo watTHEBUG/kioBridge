@@ -86,6 +86,7 @@ public class PairingRegistry {
         requireText(pairingId, "pairingId");
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(sessionContext, "sessionContext");
+        requireText(profile.profileId(), "profile.profileId");
 
         pairings.compute(pairingId, (ignoredPairingId, current) -> {
             Binding binding = requireUsable(current);
@@ -142,10 +143,10 @@ public class PairingRegistry {
                 throw conflict("PAIRING_INPUT_NOT_BOUND", "연결에 사용할 주문표가 아직 지정되지 않았습니다.");
             }
             if (!binding.profileSnapshot().equals(profile)) {
-                throw forbidden("PAIRING_PROFILE_MISMATCH", "최초 연결 프로필과 승인 프로필이 다릅니다.");
+                throw forbidden("PAIRING_PROFILE_MISMATCH", "마지막으로 바인딩한 프로필과 승인 프로필이 다릅니다.");
             }
             if (!binding.contextSnapshot().equals(sessionContext)) {
-                throw forbidden("PAIRING_CONTEXT_MISMATCH", "최초 확인 조건과 승인 조건이 다릅니다.");
+                throw forbidden("PAIRING_CONTEXT_MISMATCH", "마지막으로 바인딩한 주문 조건과 승인 조건이 다릅니다.");
             }
             if (binding.status() == Status.EXECUTING) {
                 throw conflict("PAIRING_ALREADY_EXECUTING", "이미 처리 중인 연결입니다.");
@@ -209,8 +210,8 @@ public class PairingRegistry {
         String rc5SessionId,                         // 서버 내부에서만 사용하는 실제 RC5 세션 ID
         String environmentId,                        // RC5 세션이 속한 시뮬레이션 환경 ID
         String initialState,                         // RC5 환경의 시작 상태
-        CanonicalProfile profileSnapshot,            // 최초 bind 시 고정한 사용자 프로필
-        ChickenStoreSessionContext contextSnapshot,  // 최초 bind 시 고정한 주문 조건
+        CanonicalProfile profileSnapshot,            // 실행 전에 마지막으로 바인딩한 사용자 프로필
+        ChickenStoreSessionContext contextSnapshot,  // 실행 전에 마지막으로 바인딩한 주문 조건
         Instant expiresAt,                           // 이 연결을 사용할 수 있는 마지막 시각
         Status status                                // 입력 대기·활성·실행 중 상태
     ) {
