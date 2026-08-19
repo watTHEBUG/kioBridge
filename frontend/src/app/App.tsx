@@ -26,7 +26,7 @@ import { WelcomeScreen } from "@/app/screens/Welcome";
 import { 연동표시, ScenarioPanel } from "@/app/screens/Demo";
 import { QrScreen } from "@/app/screens/Qr";
 import { ExecutionScreen } from "@/app/screens/Execution";
-import { ConfirmSheet } from "@/app/ui";
+import { ConfirmSheet, 포커스가두기 } from "@/app/ui";
 
 // 휴대폰 틀 크기. 큰 글씨 모드가 이 값을 기준으로 안쪽 크기를 되계산한다.
 const FRAME_W = 390;
@@ -114,6 +114,41 @@ const 처음로그모드: "닫힘" | "겹" | "나란히" =
   로그값 === "side" ? "나란히" : 로그값 === "1" ? "겹" : "닫힘";
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
+
+/**
+ * 앱을 덮는 겹 하나.
+ *
+ * 배경을 inert 로 잠그는 것만으로는 모자랐다. 그건 **뒤로 못 가게** 할 뿐이고,
+ * 겹 안 마지막 컨트롤에서 Tab 을 한 번 더 누르면 브라우저 UI 로 빠져나갔다가
+ * 다음 순환에 다시 들어온다 — 키보드로 쓰는 사람에게는 "화면이 사라졌다" 로
+ * 느껴진다(coderabbitai 리뷰). role/aria-modal 도 없어서 스크린리더가 이것을
+ * 대화상자로 알리지 못했다.
+ *
+ * 가두기는 이 앱에 이미 있던 것을 쓴다(ui.tsx 의 포커스가두기). QR 스캐너
+ * 모달이 같은 문제로 먼저 고쳐졌고, 겹 둘만 빠져 있었다. Escape 로 닫는 것도
+ * 그 헬퍼가 함께 준다.
+ *
+ * 열린 뒤 포커스는 App 의 자동 포커스 효과가 겹 안 첫 제목으로 옮긴다 —
+ * 여기서 또 옮기지 않는다. 두 곳이 같은 일을 하면 나중에 한쪽만 고친다.
+ */
+function 겹({ 이름, onClose, children }: { 이름: string; onClose: () => void; children: React.ReactNode }) {
+  const 칸 = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={칸}
+      className="absolute inset-0"
+      style={{ zIndex: 20 }}
+      data-겹
+      role="dialog"
+      aria-modal="true"
+      aria-label={이름}
+      tabIndex={-1}
+      onKeyDown={포커스가두기(칸, onClose)}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function App() {
   // 주소로 정해진 값으로 시작하고, 그 뒤로는 패널 버튼으로 바꾼다 —
@@ -1700,9 +1735,9 @@ export default function App() {
           화면 영역에만 걸려서 Tab 이 하단 탭으로 빠져나갔다.
         */}
         {개인정보겹 && (
-          <div className="absolute inset-0" style={{ zIndex: 20 }} data-겹>
+          <겹 이름="개인정보 안내" onClose={() => set개인정보겹(false)}>
             <PrivacyScreen guest={guest} onBack={() => set개인정보겹(false)} />
-          </div>
+          </겹>
         )}
 
         {/*
@@ -1712,13 +1747,13 @@ export default function App() {
           닫고 나면 첫 화면 글씨부터 커져 있다. 동의 전에도 열린다. 그게 요점이다.
         */}
         {도움겹 && (
-          <div className="absolute inset-0" style={{ zIndex: 20 }} data-겹>
+          <겹 이름="도움 설정" onClose={() => set도움겹(false)}>
             <AccessibilityScreen
               설정={접근성값}
               onChange={(한칸) => 접근성설정.바꾸기(한칸)}
               onBack={() => set도움겹(false)}
             />
-          </div>
+          </겹>
         )}
 
         {/* 되돌릴 수 없는 동작을 묻는 자리. 폰 프레임 안에 뜬다. */}

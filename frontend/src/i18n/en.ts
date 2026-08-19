@@ -513,6 +513,8 @@ export const EN: Record<string, string> = {
   "저장된 주문표 관리": "Manage saved order cards",
   "지우실 때까지 이 휴대폰에 남는 메뉴 주문표예요": "Order cards that stay on this phone until you erase them",
   "접근성 설정": "Support settings",
+  // 도움 설정 겹의 aria-label. 스크린리더가 무슨 대화상자인지 말할 때 쓴다.
+  "도움 설정": "Accessibility settings",
   "개인정보 안내": "Privacy notice",
   "무엇을 저장하고 무엇을 저장하지 않는지": "What we keep and what we don’t",
   "이 기기에서 정보 지우기": "Erase everything on this device",

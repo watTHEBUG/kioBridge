@@ -457,7 +457,18 @@ export function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onC
      * Shift+Tab 이면 마지막으로 감싸고, 그냥 Tab 이면 원래도 다음(처음 버튼)
      * 으로 자연스럽게 가므로 손댈 것이 없다.
      */
-    const 지금 = document.activeElement === ref.current ? 처음 : document.activeElement;
+    /*
+     * 컨테이너뿐 아니라 **탭 대상이 아닌 것에 포커스가 있을 때**도 '처음' 으로 본다.
+     *
+     * 겹을 열면 App.tsx 가 그 안의 첫 제목에 tabindex="-1" 을 붙이고 포커스를
+     * 옮긴다 — 스크린리더가 새로 열린 것의 이름부터 읽게 하려는 것이다. 그 제목은
+     * 위 선택자가 -1 을 빼므로 대상 목록에 없다. 그 상태에서 Shift+Tab 을 누르면
+     * 아래 두 갈래 어디에도 안 걸려, 브라우저가 배경(겹 밖)으로 포커스를 새어
+     * 보낸다. 컨테이너 하나만 특별 취급하던 것을 '대상 밖이면 전부' 로 넓힌다.
+     */
+    const 대상들 = Array.from(대상);
+    const 활성 = document.activeElement as HTMLElement | null;
+    const 지금 = 활성 && 대상들.includes(활성) ? 활성 : 처음;
     if (e.shiftKey && 지금 === 처음) { e.preventDefault(); 마지막.focus(); }
     else if (!e.shiftKey && 지금 === 마지막) { e.preventDefault(); 처음.focus(); }
   };
