@@ -653,6 +653,17 @@ export function RadioChip({
   return (
     <label
       lang={lang}
+      /*
+       * lang 을 준 칩은 **그 언어로 적힌 이름**이므로 옮기지 않는다.
+       *
+       * "한국어" 를 영어로 옮기면 Korean 이 되는데, 그 줄을 찾아야 하는 사람은
+       * 영어 화면에 잘못 들어와 자기 말로 돌아가려는 사람이라 자기 글자로
+       * 적혀 있어야 찾는다. 표에서 빼는 것만으로는 부족하다 — 표에 있는 말을
+       * 사용자가 그대로 쓸 수도 있어서, 자리 자체를 표시해 둔다(i18n/apply.ts).
+       *
+       * lang 이 없는 칩(키오스크 조작 방식 같은 것)은 우리 문구라 그대로 옮긴다.
+       */
+      data-원문={lang ? "" : undefined}
       style={{
         minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
         padding: "10px 18px", borderRadius: RADIUS.pill,
