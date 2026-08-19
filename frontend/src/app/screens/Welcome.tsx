@@ -1,5 +1,5 @@
 import { Pictogram } from "@/design/Pictogram";
-import { BORDER, GAP, PAPER, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
+import { BORDER, CANVAS, GAP, PAPER, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
 import { 언어목록, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나 } from "@/api/speech";
 import { 들을수있나 } from "@/api/listen";
@@ -40,12 +40,25 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
   return (
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
       {/*
-        flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
-        실제 높이(auto)다. 이 셋이 다 있어야 이 칸의 글이 자리 계산에 들어간다.
+        flex: "1 1 auto" 다. 남으면 늘어나고(1) 모자라면 줄어들며(1), 바탕 크기는
+        글의 실제 높이(auto)다.
+
+        예전에는 줄이는 쪽이 0 이었다. 바로 아래 주석이 "자리가 모자라면 사진이
+        양보한다" 고 적어 두었는데, shrink: 0 은 **절대 안 양보한다**는 뜻이라
+        적힌 것과 코드가 반대였다. 844px 틀 안에서는 티가 안 났지만, 틀보다 짧은
+        화면이나 개발 표시줄이 자리를 가져갈 때는 아래 칸이 밀려 나갔다.
+
+        minHeight: 0 이 함께 있어야 실제로 줄어든다 — flex 칸의 기본 최소 크기는
+        내용 크기라, 이것이 없으면 shrink 를 켜도 안 줄어든다.
+
+        **maxHeight 로 위를 막는다.** 안 막으면 이 칸이 남는 자리를 전부 가져간다.
+        실제로 그림·이름·소개 다 합쳐 141px 인 내용이 341px 을 쓰고 있었고, 그
+        바람에 아래 칸이 틀 밖으로 48px 밀려 났다. 260 은 141px 내용에 위아래
+        숨 쉴 자리를 남기는 값이다. 남는 자리는 아래 칸이 다 쓴 뒤 바닥에 남는다.
       */}
       <div
         className="flex flex-col items-center justify-center"
-        style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px` }}
+        style={{ flex: "1 1 auto", minHeight: 0, maxHeight: 260, padding: `0 ${GAP.screenX}px 14px` }}
       >
         <Pictogram name="handPointing" size={54} color={TEXT_1} />
         <div style={{ marginTop: 18 }}>
@@ -96,6 +109,33 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
 
         {/*
+          안심 문구. **버튼 위**에 둔다.
+
+          예전에는 버튼 아래에 12px 로 있었다. 그러면 '동의하고 시작할까' 를
+          정하는 사람이 위(요구)와 아래(안심)를 번갈아 읽어야 하고, 정작
+          안심시키는 말을 **정한 다음에** 읽게 된다. 높은 문턱 앞에서 필요한
+          말이 문턱을 넘은 자리에 있었던 셈이다.
+
+          동의 칸 바로 뒤로 올리면 읽는 순서가 '무엇에 동의하나 → 그래도
+          괜찮은 이유 → 지금 상태 → 시작' 이 된다. 소리로 듣는 분에게도 같은
+          순서다(화면글은 DOM 차례로 읽는다).
+
+          크기도 12px 에서 caption(15px)으로 올린다. 이 화면에서 가장 작은
+          글자였는데, 고령 사용자에게 가장 필요한 문장이 가장 안 읽히는 크기였다.
+          tokens.ts 가 적어 둔 하한과 어긋나 있었다.
+
+          **"저장하지 않은" 을 넣는다.** 그냥 "입력한 내용" 이라고 하면 사실이
+          아니다 — 게스트도 '이 기기에 저장하기' 를 고를 수 있고, 그렇게 저장한
+          주문표는 localStorage 에 남아 탭을 닫아도 안 지워진다(api/session.ts).
+          지워지는 것은 저장 안 한 쪽이다.
+
+          안심시키려고 적는 글이 사실보다 넓으면, 그건 안심이 아니라 거짓말이다.
+        */}
+        <p style={{ ...TYPE.caption, color: TEXT_2, textAlign: "center", margin: 0 }}>
+          가입 없이 바로 쓸 수 있고, 저장하지 않은 내용은 이번 한 번만 쓰고 지워집니다
+        </p>
+
+        {/*
           동의 전후로 **글자만 바뀌는 한 줄.** 사라지지 않는다.
 
           한때 여기에 안내가 일곱 개까지 늘어 있었다(마이크 허락 · 마이크 막힘 ·
@@ -128,29 +168,28 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
             바로 시작하기
           </span>
         </PrimaryBtn>
+
         {/*
-          두 줄이던 것을 한 줄로. 둘 다 '안심하라' 는 같은 말이라 나눌 이유가 없다.
+          선택 경로. 다음에도 불러오고 싶은 사람만 고른다.
 
-          **"저장하지 않은" 을 넣는다.** 그냥 "입력한 내용" 이라고 하면 사실이
-          아니다 — 게스트도 '이 기기에 저장하기' 를 고를 수 있고, 그렇게 저장한
-          주문표는 localStorage 에 남아 탭을 닫아도 안 지워진다(api/session.ts).
-          지워지는 것은 저장 안 한 쪽이다.
+          **opacity 로 흐리지 않는다.** 예전에는 동의 전에 opacity: 0.55 였고,
+          그 상태에서 글자 대비가 2.10:1 이었다(재서 확인). disabled 라 WCAG
+          위반은 아니지만, 저장한 주문표를 다음에 다시 꺼낼 수 있다는 사실이
+          이 버튼에만 적혀 있는데 **모두가 처음 보는 상태**에서 안 보였다.
 
-          안심시키려고 적는 글이 사실보다 넓으면, 그건 안심이 아니라 거짓말이다.
+          PrimaryBtn 이 이미 같은 판단을 해 뒀다 — 흐리는 대신 면으로만 비활성을
+          알린다. 여기도 같게 맞춘다. 글자는 그대로 두고 배경만 한 톤 죽이면
+          5.08:1 이 되고, 누를 수 없다는 것은 커서와 disabled 가 말한다.
         */}
-        <p style={{ fontSize: 12, color: TEXT_2, textAlign: "center", lineHeight: 1.7, margin: 0 }}>
-          가입 없이 바로 쓸 수 있고, 저장하지 않은 내용은 이번 한 번만 쓰고 지워집니다
-        </p>
-
-        {/* 선택 경로. 다음에도 불러오고 싶은 사람만 고른다. */}
         <button
           type="button"
           onClick={onLogin}
           disabled={!동의함}
           style={{
-            marginTop: 4, minHeight: 56, borderRadius: RADIUS.button, background: SURFACE,
+            marginTop: 4, minHeight: 56, borderRadius: RADIUS.button,
+            background: 동의함 ? SURFACE : CANVAS,
             border: `1px solid ${BORDER}`, color: TEXT_2, fontSize: 15, fontWeight: 600,
-            cursor: 동의함 ? "pointer" : "not-allowed", opacity: 동의함 ? 1 : 0.55,
+            cursor: 동의함 ? "pointer" : "not-allowed",
           }}
           className="flex items-center justify-center gap-2 w-full"
         >
