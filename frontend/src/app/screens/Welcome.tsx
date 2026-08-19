@@ -1,9 +1,9 @@
 import { Pictogram } from "@/design/Pictogram";
-import { BORDER, CANVAS, GAP, PAPER, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
+import { BORDER, CANVAS, GAP, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
 import { 언어목록, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나 } from "@/api/speech";
 import { 들을수있나 } from "@/api/listen";
-import { AppLogo, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/ui";
+import { AppLogo, BridgeSpot, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/ui";
 
 /**
  * 첫 화면.
@@ -61,12 +61,12 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
         className="flex flex-col items-center justify-center"
         style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px` }}
       >
-        <Pictogram name="handPointing" size={54} color={TEXT_1} />
-        <div style={{ marginTop: 18 }}>
+        <BridgeSpot size={72} />
+        <div style={{ marginTop: 14 }}>
           <AppLogo size={40} />
         </div>
         {/*
-          이 화면의 제목이다. 크기는 caption 그대로 두고 **태그만** h1 이다.
+          이 화면의 제목이다.
 
           제목 요소가 하나도 없던 화면이었다. 스크린리더 사용자는 제목으로 화면을
           훑는데, 다른 화면(도움 설정·목록·계정·주문표 만들기)에는 다 있는 것이
@@ -76,15 +76,29 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
           같고(그래서 data-소리생략 이다), 여기가 어디이고 무엇을 해 주는 곳인지를
           말하는 것은 이 두 줄이다.
 
-          tailwind preflight 가 h1 의 글자 크기·굵기를 inherit 으로 되돌려 놓아서
-          (번들 CSS 에서 확인) 보이는 것은 p 였을 때와 똑같다.
+          tailwind preflight 가 h1 의 글자 크기·굵기를 inherit 으로 되돌려 놓으므로
+          (번들 CSS 에서 확인) 크기는 아래 style 이 정한다.
+
+          **caption(15/400 · TEXT_2)에서 bodyBold(17/600 · TEXT_1)로 올린다.**
+          이 앱이 무엇을 해 주는지 말하는 유일한 문장인데 잔글씨와 같은 크기,
+          같은 색이었다. 다른 화면은 전부 자기가 무엇을 하는 곳인지를 제 목소리로
+          말하는데 이 화면만 그 성량에서 빠져 있었다.
+
+          title(22/800)까지 올렸다가 내렸다. 글이 들어갈 칸은 **294px** 이다 —
+          폰 틀이 342(뷰포트 390에서 바깥 여백 24×2를 뺀 값)이고 거기서 화면
+          여백 24×2를 또 뺀다. 22/800 에서는 둘째 줄이 304px 이라 넘쳐 '요' 한
+          글자가 셋째 줄로 떨어졌다. 이 집의 display·title 은 "필요한 도움이
+          있으신가요?" 같은 **짧은 제목**을 전제로 한 크기다. 이건 제목이 아니라
+          문장이라 그 크기를 못 받는다. 칸을 억지로 넓히는 대신 한 단계 아래를 쓴다.
+
+          이 화면에서 성량을 올리는 일은 위 그림이 맡는다.
         */}
-        <h1 style={{ ...TYPE.caption, color: TEXT_2, textAlign: "center", marginTop: 14 }}>
+        <h1 style={{ ...TYPE.bodyBold, color: TEXT_1, textAlign: "center", marginTop: 12 }}>
           키오스크 앞에서 헤매지 않도록,<br />저장해 둔 주문을 대신 담아드려요
         </h1>
       </div>
 
-      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 사진이 양보한다. */}
+      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 화면이 스크롤된다. */}
       <div style={{ padding: `0 ${GAP.screenX}px 32px`, flexShrink: 0 }} className="flex flex-col gap-3">
         {/*
           동의를 먼저 받는다. 게스트로 시작하는 것도 정보를 쓰는 일이라 같이 막는다 —
@@ -188,14 +202,15 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
           {동의함 ? "확인하셨어요. 이제 시작하실 수 있어요" : "확인하셔야 시작할 수 있어요"}
         </p>
 
-        {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
+        {/*
+          주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다.
+
+          아이콘을 뺀다. 여기 있던 18px 손가락은 위 그림과 **같은 글리프**였고,
+          그림이 다섯 개뿐인 화면에서 같은 것이 90px 간격으로 두 번 나왔다.
+          단추 이름이 이미 무엇을 하는지 말하므로 그림이 보태는 것이 없었다.
+        */}
         <PrimaryBtn onClick={onStart} disabled={!동의함}>
-          <span className="flex items-center justify-center gap-2">
-            {/* 대표 버튼 안이라 버튼 면과 함께 뒤집혀야 한다. #fff 로 박으면 다크에서
-                흰 알약 위에 흰 아이콘이 된다. 코드래빗이 잡은 셋과 같은 종류다. */}
-            <Pictogram name="handPointing" size={18} color={PAPER} />
-            바로 시작하기
-          </span>
+          바로 시작하기
         </PrimaryBtn>
 
         {/*
