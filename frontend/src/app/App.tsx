@@ -144,9 +144,6 @@ export default function App() {
       입력출처.되살리기(v.voiceUsed);
       개인정보동의.되살리기(v.consent);
       알레르기설정.되살리기(v.allergies, v.allergiesAnswered);
-      // 계정이 있으면 사람 식별자도 그 계정으로 되돌린다 — 새로고침 뒤에
-      // 게스트 값으로 돌아가면 같은 사람이 두 사람으로 세어진다(person.ts).
-      if (v.account) 사람식별자.계정으로(v.account.userId);
     }
     return v;
   });
@@ -296,6 +293,27 @@ export default function App() {
   // 되돌릴 수 없는 동작은 물어보고 실행한다. null 이면 물어볼 게 없다는 뜻이다.
   const [확인대기, set확인대기] = useState<{ title: string; body: string; confirmLabel: string; run: () => void } | null>(null);
   const [pairingId, setPairingId] = useState<string | null>(null);
+  /*
+   * 사람 식별자를 계정과 맞춘다 — **연결이 없을 때만.**
+   *
+   * 로그인하면 이 사람은 계정으로 식별된다(person.ts). 그런데 QR 로 붙어 있는
+   * 동안 바꾸면, 서버가 처음 고정해 둔 프로필과 달라져 다음 요청이
+   * PAIRING_PROFILE_CHANGED 로 거절당한다(PairingRegistry.bindInput).
+   *
+   * 그래서 붙어 있는 동안은 그대로 둔다. 게스트로 시작한 주문은 게스트 값으로
+   * 끝난다 — 계약이 요구하는 것은 **한 흐름 안에서 안 바뀌는 것**이고, 그 흐름은
+   * 이 연결이다(person.ts 의 게스트 항목).
+   *
+   * 연결을 끊는 쪽도 생각했는데, 사용자가 로그인했다는 이유로 붙여 둔 연결을
+   * 잃는다. 잃을 이유가 없다 — 사람이 바뀐 것이 아니라 그 사람이 누구인지
+   * 알게 된 것뿐이다.
+   *
+   * 연결이 끝나면 이 효과가 다시 돌아 계정 값으로 맞춰진다. 새로고침해서
+   * 계정을 되살릴 때도 여기로 온다(연결은 안 되살아난다 — P0-2).
+   */
+  useEffect(() => {
+    if (계정 && !pairingId) 사람식별자.계정으로(계정.userId);
+  }, [계정, pairingId]);
   // 만료 시각을 루트가 들고 있어야 한다. 예전에는 QrScreen 안에만 있어서
   // 주문표를 고르는 순간 그 화면이 사라지고 감시도 같이 사라졌다.
   // 그러면 이미 끝난 연결로 승인까지 진행되고, 화면은 아무 말도 하지 않는다.
@@ -638,8 +656,6 @@ export default function App() {
     계정세대.current += 1;
     const 내세대 = 계정세대.current;
     set계정(a);
-    // 이제 이 사람은 계정으로 식별된다(person.ts).
-    사람식별자.계정으로(a.userId);
     setScreen(다음화면);
     if (다음화면 === "saved") setTab("menu");
 
