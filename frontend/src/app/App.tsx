@@ -253,6 +253,19 @@ export default function App() {
    * 따로 두면 새 겹을 넣을 때 네 곳 중 한 곳을 빠뜨린다 — 실제로 그런 자리다.
    */
   const 겹떠있나 = 개인정보겹 || 도움겹;
+  /*
+   * 겹을 연 단추. 닫을 때 여기로 포커스를 돌려보낸다.
+   *
+   * 여는 순간의 document.activeElement 를 잡는다. 겹이 뜬 **뒤**에 잡으면 늦다 —
+   * 그때는 아래 칸에 inert 가 걸려 브라우저가 이미 포커스를 body 로 옮겨 놓는다.
+   */
+  const 겹열기전포커스 = useRef<HTMLElement | null>(null);
+  const 앞겹떠있었나 = useRef(false);
+  const 겹열기 = (열기: () => void): void => {
+    const 지금 = document.activeElement;
+    겹열기전포커스.current = 지금 instanceof HTMLElement && 지금 !== document.body ? 지금 : null;
+    열기();
+  };
   useEffect(() => 개인정보동의.구독(() => set동의(개인정보동의.읽기())), []);
   /*
    * 늘 피해야 하는 것. 저장소는 api/allergy.ts 에 있고 화면은 그걸 비춘다 —
@@ -945,6 +958,28 @@ export default function App() {
       안바뀐것(화면영역.current?.closest<HTMLElement>("[data-frame]") ?? document.body);
   }, []);
   useEffect(() => {
+    /*
+     * 겹을 닫으면 **열었던 자리로 돌려보낸다.**
+     *
+     * 예전에는 아래 로직이 그대로 돌아 화면 맨 위 제목으로 갔다. 키보드로 쓰는
+     * 사람은 '글씨와 색 바꾸기' 를 눌러 겹을 열고 닫으면 첫 화면 꼭대기에 서
+     * 있게 되고, 그 단추까지 다시 탭해 내려와야 했다. 재서 확인했다 — 닫은 뒤
+     * 포커스가 태그라인 h1 이었다.
+     *
+     * 돌아갈 곳이 없거나(마우스로 열어 아무것도 포커스돼 있지 않았을 때),
+     * 그 사이 화면이 바뀌어 그 요소가 사라졌거나, 지금 inert 안에 들어가
+     * 있으면 아래 기본 동작으로 넘어간다.
+     */
+    const 겹이닫혔나 = 앞겹떠있었나.current && !겹떠있나;
+    앞겹떠있었나.current = 겹떠있나;
+    if (겹이닫혔나) {
+      const 돌아갈곳 = 겹열기전포커스.current;
+      겹열기전포커스.current = null;
+      if (돌아갈곳 && 돌아갈곳.isConnected && !돌아갈곳.closest("[inert]")) {
+        돌아갈곳.focus({ preventScroll: true });
+        return;
+      }
+    }
     // 겹이 떠 있으면 겹 안에서 찾는다. 아래 화면이 DOM 앞쪽이라 그냥 찾으면
     // 덮인 화면의 제목으로 포커스가 가고, 읽는 사람은 겹이 열린 줄도 모른다.
     const 뿌리 = (겹떠있나 && 화면영역.current?.querySelector<HTMLElement>("[data-겹]")) || 화면영역.current;
@@ -1241,8 +1276,8 @@ export default function App() {
               소리켜짐={접근성값.voiceGuide}
               on소리={() => 접근성설정.바꾸기({ voiceGuide: !접근성값.voiceGuide })}
               on동의={(v) => 개인정보동의.바꾸기(v)}
-              onPrivacy={() => set개인정보겹(true)}
-              on도움={() => set도움겹(true)}
+              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
+              on도움={() => 겹열기(() => set도움겹(true))}
               // 익명 시작: 계정 화면을 거치지 않고 바로 본 화면으로 간다.
               /*
                * 곧장 주문표 만들기로 보낸다.
@@ -1273,7 +1308,7 @@ export default function App() {
             <LoginScreen
               동의함={동의}
               on동의={(v) => 개인정보동의.바꾸기(v)}
-              onPrivacy={() => set개인정보겹(true)}
+              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
               // 이미 계정이 있는 사람이다. 호칭은 서버가 갖고 있지 않지만 다시 묻지 않는다 —
               // 로그인할 때마다 호칭을 적게 하면 로그인이 가입보다 번거로워진다.
               // 계정 화면은 호칭이 없으면 아이디를 부른다.
@@ -1286,7 +1321,7 @@ export default function App() {
             <SignupScreen
               동의함={동의}
               on동의={(v) => 개인정보동의.바꾸기(v)}
-              onPrivacy={() => set개인정보겹(true)}
+              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
               // 가입 직후에는 서버에 주문표가 없다. 그래도 같은 경로를 탄다 —
               // 갈래를 둘로 두면 한쪽만 고치는 날이 온다. 빈 목록이면 아무 일도 안 한다.
               onDone={(a) => 계정으로들어가기(a, "name")}
@@ -1583,7 +1618,7 @@ export default function App() {
               // 끊으면 QR 을 다시 찍는 것 말고 되돌릴 방법이 없다.
               onSheets={() => { setTab("menu"); if (!pairingId) setFromQr(false); }}
               onA11y={() => setScreen("a11y")}
-              onPrivacy={() => set개인정보겹(true)}
+              onPrivacy={() => 겹열기(() => set개인정보겹(true))}
             />
           )}
           {screen === "a11y" && (
