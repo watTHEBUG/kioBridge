@@ -1201,7 +1201,17 @@ export default function App() {
           style={{ minHeight: 0 }}
           {...(개인정보겹 ? { inert: "" } : {})}
         >
-        <div className="flex-1 overflow-hidden relative" style={{ minHeight: 0 }}>
+        {/*
+          화면이 들어오는 칸을 main 으로 둔다.
+
+          스크린리더 사용자가 '본문으로 건너뛰기' 를 쓰려면 본문이 어디서
+          시작하는지 표시돼 있어야 한다. 없으면 화면을 옮길 때마다 처음부터
+          선형으로 듣는다. 하단 탭은 이미 nav 라, 같은 규칙을 여기까지 넓히는 것이다.
+
+          하단 탭은 이 밖에 둔다 — 탭은 본문이 아니라 이동 수단이고, main 안에
+          넣으면 '본문으로 건너뛰기' 가 매번 탭부터 다시 읽힌다.
+        */}
+        <main className="flex-1 overflow-hidden relative" style={{ minHeight: 0 }}>
           {screen === "welcome" && (
             <WelcomeScreen
               동의함={동의}
@@ -1564,7 +1574,7 @@ export default function App() {
           {screen === "privacy" && (
             <PrivacyScreen guest={guest} onBack={() => { setScreen("saved"); setTab("account"); }} />
           )}
-        </div>
+        </main>
 
         {inMain && (
           <BottomNav tab={tab} onChange={handleTabChange} />

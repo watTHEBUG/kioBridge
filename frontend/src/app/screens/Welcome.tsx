@@ -51,9 +51,23 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
         <div style={{ marginTop: 18 }}>
           <AppLogo size={40} />
         </div>
-        <p style={{ ...TYPE.caption, color: TEXT_2, textAlign: "center", marginTop: 14 }}>
+        {/*
+          이 화면의 제목이다. 크기는 caption 그대로 두고 **태그만** h1 이다.
+
+          제목 요소가 하나도 없던 화면이었다. 스크린리더 사용자는 제목으로 화면을
+          훑는데, 다른 화면(도움 설정·목록·계정·주문표 만들기)에는 다 있는 것이
+          정작 모두가 반드시 지나는 입구에만 없었다.
+
+          로고가 아니라 이 문장이 제목인 이유 — 로고는 앱 이름이라 어느 화면에서나
+          같고(그래서 data-소리생략 이다), 여기가 어디이고 무엇을 해 주는 곳인지를
+          말하는 것은 이 두 줄이다.
+
+          tailwind preflight 가 h1 의 글자 크기·굵기를 inherit 으로 되돌려 놓아서
+          (번들 CSS 에서 확인) 보이는 것은 p 였을 때와 똑같다.
+        */}
+        <h1 style={{ ...TYPE.caption, color: TEXT_2, textAlign: "center", marginTop: 14 }}>
           키오스크 앞에서 헤매지 않도록,<br />저장해 둔 주문을 대신 담아드려요
-        </p>
+        </h1>
       </div>
 
       {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 사진이 양보한다. */}

@@ -528,7 +528,13 @@ export function StatusHero({ mark, kicker, title, desc }: {
     <div className="flex flex-col items-center text-center">
       <div aria-hidden="true" className="flex items-center justify-center" style={{ height: 72 }}>{mark}</div>
       {kicker && <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 18, display: "block" }}>{kicker}</span>}
-      <h2 style={{ ...TYPE.display, color: TEXT_1, marginTop: kicker ? 4 : 20 }}>{title}</h2>
+      {/*
+        h2 가 아니라 h1 이다. 이 덩어리를 쓰는 화면(Qr · OrderConfirm · Execution)
+        에는 h1 이 하나도 없어서, 여기가 늘 그 화면의 첫 제목인데 h2 로 시작하고
+        있었다. 스크린리더의 제목 목록에서 단계가 건너뛴 것으로 읽힌다.
+        preflight 가 크기·굵기를 inherit 으로 두므로 보이는 것은 그대로다.
+      */}
+      <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: kicker ? 4 : 20 }}>{title}</h1>
       {desc && <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>{desc}</p>}
     </div>
   );
