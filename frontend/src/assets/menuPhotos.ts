@@ -1,8 +1,8 @@
 import dakgangjeongImg from "@/assets/images/dakgangjeong.jpg";
-import chickenNalgaeImg from "@/assets/images/chicken-nalgae.png";
-import chickenNalgaeSpicyImg from "@/assets/images/chicken-nalgae-spicy.png";
-import chickenBanbanImg from "@/assets/images/chicken-banban.png";
-import chickenBonelessSoyImg from "@/assets/images/chicken-boneless-soy.png";
+import chickenNalgaeImg from "@/assets/images/chicken-nalgae.webp";
+import chickenNalgaeSpicyImg from "@/assets/images/chicken-nalgae-spicy.webp";
+import chickenBanbanImg from "@/assets/images/chicken-banban.webp";
+import chickenBonelessSoyImg from "@/assets/images/chicken-boneless-soy.webp";
 
 /**
  * chicken-store 환경의 candidateId 별 메뉴 사진.

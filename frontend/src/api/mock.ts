@@ -2,10 +2,10 @@ import type { CartResult, MappedOption, MappingResponse, MappingState, PlaceType
 
 import dakgangjeongImg from "@/assets/images/dakgangjeong.jpg";
 import icedAmericanoImg from "@/assets/images/iced-americano.jpg";
-import chickenNalgaeImg from "@/assets/images/chicken-nalgae.png";
-import chickenNalgaeSpicyImg from "@/assets/images/chicken-nalgae-spicy.png";
-import chickenBanbanImg from "@/assets/images/chicken-banban.png";
-import chickenBonelessSoyImg from "@/assets/images/chicken-boneless-soy.png";
+import chickenNalgaeImg from "@/assets/images/chicken-nalgae.webp";
+import chickenNalgaeSpicyImg from "@/assets/images/chicken-nalgae-spicy.webp";
+import chickenBanbanImg from "@/assets/images/chicken-banban.webp";
+import chickenBonelessSoyImg from "@/assets/images/chicken-boneless-soy.webp";
 
 // 백엔드 합의 전까지 화면을 구동하는 목 데이터.
 // 스키마는 키오브릿지_API_계약_초안_v0.1.md 의 POST /mapping · GET /plan/{id}/status 와 동일하다.
