@@ -59,7 +59,7 @@ MIT 라 남겨 두어도 고지 의무에 어긋나지 않지만, 숫자는 실�
 
 ---
 
-## 사진 — src/assets/images/*.jpg · *.webp
+## 사진 — `src/assets/images/*.jpg` · `*.webp`
 
 모두 Wikimedia Commons 에서 받았다. 각 파일의 라이선스 조건을 따른다.
 
