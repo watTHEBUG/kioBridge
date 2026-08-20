@@ -94,3 +94,35 @@ MIT 라 남겨 두어도 고지 의무에 어긋나지 않지만, 숫자는 실�
 - 변경 여부: 변경 없음 (원본 그대로 사용)
 - 사용 여부: 현재 화면에서 쓰지 않는다. 파일은 남겨 두되 다시 쓸 때 이 고지를 함께 지킨다.
 - 출처: https://commons.wikimedia.org/wiki/File:Bulgogi_burger_1.jpg
+
+### chicken-nalgae.png
+
+- 원본: Korean fried chicken 8 nalgae.jpg
+- 저작자: happy o'ne
+- 라이선스: CC BY 2.0 kr — https://creativecommons.org/licenses/by/2.0/kr/
+- 변경 여부: 화면 표시용으로 캡처·리사이즈함 (내용 변경 없음)
+- 출처: https://commons.wikimedia.org/wiki/File:Korean_fried_chicken_8_nalgae.jpg
+
+### chicken-banban.png
+
+- 원본: Korean fried chicken banban.jpg
+- 저작자: Edsel Little
+- 라이선스: CC BY-SA 2.0 — https://creativecommons.org/licenses/by-sa/2.0/
+- 변경 여부: 화면 표시용으로 캡처·리사이즈함 (내용 변경 없음)
+- 출처: https://commons.wikimedia.org/wiki/File:Korean_fried_chicken_banban.jpg
+
+### chicken-boneless-soy.png
+
+- 원본: Boneless Chicken (Sweet Soy) 5pcs - SOJU 2024-06-02.jpg
+- 저작자: Andy Li
+- 라이선스: CC0 (퍼블릭 도메인 — 저작자 표시 의무 없음, 참고용으로 기록)
+- 변경 여부: 화면 표시용으로 캡처·리사이즈함 (내용 변경 없음)
+- 출처: https://commons.wikimedia.org/wiki/File:Boneless_Chicken_(Sweet_Soy)_5pcs_-_SOJU_2024-06-02.jpg
+
+### chicken-nalgae-spicy.png
+
+- 원본: Dak-ttongjip-twigim.jpg
+- 저작자: anokarina
+- 라이선스: CC BY-SA 2.0 — https://creativecommons.org/licenses/by-sa/2.0/
+- 변경 여부: 화면 표시용으로 캡처·리사이즈함 (내용 변경 없음)
+- 출처: https://commons.wikimedia.org/wiki/File:Dak-ttongjip-twigim.jpg
