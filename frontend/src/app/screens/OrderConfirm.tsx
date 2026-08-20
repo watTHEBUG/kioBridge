@@ -619,7 +619,18 @@ export function OrderClarification({
       >
         {승인중 ? "담는 중이에요…" : "승인하고 담기"}
       </PrimaryBtn>
-      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>취소</OutlineBtn>
+      {/*
+        '취소' 가 아니라 '전체 취소' 다.
+
+        이 단추는 고른 후보 하나를 무르는 것이 아니라 **키오스크 연결을 끝낸다** —
+        서버가 pairing 을 폐기하므로 다시 하려면 QR 부터 찍어야 한다(App.tsx 의
+        on연결끝남). 그런데 후보가 여럿 뜬 화면에서 '취소' 라고만 적혀 있으면
+        '이 고름을 무른다' 로 읽힌다. 팀 리뷰에서 실제로 그렇게 읽고 눌렀다.
+
+        되돌릴 수 없는 것은 이름이 그렇게 말해야 한다. 나머지 승인 화면
+        (OrderExact · OrderChanged · OrderLowConfidence)은 아직 '취소' 다.
+      */}
+      <OutlineBtn onClick={승인중 ? undefined : onCancel} disabled={승인중}>전체 취소</OutlineBtn>
     </div>
   );
 }
