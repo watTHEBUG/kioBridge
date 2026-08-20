@@ -1,9 +1,9 @@
 import { Pictogram } from "@/design/Pictogram";
-import { BORDER, GAP, PAPER, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
+import { BORDER, CANVAS, GAP, RADIUS, SURFACE, TEXT_1, TEXT_2, TYPE } from "@/design/tokens";
 import { 언어목록, type 언어코드 } from "@/api/a11y";
 import { 소리를낼수있나 } from "@/api/speech";
 import { 들을수있나 } from "@/api/listen";
-import { AppLogo, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/ui";
+import { AppLogo, BridgeSpot, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/ui";
 
 /**
  * 첫 화면.
@@ -13,13 +13,15 @@ import { AppLogo, ConsentCheck, PrimaryBtn, RadioChip, ToggleRow } from "@/app/u
  * onStart  익명으로 바로 시작 — 저장은 이번 한 번만, 기기에 남기지 않는다
  * onLogin  선택적 로그인 — 다음에도 불러오고 싶은 사람만 고른다
  */
-export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, 소리켜짐, on소리, 언어, on언어 }: {
+export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy, on도움, 소리켜짐, on소리, 언어, on언어 }: {
   onStart: () => void;
   onLogin: () => void;
   /** 동의 전에는 어느 길로도 못 들어간다 — 게스트로 시작하는 것도 정보를 쓰는 일이다. */
   동의함: boolean;
   on동의: (v: boolean) => void;
   onPrivacy: () => void;
+  /** 도움 설정을 겹으로 연다. 동의 전에도 열린다 — 이 화면을 읽으려고 여는 것이다. */
+  on도움: () => void;
   소리켜짐: boolean;
   on소리: () => void;
   /** 안내 언어. 이 화면 글도 이 값을 따라 바뀐다. */
@@ -41,22 +43,62 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
     <div className="flex flex-col h-full kb-paper" style={{ overflowY: "auto" }}>
       {/*
         flex: "1 0 auto" 다. 남으면 늘어나되(1) 줄지는 않고(0), 바탕 크기는 글의
-        실제 높이(auto)다. 이 셋이 다 있어야 이 칸의 글이 자리 계산에 들어간다.
+        실제 높이(auto)다.
+
+        **줄이는 쪽을 켜면 안 된다.** 한 번 1 1 auto + minHeight: 0 으로 바꿔
+        봤는데, 큰 글씨를 켜자 이 칸이 17px 로 짜부라지고 그 안의 195px 짜리
+        내용이 통째로 밖으로 넘쳐 아래 칸을 덮었다(로고가 잘리고 소개글이 스위치
+        위에 얹혔다). flex 칸은 줄어들 때 안의 글을 줄여 주지 않는다 — 상자만
+        줄고 글은 그대로 흘러넘친다. 자리가 모자랄 때 필요한 것은 이 칸이
+        양보하는 것이 아니라 **화면이 스크롤되는 것**이고, 그건 바깥 칸의
+        overflowY: auto 가 이미 한다.
+
+        아래의 빈 칸(자리나눔)과 짝이다. 둘 다 늘어나므로 남는 자리를 나눠 갖고,
+        그래서 이 칸이 남는 자리를 **전부** 가져가지 않는다. 예전에는 다 가져가서
+        그림·이름·소개 다 합쳐 142px 인 내용이 240px 을 쓰고 있었다.
       */}
       <div
         className="flex flex-col items-center justify-center"
         style={{ flex: "1 0 auto", padding: `0 ${GAP.screenX}px 14px` }}
       >
-        <Pictogram name="handPointing" size={54} color={TEXT_1} />
-        <div style={{ marginTop: 18 }}>
+        <BridgeSpot size={72} />
+        <div style={{ marginTop: 14 }}>
           <AppLogo size={40} />
         </div>
-        <p style={{ ...TYPE.caption, color: TEXT_2, textAlign: "center", marginTop: 14 }}>
+        {/*
+          이 화면의 제목이다.
+
+          제목 요소가 하나도 없던 화면이었다. 스크린리더 사용자는 제목으로 화면을
+          훑는데, 다른 화면(도움 설정·목록·계정·주문표 만들기)에는 다 있는 것이
+          정작 모두가 반드시 지나는 입구에만 없었다.
+
+          로고가 아니라 이 문장이 제목인 이유 — 로고는 앱 이름이라 어느 화면에서나
+          같고(그래서 data-소리생략 이다), 여기가 어디이고 무엇을 해 주는 곳인지를
+          말하는 것은 이 두 줄이다.
+
+          tailwind preflight 가 h1 의 글자 크기·굵기를 inherit 으로 되돌려 놓으므로
+          (번들 CSS 에서 확인) 크기는 아래 style 이 정한다.
+
+          **caption(15/400 · TEXT_2)에서 bodyBold(17/600 · TEXT_1)로 올린다.**
+          이 앱이 무엇을 해 주는지 말하는 유일한 문장인데 잔글씨와 같은 크기,
+          같은 색이었다. 다른 화면은 전부 자기가 무엇을 하는 곳인지를 제 목소리로
+          말하는데 이 화면만 그 성량에서 빠져 있었다.
+
+          title(22/800)까지 올렸다가 내렸다. 글이 들어갈 칸은 **294px** 이다 —
+          폰 틀이 342(뷰포트 390에서 바깥 여백 24×2를 뺀 값)이고 거기서 화면
+          여백 24×2를 또 뺀다. 22/800 에서는 둘째 줄이 304px 이라 넘쳐 '요' 한
+          글자가 셋째 줄로 떨어졌다. 이 집의 display·title 은 "필요한 도움이
+          있으신가요?" 같은 **짧은 제목**을 전제로 한 크기다. 이건 제목이 아니라
+          문장이라 그 크기를 못 받는다. 칸을 억지로 넓히는 대신 한 단계 아래를 쓴다.
+
+          이 화면에서 성량을 올리는 일은 위 그림이 맡는다.
+        */}
+        <h1 style={{ ...TYPE.bodyBold, color: TEXT_1, textAlign: "center", marginTop: 12 }}>
           키오스크 앞에서 헤매지 않도록,<br />저장해 둔 주문을 대신 담아드려요
-        </p>
+        </h1>
       </div>
 
-      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 사진이 양보한다. */}
+      {/* 누를 것이 있는 칸이라 줄이지 않는다. 자리가 모자라면 화면이 스크롤된다. */}
       <div style={{ padding: `0 ${GAP.screenX}px 32px`, flexShrink: 0 }} className="flex flex-col gap-3">
         {/*
           동의를 먼저 받는다. 게스트로 시작하는 것도 정보를 쓰는 일이라 같이 막는다 —
@@ -79,56 +121,101 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
             onToggle={on소리}
           />
         )}
+
+        {/*
+          글씨·색을 여기서 바꾼다. 소리 스위치와 같은 이유다.
+
+          큰 글씨와 고대비는 도움 설정 화면에만 있었고, 그 화면은 동의를 마쳐야
+          닿는다. 그런데 **이 화면이 앱에서 글씨가 가장 작다.** 글씨를 키워야
+          읽을 수 있는 분이 키우러 가려면 먼저 이 화면을 읽어야 했다. 소리
+          스위치를 여기 올린 논증이 그대로 적용되는데 셋 중 하나에만 적용돼 있었다.
+
+          스위치를 두 개 더 얹지 않고 링크로 여는 이유 — 이 칸의 컨트롤이 이미
+          많다. 둘을 더하면 한눈에 담기는 수를 넘고, 세로도 모자란다. 겹으로 열면
+          도움 설정 화면을 그대로 쓰므로 새로 만들 화면도 없다.
+
+          단추 크기는 44px 을 채운다. 손이 떨리는 분도 누를 수 있어야 하고,
+          이걸 누르러 오는 분이 바로 그런 분이다.
+        */}
+        <button
+          type="button"
+          onClick={on도움}
+          style={{
+            minHeight: 44, alignSelf: "center", padding: "0 8px",
+            background: "none", border: "none", cursor: "pointer",
+            ...TYPE.caption, color: TEXT_2, textDecoration: "underline", textUnderlineOffset: 3,
+          }}
+        >
+          글씨와 색 바꾸기
+        </button>
+
         <ConsentCheck 동의함={동의함} on바꾸기={on동의} onDetail={onPrivacy} />
 
         {/*
-          동의 전에는 이 한 줄만 뜬다.
+          여기 있던 안심 문구("가입 없이 바로 쓸 수 있고, 저장하지 않은 내용은
+          이번 한 번만 쓰고 지워집니다")를 뺐다.
+
+          같은 내용은 바로 위 '자세히' 가 여는 개인정보 안내에 그대로 있다 —
+          거기는 "동의는 언제 받나요 · 저장하는 것 · 안 남기는 것" 을 항목으로
+          나눠 적어 두었고, 이 한 줄보다 정확하다.
+        */}
+
+        {/*
+          동의 전후로 **글자만 바뀌는 한 줄.** 사라지지 않는다.
 
           한때 여기에 안내가 일곱 개까지 늘어 있었다(마이크 허락 · 마이크 막힘 ·
           동의 물음 · 부르는 말 기다림 …). 손 안 대고 들어오는 길을 걷어내면서
           그 갈래들도 같이 사라졌고, 남은 것은 처음 하나다.
 
-          role="status" 를 유지한다. 스크린리더가 바뀐 줄을 읽고, 우리 소리
-          안내도 이 글을 읽는다 — data-소리조용 을 안 붙이는 이유다.
+          **동의하면 이 줄이 없어지게 두면 안 된다.** 예전에는 그랬는데, 그러면
+          소리로 쓰는 분이 체크한 순간 아무 말도 못 듣는다. 우리 소리 안내는
+          화면글(api/speech.ts)로 읽을 줄을 모으는데, 그것은 글자 노드만 훑으므로
+          체크됨 은 애초에 읽을 거리에 없다. 그리고 App.tsx 의 DOM 감시는 **새로
+          붙은 줄**만 읽는다 — 줄이 빠지기만 하면 붙은 것이 없어서 한마디도 안 나온다.
+          입구에서 반드시 해야 하는 그 한 번의 동작이, 소리 스위치를 켠 바로 그
+          사람에게만 아무 대꾸가 없었다.
+
+          글자를 바꾸면 빠진 줄 하나와 붙은 줄 하나가 되어 붙은 쪽이 읽힌다.
+          같은 이유로 스크린리더도 이제야 읽는다 — role="status" 는 처음부터 있던
+          글을 읽지 않고 **바뀔 때** 읽으므로, 사라지기만 하던 예전에는 조용했다.
+          data-소리조용 을 안 붙이는 이유도 같다.
         */}
-        {!동의함 && (
-          <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", margin: 0 }} role="status">
-            확인하셔야 시작할 수 있어요
-          </p>
-        )}
-
-        {/* 주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다. */}
-        <PrimaryBtn onClick={onStart} disabled={!동의함}>
-          <span className="flex items-center justify-center gap-2">
-            {/* 대표 버튼 안이라 버튼 면과 함께 뒤집혀야 한다. #fff 로 박으면 다크에서
-                흰 알약 위에 흰 아이콘이 된다. 코드래빗이 잡은 셋과 같은 종류다. */}
-            <Pictogram name="handPointing" size={18} color={PAPER} />
-            바로 시작하기
-          </span>
-        </PrimaryBtn>
-        {/*
-          두 줄이던 것을 한 줄로. 둘 다 '안심하라' 는 같은 말이라 나눌 이유가 없다.
-
-          **"저장하지 않은" 을 넣는다.** 그냥 "입력한 내용" 이라고 하면 사실이
-          아니다 — 게스트도 '이 기기에 저장하기' 를 고를 수 있고, 그렇게 저장한
-          주문표는 localStorage 에 남아 탭을 닫아도 안 지워진다(api/session.ts).
-          지워지는 것은 저장 안 한 쪽이다.
-
-          안심시키려고 적는 글이 사실보다 넓으면, 그건 안심이 아니라 거짓말이다.
-        */}
-        <p style={{ fontSize: 12, color: TEXT_2, textAlign: "center", lineHeight: 1.7, margin: 0 }}>
-          가입 없이 바로 쓸 수 있고, 저장하지 않은 내용은 이번 한 번만 쓰고 지워집니다
+        <p style={{ fontSize: 13, color: TEXT_2, textAlign: "center", margin: 0 }} role="status">
+          {동의함 ? "확인하셨어요. 이제 시작하실 수 있어요" : "확인하셔야 시작할 수 있어요"}
         </p>
 
-        {/* 선택 경로. 다음에도 불러오고 싶은 사람만 고른다. */}
+        {/*
+          주 버튼 = 익명 시작. 가입도 로그인도 요구하지 않는다.
+
+          아이콘을 뺀다. 여기 있던 18px 손가락은 위 그림과 **같은 글리프**였고,
+          그림이 다섯 개뿐인 화면에서 같은 것이 90px 간격으로 두 번 나왔다.
+          단추 이름이 이미 무엇을 하는지 말하므로 그림이 보태는 것이 없었다.
+        */}
+        <PrimaryBtn onClick={onStart} disabled={!동의함}>
+          바로 시작하기
+        </PrimaryBtn>
+
+        {/*
+          선택 경로. 다음에도 불러오고 싶은 사람만 고른다.
+
+          **opacity 로 흐리지 않는다.** 예전에는 동의 전에 opacity: 0.55 였고,
+          그 상태에서 글자 대비가 2.10:1 이었다(재서 확인). disabled 라 WCAG
+          위반은 아니지만, 저장한 주문표를 다음에 다시 꺼낼 수 있다는 사실이
+          이 버튼에만 적혀 있는데 **모두가 처음 보는 상태**에서 안 보였다.
+
+          PrimaryBtn 이 이미 같은 판단을 해 뒀다 — 흐리는 대신 면으로만 비활성을
+          알린다. 여기도 같게 맞춘다. 글자는 그대로 두고 배경만 한 톤 죽이면
+          5.08:1 이 되고, 누를 수 없다는 것은 커서와 disabled 가 말한다.
+        */}
         <button
           type="button"
           onClick={onLogin}
           disabled={!동의함}
           style={{
-            marginTop: 4, minHeight: 56, borderRadius: RADIUS.button, background: SURFACE,
+            marginTop: 4, minHeight: 56, borderRadius: RADIUS.button,
+            background: 동의함 ? SURFACE : CANVAS,
             border: `1px solid ${BORDER}`, color: TEXT_2, fontSize: 15, fontWeight: 600,
-            cursor: 동의함 ? "pointer" : "not-allowed", opacity: 동의함 ? 1 : 0.55,
+            cursor: 동의함 ? "pointer" : "not-allowed",
           }}
           className="flex items-center justify-center gap-2 w-full"
         >
@@ -166,6 +253,19 @@ export function WelcomeScreen({ onStart, onLogin, 동의함, on동의, onPrivacy
           ))}
         </div>
       </div>
+
+      {/*
+        자리나눔. 보이는 것은 없고 하는 일만 있다.
+
+        위 히어로 칸과 똑같이 늘어난다. 그래서 남는 자리를 둘이 반씩 나눠 갖고,
+        히어로가 혼자 다 가져가던 것이 절반으로 준다 — 아래 것들이 그만큼 올라온다.
+        자리가 모자라면 둘 다 안 늘어나고 화면이 스크롤된다.
+
+        maxHeight 로 히어로를 막는 방법도 있었는데 그건 위험하다. 글이 그 값보다
+        커지는 순간(큰 글씨·영어) 상자 밖으로 넘쳐 아래를 덮는다. 이쪽은 넘칠
+        상자가 없다.
+      */}
+      <div aria-hidden="true" style={{ flex: "1 0 auto" }} />
     </div>
   );
 }

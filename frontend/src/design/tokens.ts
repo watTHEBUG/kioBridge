@@ -210,10 +210,34 @@ export const FOCUS_STYLES = `
   textarea:focus-visible,
   [role="radio"]:focus-visible,
   [role="checkbox"]:focus-visible,
-  [tabindex]:focus-visible {
+  [tabindex]:not([tabindex="-1"]):focus-visible {
     outline: 3px solid ${RULE};
     outline-offset: 2px;
     border-radius: 8px;
+  }
+  /*
+   * tabindex="-1" 은 링을 안 그린다.
+   *
+   * 화면이 바뀌면 App.tsx 가 그 화면의 첫 제목에 tabindex="-1" 을 붙이고 포커스를
+   * 옮긴다 — 스크린리더가 새 화면의 이름부터 읽게 하려는 것이고, 탭 순서에는
+   * 안 들어간다. 그런데 [tabindex]:focus-visible 이 그것까지 잡아서, **화면을
+   * 열 때마다 제목 둘레에 검은 상자가 그려져 있었다.** 손으로 옮긴 포커스가
+   * 아닌데 손으로 옮긴 것처럼 보이는 표시라, 읽는 사람에게는 알려 주는 것이
+   * 없고 보는 사람에게는 디자인 요소처럼 읽힌다.
+   *
+   * 실제로 그렇게 읽혔다 — 이 상자를 앱의 헤드라인 장식으로 착각하고 넘어간
+   * 리뷰가 있었다. 상자가 정말 필요하면 그때는 CenterHeadline 에 border 로
+   * 넣는다. 포커스 표시로 흉내 내지 않는다.
+   *
+   * 탭으로 닿는 것(tabindex="0" 이상)은 그대로 링을 받는다. 위 선택자에서
+   * -1 만 뺐다.
+   *
+   * 우리 규칙에서 빼는 것만으로는 안 된다 — 그러면 브라우저 기본 링(auto 1px)이
+   * 대신 나온다. 실제로 그랬다. 그래서 여기서 한 번 더 꺼 준다.
+   */
+  [tabindex="-1"]:focus,
+  [tabindex="-1"]:focus-visible {
+    outline: none;
   }
   /* 고른 글자. 배경이 TEXT_1 이므로 글자는 반드시 그 반대색(PAPER)이어야 한다.
      #fff 로 박아 두면 다크에서 흰 배경에 흰 글자가 된다. */

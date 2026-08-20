@@ -273,9 +273,17 @@ export function QrScannerModal({ onClose, onDetected }: { onClose: () => void; o
           )}
         </div>
 
-        <p style={{ color: "white", ...TYPE.body, fontWeight: 500, textAlign: "center", fontFamily: FONT, whiteSpace: "pre-line" }}>
+        {/*
+          스캐너 화면의 제목. 여기도 제목 요소가 하나도 없던 화면이라, 크기는
+          그대로 두고 태그만 h1 로 바꾼다(preflight 가 크기·굵기를 inherit 으로
+          되돌리므로 보이는 것은 그대로다).
+
+          글이 상태에 따라 바뀌는데 그래도 된다 — 지금 무엇을 하는 중인지가
+          곧 이 화면의 제목이다.
+        */}
+        <h1 style={{ color: "white", ...TYPE.body, fontWeight: 500, textAlign: "center", fontFamily: FONT, whiteSpace: "pre-line" }}>
           {scanning ? "키오스크의 QR 코드를\n카메라에 맞춰주세요" : "QR 코드를 인식했어요"}
-        </p>
+        </h1>
       </div>
 
       <div className="shrink-0 text-center" style={{ padding: `0 ${GAP.screenX}px 40px` }}>
