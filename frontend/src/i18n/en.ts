@@ -496,6 +496,9 @@ export const EN: Record<string, string> = {
   "가격": "Price",
   "승인하고 담기": "Approve and add",
   "취소": "Cancel",
+  // 후보 화면의 '전체 취소'. 후보 하나를 무르는 것이 아니라 키오스크 연결을
+  // 끝내는 단추라, 되돌릴 수 없다는 것이 이름에서 읽혀야 한다.
+  "전체 취소": "Cancel everything",
   "혹시 이 중": "Which one",
   "어떤 메뉴인가요?": "did you mean?",
   "비슷한 메뉴가 여러 개예요": "There are several similar menus",
