@@ -2,6 +2,10 @@ import type { CartResult, MappedOption, MappingResponse, MappingState, PlaceType
 
 import dakgangjeongImg from "@/assets/images/dakgangjeong.jpg";
 import icedAmericanoImg from "@/assets/images/iced-americano.jpg";
+import chickenNalgaeImg from "@/assets/images/chicken-nalgae.png";
+import chickenNalgaeSpicyImg from "@/assets/images/chicken-nalgae-spicy.png";
+import chickenBanbanImg from "@/assets/images/chicken-banban.png";
+import chickenBonelessSoyImg from "@/assets/images/chicken-boneless-soy.png";
 
 // 백엔드 합의 전까지 화면을 구동하는 목 데이터.
 // 스키마는 키오브릿지_API_계약_초안_v0.1.md 의 POST /mapping · GET /plan/{id}/status 와 동일하다.
@@ -15,10 +19,15 @@ import icedAmericanoImg from "@/assets/images/iced-americano.jpg";
 // 앱이 아니라 이 목 API 쪽에 둔다. 앱은 매핑 응답에 실려 온 것만 그려야 한다.
 // 실서비스에서는 여기가 카탈로그의 이미지 URL로 바뀐다.
 const KIOSK_MENU_PHOTOS: Record<string, string> = {
-  "매운 순살 닭강정": dakgangjeongImg,
-  "순한 순살 닭강정": dakgangjeongImg,
-  "매운 뼈 닭강정": dakgangjeongImg,
-  "간장 순살 닭강정": dakgangjeongImg,
+  "매운 순살 닭강정": chickenNalgaeSpicyImg,
+  "순한 순살 닭강정": chickenNalgaeImg,
+  "매운 뼈 닭강정": chickenBanbanImg,
+  "간장 순살 닭강정": chickenBonelessSoyImg,
+  // 아직 맛별 전용 사진이 없다 — 자리표시자를 돌려 쓴다.
+  "땅콩 토핑 닭강정": dakgangjeongImg,
+  "포장 전용 닭강정": dakgangjeongImg,
+  "매장 전용 닭강정": dakgangjeongImg,
+  "품절 닭강정": dakgangjeongImg,
   "아이스 아메리카노": icedAmericanoImg,
 };
 

@@ -126,8 +126,15 @@ export function ConsentCheck({ 동의함, on바꾸기, onDetail }: {
       <button
         type="button"
         onClick={onDetail}
+        /*
+         * minWidth 도 44 다. 높이만 잡아 두었더니 실제 폭이 43.9px 이었다 —
+         * 13px 글자 셋에 좌우 4px 여백이라 0.1px 이 모자랐다(재서 확인).
+         * 이 화면에서 기준에 걸치는 유일한 타깃이었고, 손이 떨리는 분에게
+         * 0.1px 은 없는 차이지만 규칙을 지키는 데 드는 값도 0 이다.
+         */
         style={{
-          flexShrink: 0, minHeight: 44, padding: "0 4px", background: "transparent", border: "none",
+          flexShrink: 0, minHeight: 44, minWidth: 44, padding: "0 6px",
+          background: "transparent", border: "none",
           color: TEXT_2, fontSize: 13, fontWeight: 700, textDecoration: "underline",
           fontFamily: FONT, cursor: "pointer",
         }}
@@ -450,7 +457,18 @@ export function 포커스가두기(ref: React.RefObject<HTMLElement | null>, onC
      * Shift+Tab 이면 마지막으로 감싸고, 그냥 Tab 이면 원래도 다음(처음 버튼)
      * 으로 자연스럽게 가므로 손댈 것이 없다.
      */
-    const 지금 = document.activeElement === ref.current ? 처음 : document.activeElement;
+    /*
+     * 컨테이너뿐 아니라 **탭 대상이 아닌 것에 포커스가 있을 때**도 '처음' 으로 본다.
+     *
+     * 겹을 열면 App.tsx 가 그 안의 첫 제목에 tabindex="-1" 을 붙이고 포커스를
+     * 옮긴다 — 스크린리더가 새로 열린 것의 이름부터 읽게 하려는 것이다. 그 제목은
+     * 위 선택자가 -1 을 빼므로 대상 목록에 없다. 그 상태에서 Shift+Tab 을 누르면
+     * 아래 두 갈래 어디에도 안 걸려, 브라우저가 배경(겹 밖)으로 포커스를 새어
+     * 보낸다. 컨테이너 하나만 특별 취급하던 것을 '대상 밖이면 전부' 로 넓힌다.
+     */
+    const 대상들 = Array.from(대상);
+    const 활성 = document.activeElement as HTMLElement | null;
+    const 지금 = 활성 && 대상들.includes(활성) ? 활성 : 처음;
     if (e.shiftKey && 지금 === 처음) { e.preventDefault(); 마지막.focus(); }
     else if (!e.shiftKey && 지금 === 마지막) { e.preventDefault(); 처음.focus(); }
   };
@@ -528,7 +546,13 @@ export function StatusHero({ mark, kicker, title, desc }: {
     <div className="flex flex-col items-center text-center">
       <div aria-hidden="true" className="flex items-center justify-center" style={{ height: 72 }}>{mark}</div>
       {kicker && <span aria-hidden="true" style={{ ...KICKER, color: TEXT_2, marginTop: 18, display: "block" }}>{kicker}</span>}
-      <h2 style={{ ...TYPE.display, color: TEXT_1, marginTop: kicker ? 4 : 20 }}>{title}</h2>
+      {/*
+        h2 가 아니라 h1 이다. 이 덩어리를 쓰는 화면(Qr · OrderConfirm · Execution)
+        에는 h1 이 하나도 없어서, 여기가 늘 그 화면의 첫 제목인데 h2 로 시작하고
+        있었다. 스크린리더의 제목 목록에서 단계가 건너뛴 것으로 읽힌다.
+        preflight 가 크기·굵기를 inherit 으로 두므로 보이는 것은 그대로다.
+      */}
+      <h1 style={{ ...TYPE.display, color: TEXT_1, marginTop: kicker ? 4 : 20 }}>{title}</h1>
       {desc && <p style={{ ...TYPE.caption, color: TEXT_2, marginTop: 10 }}>{desc}</p>}
     </div>
   );
@@ -577,6 +601,38 @@ export function LockSpot({ size = 64 }: { size?: number }) {
         <rect x="22" y="44" width="56" height="44" rx="8" />
         <path d="M34 44V32a16 16 0 0 1 32 0v12" />
         <path d="M50 60v12" />
+      </g>
+    </svg>
+  );
+}
+
+/*
+ * 첫 화면 — 이 폰이 저 기계 앞에서 대신 말한다.
+ *
+ * 여기에는 내려받은 손가락 픽토그램이 있었다. 이 앱에서 가장 크게 보이는 그림이
+ * **화면을 콕 찌르는 손가락**이었던 셈인데, 키오스크를 못 더듬는 분이 안 더듬어도
+ * 되게 하려고 만든 앱이다. 뜻이 정반대였다. 게다가 같은 글리프가 '바로 시작하기'
+ * 안에도 한 번 더 있어서, 그림 다섯 개뿐인 화면에 같은 것이 두 번 나왔다.
+ *
+ * 나머지 화면은 전부 이 집 그림을 쓴다 — 100x100 칸, 5.5 굵기, 둥근 끝과 이음.
+ * 안경(도움 설정)·영수증(주문표)·자물쇠(개인정보) 셋이 있었고 입구만 없었다.
+ * 넷째를 같은 손으로 그린다. 왼쪽이 손에 든 폰, 오른쪽이 키오스크, 사이의 두 줄이
+ * 폰이 대신 건네는 말이다. 로고가 적고 있는 'bridge' 가 이 그림이다.
+ */
+export function BridgeSpot({ size = 64 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+      <g stroke={TEXT_1} strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
+        {/* 손에 든 폰 */}
+        <rect x="12" y="30" width="28" height="52" rx="6" />
+        <path d="M21 74h10" />
+        {/* 폰이 대신 건네는 말 */}
+        <path d="M44 48a10 10 0 0 1 0 16" />
+        <path d="M49 42a16 16 0 0 1 0 28" />
+        {/* 키오스크 — 화면과 기둥과 받침 */}
+        <rect x="58" y="18" width="32" height="44" rx="5" />
+        <path d="M66 32h16M66 44h10" />
+        <path d="M74 62v20M64 84h20" />
       </g>
     </svg>
   );
@@ -653,6 +709,17 @@ export function RadioChip({
   return (
     <label
       lang={lang}
+      /*
+       * lang 을 준 칩은 **그 언어로 적힌 이름**이므로 옮기지 않는다.
+       *
+       * "한국어" 를 영어로 옮기면 Korean 이 되는데, 그 줄을 찾아야 하는 사람은
+       * 영어 화면에 잘못 들어와 자기 말로 돌아가려는 사람이라 자기 글자로
+       * 적혀 있어야 찾는다. 표에서 빼는 것만으로는 부족하다 — 표에 있는 말을
+       * 사용자가 그대로 쓸 수도 있어서, 자리 자체를 표시해 둔다(i18n/apply.ts).
+       *
+       * lang 이 없는 칩(키오스크 조작 방식 같은 것)은 우리 문구라 그대로 옮긴다.
+       */
+      data-원문={lang ? "" : undefined}
       style={{
         minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
         padding: "10px 18px", borderRadius: RADIUS.pill,

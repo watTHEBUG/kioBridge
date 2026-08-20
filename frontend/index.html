@@ -14,6 +14,37 @@
       <title>키오브릿지 — 키오스크 주문을 대신 담아드려요</title>
       <meta name="description" content="저장해 둔 조건을 오늘의 키오스크 화면에 맞춰 찾아 주고, 사용자가 직접 확인한 뒤 장바구니까지만 대신 담아 주는 앱입니다. 로그인 없이 추천부터 최종 확인까지 전 과정을 이용할 수 있습니다. 결제는 하지 않습니다." />
       <meta name="robots" content="noindex, nofollow" />
+      <!--
+        웹폰트. styles/fonts.css 의 @import 에서 여기로 옮겼다.
+
+        스타일시트 안의 @import 는 브라우저가 우리 CSS 를 받아 파싱한 뒤에야
+        발견한다 — 받기·파싱·또 받기가 줄줄이 이어지고 전부 렌더를 막는다.
+        여기 두면 HTML 을 읽는 순간 시작한다. preconnect 는 폰트 파일이 오는
+        gstatic 과의 연결(DNS·TLS)을 CSS 가 도착하기 전에 미리 열어 둔다.
+        crossorigin 이 빠지면 preconnect 가 폰트에 안 쓰인다 — 폰트는 익명
+        교차출처로 받기 때문에 연결이 따로 잡힌다.
+
+        Playfair 는 400 과 이탤릭 400 만 받는다. 예전에는 0,700 과 1,700 도
+        받았는데 세어 보니 SERIF 를 쓰는 자리가 전부 기본 굵기였다(로고·숫자·
+        머리말). 안 쓰는 두 벌이 38KB 씩 내려오고 있었다.
+
+        Noto Sans KR 은 여섯 굵기를 그대로 둔다. 400·500·600·700·800·900 이
+        코드에서 실제로 다 쓰인다(각각 6·6·27·17·5·1곳). 줄이려면 디자인을
+        먼저 바꿔야 하고, 그건 성능 작업이 혼자 정할 일이 아니다.
+      -->
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,400;1,400&display=swap"
+      />
+      <!-- 없어서 로드마다 /favicon.ico 404 가 났고, 탭에는 빈 문서 아이콘이 떴다.
+           첫 화면 마크와 같은 그림이라 탭만 봐도 이 앱인 것이 보인다.
+
+           폰트보다 뒤에 둔다. 둘 다 있어야 하고 서로 상관없지만, preconnect 와
+           폰트 CSS 는 글자가 언제 제 모습이 되는지를 정하고 파비콘은 탭 그림일
+           뿐이라, 브라우저가 먼저 보는 자리를 폰트에 준다. -->
+      <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
       
     </head>
