@@ -37,11 +37,18 @@ export function ConfirmRow({
   );
 }
 
-export function ConfirmCard({ children, badge, badgeTone = "success" }: {
+export function ConfirmCard({ children, badge, badgeTone = "success", imageUrl }: {
   children: React.ReactNode; badge?: string;
   // 배지가 늘 초록 체크였다. "확실하지 않아요" 같은 문구가 성공 배지를 달고 나오면
   // 색과 아이콘으로 상태를 알린다는 원칙이 여기서만 거꾸로 작동한다.
   badgeTone?: "success" | "caution" | "neutral";
+  /**
+   * 키오스크가 오늘 걸어 둔 메뉴 사진. 담기 전 마지막 확인 화면이라 크게 둔다 —
+   * OptionCard 의 48px 썸네일과 달리 여기는 후보가 하나뿐이라 확인용으로 더 키운다.
+   * 글자를 읽기 어려운 분도 "내가 시키려던 그것"인지 한눈에 알아볼 수 있어야 한다.
+   * 카탈로그에 사진이 없으면(undefined) 자리를 비운다 — 깨진 이미지 아이콘보다 낫다.
+   */
+  imageUrl?: string;
 }) {
   const 배지색 = badgeTone === "success"
     ? { bg: SURFACE, fg: TEXT_1, icon: "checkCircle" as const }
@@ -52,10 +59,16 @@ export function ConfirmCard({ children, badge, badgeTone = "success" }: {
       : { bg: CANVAS, fg: TEXT_2, icon: "notePencil" as const };
   return (
     <div style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, overflow: "hidden" }}>
-      {/* 키오스크가 오늘 걸어 둔 메뉴 사진. 담기 전 마지막 확인 화면이라 크게 둔다.
-          글자를 읽기 어려운 분도 "내가 시키려던 그것"인지 한눈에 알아볼 수 있어야 한다.
-          카탈로그에 사진이 없으면 자리를 비운다. */}
-
+      {/* 순전히 시각 보조다 — 상품명·값은 아래 표(children)가 이미 글자로 다 전달한다.
+          alt="" + aria-hidden 으로 스크린리더가 사진을 별도 항목으로 안 읽게 막는다. */}
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          alt=""
+          aria-hidden="true"
+          style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }}
+        />
+      )}
       <div data-confirm-body style={{ padding: "6px 20px" }}>{children}</div>
       {badge && (
         <div style={{ padding: "13px 20px", backgroundColor: 배지색.bg, display: "flex", alignItems: "center", gap: 8 }}>
@@ -90,10 +103,16 @@ export const 이유표시 = {
 
 export function ReasonList({ reasons, 제목 = "이 메뉴를 고른 이유" }: { reasons?: RecommendationReason[]; 제목?: string }) {
   if (!reasons || reasons.length === 0) return null;
+  /*
+   * '반영한 조건'(used) 목록만 초록 면을 깐다. '맞추지 못한 조건'·'빼 둔 메뉴'는
+   * 경고(unmet·excluded) 뜻이라 초록을 쓰면 잘된 것처럼 잘못 읽힌다 — 이 목록은
+   * 세 제목으로 재사용되므로 실제로 담긴 이유의 종류로 가른다(제목 문자열이 아니라).
+   */
+  const 반영목록인가 = reasons.every((r) => r.kind === "used");
   return (
     <section
       aria-label={제목}
-      style={{ borderRadius: RADIUS.card, backgroundColor: SURFACE, padding: "16px 18px" }}
+      style={{ borderRadius: RADIUS.card, backgroundColor: 반영목록인가 ? SUCCESS_BG : SURFACE, padding: "16px 18px" }}
     >
       <h3 style={{ fontSize: 13, fontWeight: 700, color: TEXT_1, marginBottom: 10 }}>
         {제목}
@@ -199,9 +218,16 @@ export function 뺀이유({ reasons }: { reasons?: RecommendationReason[] }) {
 }
 
 export function OptionCard({
-  name, price, selected, onClick, groupName, matched, 순위, disabled = false,
+  name, price, selected, onClick, groupName, matched, 순위, disabled = false, imageUrl,
 }: {
   name: string; price: string; selected: boolean; onClick: () => void; groupName: string;
+  /**
+   * 이 후보의 사진. 서버가 매핑 응답에 실어 준 것만 그린다(display.imageUrl) —
+   * 화면이 이름을 보고 사진을 짐작해 붙이지 않는다. 목(mock.ts)은 이 자리에
+   * 킷 chicken-store 메뉴 이름에 맞춰 로컬 이미지를 채워 두지만, 그건 목 쪽의
+   * 책임이고 실제 백엔드가 imageUrl 을 안 주면 이 화면은 그냥 사진 없이 그린다.
+   */
+  imageUrl?: string;
   /**
    * 더 고를 수 없는 동안인가.
    *
@@ -267,6 +293,23 @@ export function OptionCard({
           >
             {순위}
           </span>
+        )}
+        {/*
+          사진은 순전히 시각 보조다 — 이름·가격·순위는 이미 글자와 aria-label로
+          다 전달된다. alt="" + aria-hidden 으로 스크린리더가 두 번 읽지 않게 막는다.
+          없으면(imageUrl undefined) 아무것도 안 그린다 — 깨진 이미지 아이콘 대신
+          그냥 사진 없는 줄로 보인다.
+        */}
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            alt=""
+            aria-hidden="true"
+            style={{
+              flexShrink: 0, width: 48, height: 48, borderRadius: RADIUS.input,
+              objectFit: "cover", backgroundColor: CANVAS,
+            }}
+          />
         )}
         {/*
           배지를 이름 옆에 두면 이름이 밀려 두 줄로 접힌다. 메뉴 이름은 이 줄에서
@@ -375,9 +418,6 @@ export function OptionCard({
     border: "none", width: "100%",
     // 고른 것은 검은 면. 1 등은 초록 면.
     backgroundColor: selected ? RULE : 일등면 ? SUCCESS_BG : "transparent",
-    // 왼쪽 띠는 안쪽 그림자로 그린다. border 로 그리면 그 두께만큼 안쪽이 밀려서
-    // 1 순위 줄의 글자가 나머지 줄과 어긋난다.
-    boxShadow: 일등면 ? `inset 4px 0 0 ${P}` : "none",
     transition: "background-color 0.15s",
   } as const;
 
@@ -427,7 +467,7 @@ export function OrderExact({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <ConfirmCard badge="오늘의 메뉴에서 찾았어요">
+      <ConfirmCard badge="오늘의 메뉴에서 찾았어요" imageUrl={item.imageUrl}>
         <ConfirmRow label="상품" value={item.displayName} />
         {item.options.map((o) => (
           <ConfirmRow key={o.label} label={o.label} value={o.value} />
@@ -506,15 +546,36 @@ export function OrderClarification({
           })}
         </ConfirmCard>
       )}
-      <div role="radiogroup" aria-label="비슷한 메뉴 후보" style={{ borderTop: `2px solid ${RULE}` }}>
+      <div role="radiogroup" aria-label="비슷한 메뉴 후보">
         {candidates.map((c, i) => (
-          <div key={`row-${c.candidateId}`} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : "none" }}>
+          <div
+            key={`row-${c.candidateId}`}
+            style={
+              /*
+               * 1 순위 줄만 위아래로 살짝 띄운다.
+               *
+               * OptionCard 가 1 순위 자리엔 이미 자기 몫으로 초록 면·둥근 모서리·
+               * 왼쪽 띠를 그리고 있다(겉모양 주석 참고). 그 위에 테두리를 또
+               * 둘러 봤더니 모서리가 두 겹으로 겹쳐 보였다 — 그래서 여백만 남기고
+               * 테두리는 걷어냈다. OptionCard 가 이미 그린 모양이 카드처럼 보이게
+               * 하는 건 여백만으로 충분하다.
+               *
+               * 나머지(2·3 순위)는 여전히 헤어라인으로 붙은 한 목록이다 — 그 이유는
+               * OptionCard 의 겉모양 주석에 그대로 있다(면을 겹겹이 쌓으면 고르는
+               * 자리가 흐려진다).
+               */
+              i === 0
+                ? { margin: "8px 0" }
+                : { borderTop: i > 1 ? `1px solid ${BORDER}` : `2px solid ${RULE}` }
+            }
+          >
           <OptionCard
             key={c.candidateId}
             groupName="후보"
             selected={selected === i}
             name={c.displayName}
             price={c.priceText}
+            imageUrl={c.imageUrl}
             matched={c.unmatchedLabels?.length === 0}
             // 서버가 준 차례가 곧 순위다 — 자세한 사연은 OptionCard 의 순위 주석에.
             순위={i + 1}

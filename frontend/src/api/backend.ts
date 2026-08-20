@@ -13,6 +13,7 @@ import { 접근성설정 } from "@/api/a11y";
 import { 돈 } from "@/i18n/apply";
 import { 가격한도 } from "@/api/budget";
 import { 개인정보동의 } from "@/api/consent";
+import { CHICKEN_STORE_PHOTOS } from "@/assets/menuPhotos";
 import { 입력출처 } from "@/api/inputsource";
 import { 알레르기설정 } from "@/api/allergy";
 import { 사람식별자 } from "@/api/person";
@@ -1815,7 +1816,7 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
       const 담을수있는 = (r.eligibleCandidates ?? [])
         .filter((c) => c?.candidateId && c.available !== false && !막힌후보(c.candidateId));
 
-      const display: Record<string, { displayName: string; priceText: string; price?: number }> = {};
+      const display: Record<string, { displayName: string; priceText: string; price?: number; imageUrl?: string }> = {};
       for (const c of 담을수있는) {
         if (c.name) {
           display[c.candidateId] = {
@@ -1830,6 +1831,12 @@ export function createTeamBackend(baseUrl = "/api/bff"): Backend {
              */
             ...(typeof c.price === "number" && Number.isFinite(c.price) && c.price >= 0
               ? { price: c.price } : {}),
+            /*
+             * 킷 Candidate 계약엔 사진이 없다 — candidateId 로 우리 쪽 자리표시자
+             * 표(menuPhotos.ts)를 찾아 싣는다. 모르는 candidateId 면 그냥 없는 채로
+             * 둔다(undefined) — 화면은 없으면 사진 없이 그리도록 이미 짜여 있다.
+             */
+            ...(CHICKEN_STORE_PHOTOS[c.candidateId] ? { imageUrl: CHICKEN_STORE_PHOTOS[c.candidateId] } : {}),
           };
         }
       }
