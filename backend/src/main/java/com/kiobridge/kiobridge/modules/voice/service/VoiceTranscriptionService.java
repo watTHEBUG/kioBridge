@@ -16,6 +16,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -130,6 +131,29 @@ public class VoiceTranscriptionService {
         form.add("model", "whisper-1");
         String 짧은언어 = 짧게(language);
         if (짧은언어 != null) form.add("language", 짧은언어);
+        /*
+         * 짧은 부정어("아니오")를 전혀 다른 흔한 낱말("안녕")로 통째로 잘못 듣는
+         * 사례를 실제로 겪고 나서 넣은 세 가지다. 문제를 셋으로 나눠서 봤다 —
+         * ① 애초에 헷갈릴 확률을 줄인다, ② 그래도 헷갈리면 모델 스스로 얼마나
+         * 자신 없어 하는지를 받아서 본다, ③ 자신 없으면 그 글자가 무엇이든
+         * 버리고 "못 들음"으로 되돌린다. 텍스트를 아무리 잘 매칭해도(예아니오())
+         * ①②③ 이전 단계에서 이미 다른 낱말로 굳어 버리면 소용이 없다.
+         */
+        // ① 예상 어휘를 미리 준다. 지금 이 서비스가 화면 문맥(지금 이 질문이
+        // 예/아니오인지)을 모르므로, 실제로 오인식이 재현된 낱말만 좁게 준다 —
+        // 너무 많은 어휘를 얹으면 그쪽으로 기우는 힘이 옅어진다.
+        String 힌트 = 힌트(짧은언어);
+        if (힌트 != null) form.add("prompt", 힌트);
+        // ③ 임계값 판정에 쓸 신뢰도 지표(avg_logprob·no_speech_prob)는
+        // response_format 을 verbose_json 으로 바꿔야 세그먼트 단위로 온다.
+        // 기본값(json)은 text 하나만 준다.
+        form.add("response_format", "verbose_json");
+        // ② temperature 를 0 으로 고정한다. 기본값은 낮은 확신 구간에서 표본을
+        // 뽑아(sampling) 매번 다른 답을 지어낼 여지를 준다 — 같은 오디오를
+        // 다시 보내도 "안녕"·"응"·"그래" 처럼 매번 다르게 나온 것도 그 때문일
+        // 가능성이 크다. 0 이면 매번 가장 그럴듯한 하나로 고정해서 반복 가능하게
+        // 만든다(그 하나가 여전히 틀릴 수는 있다 — 그건 ③ 이 받는다).
+        form.add("temperature", "0");
 
         try {
             Map<String, Object> response = restClient.post()
@@ -138,13 +162,86 @@ public class VoiceTranscriptionService {
                 .body(form)
                 .retrieve()
                 .body(Map.class);
-            Object text = response == null ? null : response.get("text");
-            return text == null ? "" : text.toString().trim();
+            if (response == null) return "";
+            Object text = response.get("text");
+            String 글 = text == null ? "" : text.toString().trim();
+            if (글.isEmpty()) return "";
+            // ③ 모델 스스로 자신 없다고 답한 것은 텍스트가 무엇이든 버린다.
+            if (자신없나(response)) return "";
+            return 글;
         } catch (ResourceAccessException e) {
             throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "STT_API_TIMEOUT", "음성 인식 서버 응답이 늦어요.", e);
         } catch (RestClientException e) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "STT_API_ERROR", "음성 인식에 실패했어요.", e);
         }
+    }
+
+    /*
+     * ── ① 예상 어휘 힌트 ────────────────────────────────────────────────────
+     *
+     * "아니오" 계열이 실제로 "안녕"으로 통째로 잘못 들린 사례를 재현·확인하고
+     * 넣었다. 다른 낱말(메뉴 이름 등)까지 욕심내지 않는다 — 이 서비스는 지금
+     * 이 오디오가 어떤 질문에 대한 답인지 모르므로, 힌트가 길어질수록 특정
+     * 낱말로 기우는 효과가 흐려진다. 지금 재현된 것만 좁게 준다.
+     *
+     * 모르는 언어에는 안 준다. 엉뚱한 언어의 어휘로 기울이면 없느니만 못하다.
+     */
+    private static final String 한국어힌트 = "네. 아니요.";
+    private static final String 영어힌트 = "Yes. No.";
+
+    private static String 힌트(String 짧은언어) {
+        if (짧은언어 == null) return null;
+        if ("ko".equals(짧은언어)) return 한국어힌트;
+        if ("en".equals(짧은언어)) return 영어힌트;
+        return null;
+    }
+
+    /*
+     * ── ③ 신뢰도 게이트 ─────────────────────────────────────────────────────
+     *
+     * verbose_json 의 segments[].avg_logprob(낮을수록 자신 없음)·
+     * no_speech_prob(높을수록 "이 구간은 말이 아니었다" 는 모델 자신의 판단)을
+     * 본다. 세그먼트가 여러 개면 그중 하나라도 이 문턱을 넘으면 전체를
+     * 못 믿는다 — 답 하나짜리 짧은 문장에서 한 조각만 자신 없어도 그 조각이
+     * 곧 전체인 경우가 많다.
+     *
+     * 임계값은 지금은 어림값이다. VoiceCorrectionLogService 가 쌓는 "실제로
+     * 오인식됐다가 사람이 고쳐 누른" 사례들을 나중에 보고 다시 잡을 자리로
+     * 남겨 둔다.
+     */
+    private static final double 최소평균로그확률 = -1.0;
+    private static final double 최대무음확률 = 0.6;
+
+    /*
+     * 세그먼트 하나하나가 "믿을 만한 모양"인지부터 본다.
+     *
+     * 처음엔 avg_logprob·no_speech_prob 가 없거나 숫자가 아니면 그 조건을
+     * 그냥 건너뛰었다(null 이면 어느 if 도 안 걸림) — 그러면 segments: [{}]
+     * 처럼 지표 자체가 빠진 응답도 "걸리는 게 없으니" 자신 있음으로 통과했다.
+     * 신뢰도를 아예 못 읽은 것과 신뢰도가 높은 것은 다르다 — 후자만 믿어야
+     * 하므로, 모양이 안 맞거나 지표가 없으면 못 믿는 쪽(true)으로 떨어뜨린다.
+     * segments 가 아예 없을 때와 같은 태도다(바로 위 분기).
+     */
+    @SuppressWarnings("unchecked")
+    private static boolean 자신없나(Map<String, Object> response) {
+        Object segments = response.get("segments");
+        if (!(segments instanceof List<?> 목록) || 목록.isEmpty()) {
+            // verbose_json 인데 세그먼트가 아예 없다 — 모델이 말소리 자체를 못 찾은 것.
+            return true;
+        }
+        for (Object item : 목록) {
+            if (!(item instanceof Map<?, ?> 세그먼트)) return true;
+            Double 평균로그확률 = 숫자(((Map<String, Object>) 세그먼트).get("avg_logprob"));
+            Double 무음확률 = 숫자(((Map<String, Object>) 세그먼트).get("no_speech_prob"));
+            if (평균로그확률 == null || 무음확률 == null) return true;
+            if (평균로그확률 < 최소평균로그확률) return true;
+            if (무음확률 > 최대무음확률) return true;
+        }
+        return false;
+    }
+
+    private static Double 숫자(Object v) {
+        return v instanceof Number n ? n.doubleValue() : null;
     }
 
     /**
