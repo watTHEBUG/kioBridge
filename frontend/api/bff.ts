@@ -47,10 +47,22 @@ const 허용경로 = [
    */
   /^api\/v1\/voice\/transcribe$/,
   /*
+   * 음성 인식이 못 맞춰서 손으로 고친 순간을 남기는 경로 — 자세한 사연은
+   * src/api/voicecorrection.ts 주석에 있다. JSON 이라 위 음성 인식 경로와
+   * 달리 멀티파트 처리가 필요 없다.
+   */
+  /^api\/v1\/voice\/correction-log$/,
+  /*
    * 말한 맵기를 골라 주는 경로(팀 #133). 화면 보기에 없는 말("불닭맛")을
    * 여기서 받는다 — 자세한 사연은 src/api/spicy.ts 주석에 있다.
    */
   /^internal\/spicy-level\/match$/,
+  /*
+   * 신뢰도는 통과했지만 예/아니오를 못 맞춘 텍스트를, 확인된 발음-혼동
+   * anchor 와 자모 거리로 한 번 더 구제하는 경로 — 자세한 사연은
+   * src/api/phoneticyesno.ts 주석에 있다.
+   */
+  /^internal\/voice\/phonetic-yes-no$/,
   // 승인 한 번으로 조립·제출·검증·실행까지. 프론트가 실제로 쓰는 경로다.
   /^internal\/orchestrator\/approve$/,
   // 추천 계열 (RecommendationController)

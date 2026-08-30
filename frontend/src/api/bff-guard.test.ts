@@ -15,9 +15,16 @@ import path from "node:path";
  */
 const 소스 = readFileSync(path.join(process.cwd(), "api", "bff.ts"), "utf8");
 
-/** 소스에 적힌 정규식 목록을 그대로 꺼내 온다. */
+/*
+ * 소스에 적힌 정규식 목록을 그대로 꺼내 온다.
+ *
+ * 예전에는 `/^api...` 로 시작하는 것만 뽑았다. 그런데 허용경로 목록에는
+ * `/^internal\/...` 로 시작하는 경로도 여럿 있다(맵기 매칭·오케스트레이터
+ * 승인·세션 생성 등). 그 경로들은 애초에 이 시험이 못 보고 있었다 —
+ * 발음 구제 경로(internal/voice/phonetic-yes-no)를 여기 잡아 보려다 드러났다.
+ */
 const 정규식들 = (블록: string): RegExp[] =>
-  [...블록.matchAll(/\/\^api[^\n]*?\/(?=[,\s])/g)].map((m) => {
+  [...블록.matchAll(/\/\^(?:api|internal)[^\n]*?\/(?=[,\s])/g)].map((m) => {
     const 원문 = m[0];
     return new RegExp(원문.slice(1, 원문.lastIndexOf("/")));
   });
@@ -63,6 +70,11 @@ describe("BFF 통과 규칙", () => {
      * 때문이다(파일 맨 위 주석). 삭제 API 때 겪은 것과 같은 함정이다.
      */
     expect(경로가되나("api/v1/voice/transcribe")).toBe(true);
+  });
+
+  it("발음 구제 경로가 열려 있다", () => {
+    // 이게 없으면 phoneticyesno.ts 의 호출이 배포본에서 404 NOT_ALLOWED 로 막힌다.
+    expect(경로가되나("internal/voice/phonetic-yes-no")).toBe(true);
   });
 
   it("multipart 취급은 음성 경로 하나뿐이다", () => {

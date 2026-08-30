@@ -4,6 +4,8 @@ import { type PreferredInputHint, type 도움설정, 언어목록, type 언어�
 import { 그만읽기, 다읽을때까지, 소리를낼수있나 } from "@/api/speech";
 import { 들어보기, 들을수있나, type 못들은이유 } from "@/api/listen";
 import { 예아니오 } from "@/api/voice";
+import { 정정기록남기기 } from "@/api/voicecorrection";
+import { 발음으로구제하기 } from "@/api/phoneticyesno";
 import { 알레르기목록 } from "@/api/allergy";
 import { AllergenId } from "@/api/canonical";
 import { t, tf } from "@/i18n/t";
@@ -304,6 +306,18 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
   const 잇단실패 = useRef(0);
   const 살아있나 = useRef(true);
   /*
+   * 바로 앞 음성 시도가 예아니오() 로 못 맞춘 원문.
+   *
+   * 사람이 그다음에 손으로 켜기/끄기를 누르면, 그 원문이 실은 무엇이었는지가
+   * 밝혀지는 셈이다(팀 트러블슈팅 — "아니오" 가 "안녕"으로 잘못 들리던 사례).
+   * 그 짝을 voicecorrection.ts 로 남긴다 — 자동으로 판정을 바꾸지는 않는다,
+   * 그 파일 주석 참고.
+   *
+   * 새 질문으로 넘어가거나(넣기()) 음성으로 맞춰지면 지운다 — 몇 칸 전의
+   * 못 맞춘 말이 지금 누른 단추에 엉뚱하게 묶이면 안 된다.
+   */
+  const 마지막못알아들은글 = useRef<string | null>(null);
+  /*
    * 예약을 참·거짓이 아니라 **번호**로 둔다.
    *
    * 참으로 두면 이미 참일 때 다시 예약할 수 없다. 여러 개 고르는 칸이 그
@@ -416,6 +430,8 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
     // 축이 없으면 넣을 곳도 없다. 화면은 이미 접혀 있고, 늦게 도착한 답이
     // 여기로 올 수 있다(듣던 것이 끝나는 사이에 스위치가 꺼진 경우).
     if (!지금축) return;
+    // 이 칸의 답이 정해졌다 — 못 맞췄던 원문이 있었다면 이제 남길 일이 없다.
+    마지막못알아들은글.current = null;
     onChange({ [지금축.key]: 켬 });
     set답한칸((앞) => new Set(앞).add(지금축.key));
     다음으로(true);
@@ -435,7 +451,7 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
   };
 
   const 시작하기 = (내회차: number) => {
-    듣던것.current = 들어보기(언어, (r) => {
+    듣던것.current = 들어보기(언어, async (r) => {
       if (내회차 !== 회차.current) return;
       듣던것.current = null;
       set상태("쉬는중");
@@ -451,7 +467,24 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
       잇단실패.current = 0;
       // 이 화면은 늘 켬/끔 둘 중 하나다. 목록 매칭이 필요 없어 예아니오() 하나로 끝낸다.
       const 답 = 예아니오(r.들은말, 언어 === "en-US");
-      if (답 === null) { set못들음("못골랐어요"); 이어서예약(); return; }
+      if (답 === null) {
+        // 사람이 곧 손으로 고르면, 이 원문이 실은 무엇이었는지 밝혀지는 셈이다.
+        마지막못알아들은글.current = r.들은말;
+        /*
+         * 예아니오() 도 못 맞췄다. 마지막으로 한 번, 이미 확인된 발음-혼동
+         * anchor(예: "안녕")와 자모 거리가 아주 가까운지 물어본다 — 2차 방어선
+         * (phoneticyesno.ts 주석 참고). 여기서도 못 맞추면 원래 하던 대로
+         * "못골랐어요" 로 내려간다.
+         */
+        const 구제 = await 발음으로구제하기(r.들은말);
+        // 기다리는 동안 화면이 떠났거나 다음 회차가 시작됐을 수 있다 — 그때는 이 결과를 안 쓴다.
+        if (!살아있나.current || 내회차 !== 회차.current) return;
+        if ("구제됨" in 구제) {
+          넣기(구제.구제됨 === "YES");
+          return;
+        }
+        set못들음("못골랐어요"); 이어서예약(); return;
+      }
       넣기(답);
     }, { 스스로끝내기: 이어서.current });
   };
@@ -501,6 +534,15 @@ export function 도움설정말로채우기({ 언어, 설정, onChange, onDone, 
   const 손으로답하기 = (켬: boolean) => {
     // 상태와 상관없이 — 이유는 한칸씩말하기 의 앞칸단추 주석에 있다.
     듣기취소();
+    /*
+     * 바로 앞 음성 시도가 이 칸에서 못 맞췄다면, 그 원문과 지금 손으로 고른
+     * 값을 짝지어 남긴다. 넣기() 가 이 값을 지우므로 그보다 먼저 읽는다.
+     * 실패해도(fire-and-forget) 사용자가 방금 누른 답에는 영향이 없다 —
+     * voicecorrection.ts 주석 참고.
+     */
+    if (마지막못알아들은글.current) {
+      void 정정기록남기기("YES_NO", 마지막못알아들은글.current, 켬 ? "YES" : "NO");
+    }
     넣기(켬);
   };
 
