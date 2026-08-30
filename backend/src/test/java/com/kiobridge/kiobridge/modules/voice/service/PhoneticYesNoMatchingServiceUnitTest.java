@@ -1,5 +1,6 @@
 package com.kiobridge.kiobridge.modules.voice.service;
 
+import com.kiobridge.kiobridge.common.web.ApiException;
 import com.kiobridge.kiobridge.modules.voice.entity.PhoneticConfusionAnchor;
 import com.kiobridge.kiobridge.modules.voice.repository.PhoneticConfusionAnchorRepository;
 import org.junit.jupiter.api.Test;
@@ -7,7 +8,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -116,5 +120,20 @@ class PhoneticYesNoMatchingServiceUnitTest {
         PhoneticYesNoMatchResult result = service.match("");
 
         assertThat(result.matched()).isFalse();
+    }
+
+    /*
+     * 이 엔드포인트(POST /internal/voice/phonetic-yes-no)도 인증 없이 열려
+     * 있다. 프론트가 이미 개인정보처럼 보이는 말을 걸러 보내지만
+     * (phoneticyesno.ts), 직접 부르면 그 문을 건너뛴다 — 서버 경계에서도
+     * 거부하고, anchor 조회조차 하지 않는다.
+     */
+    @Test
+    void 전화번호처럼_보이는_텍스트는_거부되고_anchor를_조회하지_않는다() {
+        assertThatThrownBy(() -> service.match("010-1234-5678 로 걸어주세요"))
+            .isInstanceOf(ApiException.class)
+            .satisfies(e -> assertThat(((ApiException) e).code()).isEqualTo("PHONETIC_YES_NO_TEXT_PII_LIKE"));
+
+        verify(repository, never()).findAll();
     }
 }

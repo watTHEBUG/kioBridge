@@ -4,6 +4,7 @@ import com.kiobridge.kiobridge.modules.voice.repository.PhoneticConfusionAnchorR
 import com.kiobridge.kiobridge.modules.voice.entity.PhoneticConfusionAnchor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -28,10 +29,22 @@ public class PhoneticConfusionAnchorSeeder implements ApplicationRunner {
         seed("안녕", "NO");
     }
 
+    /*
+     * 조회(findByMisheardText)와 저장(save) 사이가 원자적이지 않다 — 인스턴스가
+     * 둘 이상 동시에 뜨면(배포 롤링 업데이트 등) 둘 다 "아직 없다" 를 보고 둘 다
+     * save() 를 시도할 수 있다. misheard_text 에 unique 제약이 있으므로 뒤에
+     * 도착한 save() 는 DataIntegrityViolationException 으로 실패한다 —
+     * 이미 다른 인스턴스가 심었다는 뜻이니 그냥 넘어간다. 여기서 안 잡으면
+     * ApplicationRunner 실행 자체가 멈춰 애플리케이션 시작이 실패한다.
+     */
     private void seed(String misheardText, String correctedTo) {
         if (repository.findByMisheardText(misheardText).isPresent()) {
             return;
         }
-        repository.save(new PhoneticConfusionAnchor(misheardText, correctedTo));
+        try {
+            repository.save(new PhoneticConfusionAnchor(misheardText, correctedTo));
+        } catch (DataIntegrityViolationException e) {
+            // 동시에 뜬 다른 인스턴스가 먼저 심었다 — 결과는 같으니 실패로 보지 않는다.
+        }
     }
 }

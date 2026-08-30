@@ -53,9 +53,17 @@ export const 발음으로구제하기 = async (들은말: string): Promise<발�
     });
   };
 
+  /*
+   * fetch() 는 응답 헤더가 도착하면 곧바로 끝난다 — 본문을 다 받은 시점이
+   * 아니다. 타이머를 fetch() 뒤에서 바로 끄면, 그다음 res.text() 가 느리게
+   * 오는 본문을 기다리며 이 시간제한 밖에서 무한정 매달릴 수 있다. 그러면
+   * 발음으로구제하기() 자체가 안 끝나 호출부(Settings.tsx)의 await 도 막힌다.
+   * 본문까지 다 읽을 때까지 같은 try/finally 안에 둔다.
+   */
   const 시계 = new AbortController();
   const 타이머 = setTimeout(() => 시계.abort(), 기다릴시간);
   let res: Response;
+  let 받은글: string;
   try {
     res = await fetch(부를곳, {
       method: "POST",
@@ -63,6 +71,7 @@ export const 발음으로구제하기 = async (들은말: string): Promise<발�
       body: 보낼본문,
       signal: 시계.signal,
     });
+    받은글 = await res.text().catch(() => "");
   } catch {
     // 끊겼든 시간이 다 됐든 사용자가 할 일은 같다 — 원래 하던 대로 "못 골랐어요".
     적기("실패");
@@ -71,7 +80,6 @@ export const 발음으로구제하기 = async (들은말: string): Promise<발�
     clearTimeout(타이머);
   }
 
-  const 받은글 = await res.text().catch(() => "");
   적기(res.status, 받은글);
   if (!res.ok) return { 구제안됨: true };
 

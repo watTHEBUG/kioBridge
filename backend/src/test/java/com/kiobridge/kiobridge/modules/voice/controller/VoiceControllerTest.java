@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -114,5 +115,23 @@ class VoiceControllerTest {
                                         """)
                 )
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 정정기록서비스가_개인정보_거부를_던지면_그_상태코드_그대로_응답한다() throws Exception {
+        // 실제 거부 판단은 VoiceCorrectionLogService(PersonalInfoLike) 가 한다.
+        // 여기서는 그 예외가 컨트롤러를 지나 정확한 상태코드로 나가는지만 본다.
+        doThrow(new ApiException("VOICE_CORRECTION_LOG_PII_LIKE", "recognizedText에 개인정보처럼 보이는 것이 있어요."))
+                .when(voiceCorrectionLogService).log(any(), any(), any());
+
+        mockMvc.perform(
+                        post("/api/v1/voice/correction-log")
+                                .contentType(APPLICATION_JSON)
+                                .content("""
+                                        { "questionType": "YES_NO", "recognizedText": "010-1234-5678", "correctedTo": "NO" }
+                                        """)
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VOICE_CORRECTION_LOG_PII_LIKE"));
     }
 }

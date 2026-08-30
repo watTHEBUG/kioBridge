@@ -212,6 +212,16 @@ public class VoiceTranscriptionService {
     private static final double 최소평균로그확률 = -1.0;
     private static final double 최대무음확률 = 0.6;
 
+    /*
+     * 세그먼트 하나하나가 "믿을 만한 모양"인지부터 본다.
+     *
+     * 처음엔 avg_logprob·no_speech_prob 가 없거나 숫자가 아니면 그 조건을
+     * 그냥 건너뛰었다(null 이면 어느 if 도 안 걸림) — 그러면 segments: [{}]
+     * 처럼 지표 자체가 빠진 응답도 "걸리는 게 없으니" 자신 있음으로 통과했다.
+     * 신뢰도를 아예 못 읽은 것과 신뢰도가 높은 것은 다르다 — 후자만 믿어야
+     * 하므로, 모양이 안 맞거나 지표가 없으면 못 믿는 쪽(true)으로 떨어뜨린다.
+     * segments 가 아예 없을 때와 같은 태도다(바로 위 분기).
+     */
     @SuppressWarnings("unchecked")
     private static boolean 자신없나(Map<String, Object> response) {
         Object segments = response.get("segments");
@@ -220,11 +230,12 @@ public class VoiceTranscriptionService {
             return true;
         }
         for (Object item : 목록) {
-            if (!(item instanceof Map<?, ?> 세그먼트)) continue;
+            if (!(item instanceof Map<?, ?> 세그먼트)) return true;
             Double 평균로그확률 = 숫자(((Map<String, Object>) 세그먼트).get("avg_logprob"));
             Double 무음확률 = 숫자(((Map<String, Object>) 세그먼트).get("no_speech_prob"));
-            if (평균로그확률 != null && 평균로그확률 < 최소평균로그확률) return true;
-            if (무음확률 != null && 무음확률 > 최대무음확률) return true;
+            if (평균로그확률 == null || 무음확률 == null) return true;
+            if (평균로그확률 < 최소평균로그확률) return true;
+            if (무음확률 > 최대무음확률) return true;
         }
         return false;
     }

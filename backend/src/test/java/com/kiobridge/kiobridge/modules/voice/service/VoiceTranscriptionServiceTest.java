@@ -111,6 +111,23 @@ class VoiceTranscriptionServiceTest {
     }
 
     @Test
+    void 세그먼트에_신뢰도_지표가_없으면_글자가_있어도_버린다() {
+        /*
+         * segments 는 있지만 그 안에 avg_logprob·no_speech_prob 가 아예 없는
+         * 경우다(예: { "segments": [{}] }). 처음 구현은 이 경우 두 if 문이
+         * 다 안 걸려서(null 이라 조건 자체가 스킵) 그냥 자신 있음으로
+         * 통과시켰다 — 신뢰도를 "못 읽은 것"과 "높게 나온 것"을 못 갈랐다.
+         * 지금은 지표가 없으면 못 믿는 쪽으로 떨어진다.
+         */
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andRespond(withSuccess("""
+                        { "text": "안녕", "segments": [ {} ] }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("");
+    }
+
+    @Test
     void 세그먼트가_여럿이면_하나라도_자신없으면_버린다() {
         server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
                 .andRespond(withSuccess("""
