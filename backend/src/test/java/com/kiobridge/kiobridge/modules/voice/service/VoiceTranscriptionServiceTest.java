@@ -38,13 +38,27 @@ class VoiceTranscriptionServiceTest {
         return new MockMultipartFile("audio", "clip.webm", "audio/webm", new byte[]{1, 2, 3});
     }
 
+    /*
+     * 아래 fixture 들은 실제 Whisper verbose_json 처럼 segments 를 함께 준다.
+     *
+     * transcribe() 는 response_format=verbose_json 을 요청하고, 신뢰도 게이트
+     * (자신없나())가 segments[].avg_logprob/no_speech_prob 를 본다. segments 가
+     * 아예 없으면 "모델이 말소리 자체를 못 찾은 것"으로 보고 무조건 버린다
+     * (아래 세그먼트가_없으면_빈_문자열을_돌려준다 참고) — 그래서 text 만 있고
+     * segments 가 없는 fixture 로는 이 서비스가 이제 늘 "" 를 돌려준다. 실제
+     * 응답은 항상 segments 를 포함하므로, fixture 도 그 모양을 맞춘다.
+     */
+    private static final String 자신있는세그먼트 = """
+            , "segments": [ { "avg_logprob": -0.2, "no_speech_prob": 0.05 } ]
+            """;
+
     @Test
     void 인식에_성공하면_텍스트를_돌려준다() {
         server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
                 .andExpect(method(POST))
                 .andRespond(withSuccess("""
-                        { "text": "네" }
-                        """, MediaType.APPLICATION_JSON));
+                        { "text": "네" %s }
+                        """.formatted(자신있는세그먼트), MediaType.APPLICATION_JSON));
 
         String result = service.transcribe(오디오(), "ko-KR");
 
@@ -56,10 +70,57 @@ class VoiceTranscriptionServiceTest {
     void 앞뒤_공백은_잘라서_돌려준다() {
         server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
                 .andRespond(withSuccess("""
-                        { "text": "  네  " }
-                        """, MediaType.APPLICATION_JSON));
+                        { "text": "  네  " %s }
+                        """.formatted(자신있는세그먼트), MediaType.APPLICATION_JSON));
 
         assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("네");
+    }
+
+    @Test
+    void 세그먼트가_없으면_빈_문자열을_돌려준다() {
+        // verbose_json 인데 segments 가 아예 없다 — 모델이 말소리 자체를 못 찾은 경우.
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andRespond(withSuccess("""
+                        { "text": "안녕" }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("");
+    }
+
+    @Test
+    void 평균로그확률이_낮으면_글자가_있어도_버린다() {
+        // avg_logprob 가 -1.0 보다 낮다(더 자신 없다) — "안녕" 이 "아니오" 의
+        // 오인식이었던 실제 사례를 이렇게 재현했다.
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andRespond(withSuccess("""
+                        { "text": "안녕", "segments": [ { "avg_logprob": -1.5, "no_speech_prob": 0.05 } ] }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("");
+    }
+
+    @Test
+    void 무음확률이_높으면_글자가_있어도_버린다() {
+        // no_speech_prob 가 0.6 보다 높다 — 모델 스스로 "이 구간은 말이 아니었다" 고 본 것.
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andRespond(withSuccess("""
+                        { "text": "안녕", "segments": [ { "avg_logprob": -0.2, "no_speech_prob": 0.8 } ] }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("");
+    }
+
+    @Test
+    void 세그먼트가_여럿이면_하나라도_자신없으면_버린다() {
+        server.expect(requestTo(BASE_URL + "/audio/transcriptions"))
+                .andRespond(withSuccess("""
+                        { "text": "안녕", "segments": [
+                            { "avg_logprob": -0.1, "no_speech_prob": 0.02 },
+                            { "avg_logprob": -1.5, "no_speech_prob": 0.02 }
+                        ] }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(service.transcribe(오디오(), "ko-KR")).isEqualTo("");
     }
 
     @Test

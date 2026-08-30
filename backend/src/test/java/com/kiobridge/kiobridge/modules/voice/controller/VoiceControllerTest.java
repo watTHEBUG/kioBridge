@@ -1,6 +1,7 @@
 package com.kiobridge.kiobridge.modules.voice.controller;
 
 import com.kiobridge.kiobridge.common.web.ApiException;
+import com.kiobridge.kiobridge.modules.voice.service.VoiceCorrectionLogService;
 import com.kiobridge.kiobridge.modules.voice.service.VoiceTranscriptionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,8 +14,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,6 +30,15 @@ class VoiceControllerTest {
 
     @MockitoBean
     private VoiceTranscriptionService voiceTranscriptionService;
+
+    /*
+     * VoiceController 생성자에 정정 로그 서비스가 추가되면서 이 슬라이스도
+     * 이 빈을 요구하게 됐다(@WebMvcTest 는 컨트롤러가 필요로 하는 빈만 채워
+     * 준다). 안 붙이면 컨텍스트 자체가 못 뜬다
+     * (NoSuchBeanDefinitionException → UnsatisfiedDependencyException).
+     */
+    @MockitoBean
+    private VoiceCorrectionLogService voiceCorrectionLogService;
 
     @Test
     void 오디오를_보내면_인식된_글을_돌려준다() throws Exception {
@@ -74,5 +87,32 @@ class VoiceControllerTest {
                 )
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("STT_NOT_CONFIGURED"));
+    }
+
+    @Test
+    void 정정기록을_받으면_서비스로_넘기고_202를_돌려준다() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/voice/correction-log")
+                                .contentType(APPLICATION_JSON)
+                                .content("""
+                                        { "questionType": "YES_NO", "recognizedText": "안녕", "correctedTo": "NO" }
+                                        """)
+                )
+                .andExpect(status().isAccepted());
+
+        verify(voiceCorrectionLogService).log("YES_NO", "안녕", "NO");
+    }
+
+    @Test
+    void 정정기록의_correctedTo가_YES_NO가_아니면_400이다() throws Exception {
+        // @Pattern(regexp = "YES|NO") 검증 — 이 표는 사람이 나중에 읽는 자료라 값이 좁아야 한다.
+        mockMvc.perform(
+                        post("/api/v1/voice/correction-log")
+                                .contentType(APPLICATION_JSON)
+                                .content("""
+                                        { "questionType": "YES_NO", "recognizedText": "안녕", "correctedTo": "MAYBE" }
+                                        """)
+                )
+                .andExpect(status().isBadRequest());
     }
 }
